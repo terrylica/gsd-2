@@ -1,11 +1,25 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { isKeyRelease, Key, matchesKey, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
 
+const SWIFT_SRC = path.join(__dirname, "speech-recognizer.swift");
 const RECOGNIZER_BIN = path.join(__dirname, "speech-recognizer");
+
+function ensureBinary(): boolean {
+	if (fs.existsSync(RECOGNIZER_BIN)) return true;
+	try {
+		execSync(`swiftc "${SWIFT_SRC}" -o "${RECOGNIZER_BIN}" -framework Speech -framework AVFoundation`, {
+			timeout: 60000,
+		});
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 export default function (pi: ExtensionAPI) {
 	if (process.platform !== "darwin") return;
@@ -38,7 +52,7 @@ export default function (pi: ExtensionAPI) {
 				dispose: branchUnsub,
 				invalidate() {},
 				render(width: number): string[] {
-					// --- Row 1: pwd (branch) ... ● transcribing ---
+					// Row 1: pwd (branch) ... ● transcribing
 					let pwd = process.cwd();
 					const home = process.env.HOME || process.env.USERPROFILE;
 					if (home && pwd.startsWith(home)) pwd = `~${pwd.slice(home.length)}`;
@@ -54,7 +68,7 @@ export default function (pi: ExtensionAPI) {
 					const pad1 = " ".repeat(Math.max(1, width - visibleWidth(pwdStr) - voiceTagWidth));
 					const row1 = truncateToWidth(pwdStr + pad1 + voiceTag, width);
 
-					// --- Row 2: stats ... model (replicate default) ---
+					// Row 2: stats ... model
 					let totalInput = 0, totalOutput = 0, totalCost = 0;
 					for (const entry of ctx.sessionManager.getEntries()) {
 						if (entry.type === "message" && entry.message.role === "assistant") {
@@ -99,6 +113,11 @@ export default function (pi: ExtensionAPI) {
 			killRecognizer();
 			active = false;
 			setVoiceFooter(ctx, false);
+			return;
+		}
+
+		if (!ensureBinary()) {
+			ctx.ui.notify("Voice: failed to compile speech recognizer (need Xcode CLI tools)", "error");
 			return;
 		}
 
