@@ -49,6 +49,15 @@ export interface MarkdownSettings {
 	codeBlockIndent?: string; // default: "  "
 }
 
+export interface MemorySettings {
+	enabled?: boolean; // default: false
+	maxRolloutsPerStartup?: number; // default: 64
+	maxRolloutAgeDays?: number; // default: 30
+	minRolloutIdleHours?: number; // default: 12
+	stage1Concurrency?: number; // default: 8
+	summaryInjectionTokenLimit?: number; // default: 5000
+}
+
 export interface AsyncSettings {
 	enabled?: boolean;  // default: false
 	maxJobs?: number;   // default: 100
@@ -109,6 +118,7 @@ export interface Settings {
 	autocompleteMaxVisible?: number; // Max visible items in autocomplete dropdown (default: 5)
 	showHardwareCursor?: boolean; // Show terminal cursor while still positioning it for IME
 	markdown?: MarkdownSettings;
+	memory?: MemorySettings;
 	async?: AsyncSettings;
 	bashInterceptor?: BashInterceptorSettings;
 	taskIsolation?: TaskIsolationSettings;
@@ -965,6 +975,24 @@ export class SettingsManager {
 
 	getCodeBlockIndent(): string {
 		return this.settings.markdown?.codeBlockIndent ?? "  ";
+	}
+
+	getMemorySettings(): {
+		enabled: boolean;
+		maxRolloutsPerStartup: number;
+		maxRolloutAgeDays: number;
+		minRolloutIdleHours: number;
+		stage1Concurrency: number;
+		summaryInjectionTokenLimit: number;
+	} {
+		return {
+			enabled: this.settings.memory?.enabled ?? false,
+			maxRolloutsPerStartup: this.settings.memory?.maxRolloutsPerStartup ?? 64,
+			maxRolloutAgeDays: this.settings.memory?.maxRolloutAgeDays ?? 30,
+			minRolloutIdleHours: this.settings.memory?.minRolloutIdleHours ?? 12,
+			stage1Concurrency: this.settings.memory?.stage1Concurrency ?? 8,
+			summaryInjectionTokenLimit: this.settings.memory?.summaryInjectionTokenLimit ?? 5000,
+		};
 	}
 
 	getAsyncEnabled(): boolean {

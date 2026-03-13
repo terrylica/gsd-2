@@ -205,6 +205,7 @@ export {
 	type AsyncSettings,
 	type CompactionSettings,
 	type ImageSettings,
+	type MemorySettings,
 	type PackageSource,
 	type RetrySettings,
 	SettingsManager,
