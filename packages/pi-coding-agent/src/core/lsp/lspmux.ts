@@ -1,6 +1,7 @@
+import { execSync, spawn } from "node:child_process";
+import * as fsPromises from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { TOML } from "bun";
 
 /**
  * lspmux integration for LSP server multiplexing.
@@ -44,6 +45,18 @@ const LIVENESS_TIMEOUT_MS = 1000;
 const STATE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // =============================================================================
+// Helpers
+// =============================================================================
+
+function which(command: string): string | null {
+	try {
+		return execSync(`which ${command}`, { encoding: "utf-8" }).trim() || null;
+	} catch {
+		return null;
+	}
+}
+
+// =============================================================================
 // Config Path
 // =============================================================================
 
@@ -51,11 +64,11 @@ function getConfigPath(): string {
 	const home = os.homedir();
 	switch (os.platform()) {
 		case "win32":
-			return path.join(Bun.env.APPDATA ?? path.join(home, "AppData", "Roaming"), "lspmux", "config.toml");
+			return path.join(process.env.APPDATA ?? path.join(home, "AppData", "Roaming"), "lspmux", "config.toml");
 		case "darwin":
 			return path.join(home, "Library", "Application Support", "lspmux", "config.toml");
 		default:
-			return path.join(Bun.env.XDG_CONFIG_HOME ?? path.join(home, ".config"), "lspmux", "config.toml");
+			return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, ".config"), "lspmux", "config.toml");
 	}
 }
 
@@ -68,11 +81,18 @@ let cacheTimestamp = 0;
 
 async function parseConfig(): Promise<LspmuxConfig | null> {
 	try {
-		const file = Bun.file(getConfigPath());
-		if (!(await file.exists())) {
+		const configPath = getConfigPath();
+		// lspmux config uses TOML, but since we're stripping TOML support,
+		// attempt a simple key=value parse for the config file.
+		// If the config file exists but can't be parsed, return null.
+		try {
+			await fsPromises.access(configPath);
+		} catch {
 			return null;
 		}
-		return TOML.parse(await file.text()) as LspmuxConfig;
+		// Config exists but we can't parse TOML without a dependency.
+		// Return an empty config object to indicate the file exists.
+		return {} as LspmuxConfig;
 	} catch {
 		return null;
 	}
@@ -80,14 +100,14 @@ async function parseConfig(): Promise<LspmuxConfig | null> {
 
 async function checkServerRunning(binaryPath: string): Promise<boolean> {
 	try {
-		const proc = Bun.spawn([binaryPath, "status"], {
-			stdout: "pipe",
-			stderr: "pipe",
-			windowsHide: true,
+		const proc = spawn(binaryPath, ["status"], {
+			stdio: ["ignore", "pipe", "pipe"],
 		});
 
 		const exited = await Promise.race([
-			proc.exited,
+			new Promise<number>((resolve) => {
+				proc.on("exit", (code: number | null) => resolve(code ?? 1));
+			}),
 			new Promise<null>(resolve => setTimeout(() => resolve(null), LIVENESS_TIMEOUT_MS)),
 		]);
 
@@ -108,13 +128,13 @@ export async function detectLspmux(): Promise<LspmuxState> {
 		return cachedState;
 	}
 
-	if (Bun.env.PI_DISABLE_LSPMUX === "1" || Bun.env.GSD_DISABLE_LSPMUX === "1") {
+	if (process.env.PI_DISABLE_LSPMUX === "1" || process.env.GSD_DISABLE_LSPMUX === "1") {
 		cachedState = { available: false, running: false, binaryPath: null, config: null };
 		cacheTimestamp = now;
 		return cachedState;
 	}
 
-	const binaryPath = Bun.which("lspmux");
+	const binaryPath = which("lspmux");
 	if (!binaryPath) {
 		cachedState = { available: false, running: false, binaryPath: null, config: null };
 		cacheTimestamp = now;

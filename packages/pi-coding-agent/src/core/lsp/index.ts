@@ -1,5 +1,8 @@
 import * as fs from "node:fs";
-import path from "node:path";
+import * as fsSync from "node:fs";
+import * as path from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "@gsd/pi-agent-core";
 import {
 	ensureFileOpen,
@@ -10,12 +13,11 @@ import {
 	sendRequest,
 	setIdleTimeout,
 	WARMUP_TIMEOUT_MS,
-} from "./client";
-import { getServersForFile, type LspConfig, loadConfig } from "./config";
-import { applyWorkspaceEdit } from "./edits";
-import { ToolAbortError, clampTimeout, throwIfAborted } from "./helpers";
-import lspDescription from "./lsp.md" with { type: "text" };
-import { detectLspmux } from "./lspmux";
+} from "./client.js";
+import { getServersForFile, type LspConfig, loadConfig } from "./config.js";
+import { applyWorkspaceEdit } from "./edits.js";
+import { ToolAbortError, clampTimeout, throwIfAborted } from "./helpers.js";
+import { detectLspmux } from "./lspmux.js";
 import {
 	type CodeAction,
 	type CodeActionContext,
@@ -32,7 +34,7 @@ import {
 	type ServerConfig,
 	type SymbolInformation,
 	type WorkspaceEdit,
-} from "./types";
+} from "./types.js";
 import {
 	applyCodeAction,
 	collectGlobMatches,
@@ -54,11 +56,14 @@ import {
 	sortDiagnostics,
 	symbolKindToIcon,
 	uriToFile,
-} from "./utils";
+} from "./utils.js";
 
-export type { LspServerStatus } from "./client";
-export type { LspToolDetails } from "./types";
-export { lspSchema } from "./types";
+export type { LspServerStatus } from "./client.js";
+export type { LspToolDetails } from "./types.js";
+export { lspSchema } from "./types.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const lspDescription = fsSync.readFileSync(path.join(__dirname, "lsp.md"), "utf-8");
 
 // =============================================================================
 // Warmup API
@@ -216,7 +221,7 @@ async function waitForDiagnostics(
 		const diagnostics = client.diagnostics.get(uri);
 		const versionOk = minVersion === undefined || client.diagnosticsVersion > minVersion;
 		if (diagnostics !== undefined && versionOk) return diagnostics;
-		await Bun.sleep(100);
+		await new Promise<void>(resolve => setTimeout(resolve, 100));
 	}
 	return client.diagnostics.get(uri) ?? [];
 }
@@ -259,11 +264,10 @@ async function runWorkspaceDiagnostics(
 			projectType,
 		};
 	}
-	const proc = Bun.spawn(projectType.command, {
+	const [cmd, ...cmdArgs] = projectType.command;
+	const proc = spawn(cmd, cmdArgs, {
 		cwd,
-		stdout: "pipe",
-		stderr: "pipe",
-		windowsHide: true,
+		stdio: ["ignore", "pipe", "pipe"],
 	});
 	const abortHandler = () => {
 		proc.kill();
@@ -273,8 +277,19 @@ async function runWorkspaceDiagnostics(
 	}
 
 	try {
-		const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-		await proc.exited;
+		const stdoutChunks: Buffer[] = [];
+		const stderrChunks: Buffer[] = [];
+
+		proc.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+		proc.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+
+		const exitCode = await new Promise<number>((resolve) => {
+			proc.on("exit", (code: number | null) => resolve(code ?? 1));
+		});
+
+		const stdout = Buffer.concat(stdoutChunks).toString("utf-8");
+		const stderr = Buffer.concat(stderrChunks).toString("utf-8");
+
 		throwIfAborted(signal);
 		const combined = (stdout + stderr).trim();
 		if (!combined) {
@@ -285,7 +300,7 @@ async function runWorkspaceDiagnostics(
 			return { output: `${lines.slice(0, 50).join("\n")}\n... and ${lines.length - 50} more lines`, projectType };
 		}
 		return { output: combined, projectType };
-	} catch (e) {
+	} catch (e: unknown) {
 		if (signal?.aborted) {
 			throw new ToolAbortError();
 		}
@@ -425,7 +440,7 @@ export function createLspTool(cwd: string): AgentTool<typeof lspSchema, LspToolD
 								minVersion,
 							);
 							allDiagnostics.push(...diagnostics);
-						} catch (err) {
+						} catch (err: unknown) {
 							if (err instanceof ToolAbortError || signal?.aborted) {
 								throw err;
 							}
@@ -522,7 +537,7 @@ export function createLspTool(cwd: string): AgentTool<typeof lspSchema, LspToolD
 						}
 						respondingServers.add(workspaceServerName);
 						aggregatedSymbols.push(...filterWorkspaceSymbols(workspaceResult, normalizedQuery));
-					} catch (err) {
+					} catch (err: unknown) {
 						if (err instanceof ToolAbortError || signal?.aborted) {
 							throw err;
 						}
@@ -577,7 +592,7 @@ export function createLspTool(cwd: string): AgentTool<typeof lspSchema, LspToolD
 					try {
 						const workspaceClient = await getOrCreateClient(workspaceServerConfig, cwd);
 						outputs.push(await reloadServer(workspaceClient, workspaceServerName, signal));
-					} catch (err) {
+					} catch (err: unknown) {
 						if (err instanceof ToolAbortError || signal?.aborted) {
 							throw err;
 						}
@@ -788,10 +803,10 @@ export function createLspTool(cwd: string): AgentTool<typeof lspSchema, LspToolD
 							}
 
 							const appliedAction = await applyCodeAction(selectedAction, {
-								resolveCodeAction: async actionItem =>
+								resolveCodeAction: async (actionItem: CodeAction) =>
 									(await sendRequest(client, "codeAction/resolve", actionItem, signal)) as CodeAction,
-								applyWorkspaceEdit: async edit => applyWorkspaceEdit(edit, cwd),
-								executeCommand: async commandItem => {
+								applyWorkspaceEdit: async (edit: WorkspaceEdit) => applyWorkspaceEdit(edit, cwd),
+								executeCommand: async (commandItem: Command) => {
 									await sendRequest(
 										client,
 										"workspace/executeCommand",
@@ -908,7 +923,7 @@ export function createLspTool(cwd: string): AgentTool<typeof lspSchema, LspToolD
 					content: [{ type: "text", text: output }],
 					details: { serverName, action, success: true, request: params },
 				};
-			} catch (err) {
+			} catch (err: unknown) {
 				if (err instanceof ToolAbortError || signal?.aborted) {
 					throw new ToolAbortError();
 				}

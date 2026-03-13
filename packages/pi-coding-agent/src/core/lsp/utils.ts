@@ -1,5 +1,7 @@
+import * as fsPromises from "node:fs/promises";
 import path from "node:path";
-import { isEnoent } from "./helpers";
+import { glob } from "glob";
+import { isEnoent } from "./helpers.js";
 import type {
 	CodeAction,
 	Command,
@@ -11,7 +13,7 @@ import type {
 	SymbolKind,
 	TextEdit,
 	WorkspaceEdit,
-} from "./types";
+} from "./types.js";
 
 // =============================================================================
 // Language Detection
@@ -239,7 +241,7 @@ export function formatDiagnostic(diagnostic: Diagnostic, filePath: string): stri
 	const line = diagnostic.range.start.line + 1;
 	const col = diagnostic.range.start.character + 1;
 	const source = diagnostic.source ? `[${diagnostic.source}] ` : "";
-	const code = diagnostic.code ? ` (${diagnostic.code})` : "";
+	const code = diagnostic.code !== undefined ? ` (${diagnostic.code})` : "";
 	const message = stripDiagnosticNoise(diagnostic.message);
 
 	return `${filePath}:${line}:${col} [${severity}] ${source}${message}${code}`;
@@ -560,14 +562,11 @@ export async function collectGlobMatches(
 	maxMatches: number,
 ): Promise<{ matches: string[]; truncated: boolean }> {
 	const normalizedLimit = Number.isFinite(maxMatches) ? Math.max(1, Math.trunc(maxMatches)) : 1;
-	const matches: string[] = [];
-	for await (const match of new Bun.Glob(pattern).scan({ cwd })) {
-		if (matches.length >= normalizedLimit) {
-			return { matches, truncated: true };
-		}
-		matches.push(match);
+	const allMatches = await glob(pattern, { cwd });
+	if (allMatches.length > normalizedLimit) {
+		return { matches: allMatches.slice(0, normalizedLimit), truncated: true };
 	}
-	return { matches, truncated: false };
+	return { matches: allMatches, truncated: false };
 }
 
 // =============================================================================
@@ -632,7 +631,7 @@ export async function resolveSymbolColumn(
 	const lineNumber = Math.max(1, line);
 	const matchOccurrence = normalizeOccurrence(occurrence);
 	try {
-		const fileText = await Bun.file(filePath).text();
+		const fileText = await fsPromises.readFile(filePath, "utf-8");
 		const lines = fileText.split("\n");
 		const targetLine = lines[lineNumber - 1] ?? "";
 		if (!symbol) {
@@ -650,7 +649,7 @@ export async function resolveSymbolColumn(
 			);
 		}
 		return fallbackIndexes[matchOccurrence - 1];
-	} catch (error) {
+	} catch (error: unknown) {
 		if (isEnoent(error)) {
 			throw new Error(`File not found: ${filePath}`);
 		}
@@ -662,7 +661,7 @@ export async function readLocationContext(filePath: string, line: number, contex
 	const targetLine = Math.max(1, line);
 	const surrounding = Math.max(0, contextLines);
 	try {
-		const fileText = await Bun.file(filePath).text();
+		const fileText = await fsPromises.readFile(filePath, "utf-8");
 		const lines = fileText.split("\n");
 		if (lines.length === 0) return [];
 
@@ -674,7 +673,7 @@ export async function readLocationContext(filePath: string, line: number, contex
 			context.push(`${currentLine}: ${content}`);
 		}
 		return context;
-	} catch (error) {
+	} catch (error: unknown) {
 		if (isEnoent(error)) {
 			return [];
 		}

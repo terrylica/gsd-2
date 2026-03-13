@@ -1,7 +1,10 @@
+import { spawn } from "node:child_process";
+import * as fsPromises from "node:fs/promises";
+import type { Writable } from "node:stream";
 import { killProcessTree } from "../../utils/shell.js";
-import { ToolAbortError, isEnoent, throwIfAborted, untilAborted } from "./helpers";
-import { applyWorkspaceEdit } from "./edits";
-import { getLspmuxCommand, isLspmuxSupported } from "./lspmux";
+import { ToolAbortError, isEnoent, throwIfAborted, untilAborted } from "./helpers.js";
+import { applyWorkspaceEdit } from "./edits.js";
+import { getLspmuxCommand, isLspmuxSupported } from "./lspmux.js";
 import type {
 	Diagnostic,
 	LspClient,
@@ -10,8 +13,8 @@ import type {
 	LspJsonRpcResponse,
 	ServerConfig,
 	WorkspaceEdit,
-} from "./types";
-import { detectLanguageId, fileToUri } from "./utils";
+} from "./types.js";
+import { detectLanguageId, fileToUri } from "./utils.js";
 
 // =============================================================================
 // Client State
@@ -23,7 +26,7 @@ const fileOperationLocks = new Map<string, Promise<void>>();
 
 // Idle timeout configuration (disabled by default)
 let idleTimeoutMs: number | null = null;
-let idleCheckInterval: Timer | null = null;
+let idleCheckInterval: ReturnType<typeof setInterval> | null = null;
 const IDLE_CHECK_INTERVAL_MS = 60 * 1000;
 
 /**
@@ -177,7 +180,7 @@ function parseMessage(
 
 	const messageBytes = buffer.subarray(messageStart, messageEnd);
 	const messageText = new TextDecoder().decode(messageBytes);
-	const remaining = buffer.subarray(messageEnd);
+	const remaining = Buffer.from(buffer.subarray(messageEnd));
 
 	return {
 		message: JSON.parse(messageText),
@@ -195,13 +198,20 @@ function findHeaderEnd(buffer: Uint8Array): number {
 }
 
 async function writeMessage(
-	sink: Bun.FileSink,
+	stdin: Writable | null,
 	message: LspJsonRpcRequest | LspJsonRpcNotification | LspJsonRpcResponse,
 ): Promise<void> {
+	if (!stdin) {
+		throw new Error("LSP process stdin is not available");
+	}
 	const content = JSON.stringify(message);
-	sink.write(`Content-Length: ${Buffer.byteLength(content, "utf-8")}\r\n\r\n`);
-	sink.write(content);
-	await sink.flush();
+	const header = `Content-Length: ${Buffer.byteLength(content, "utf-8")}\r\n\r\n`;
+	return new Promise((resolve, reject) => {
+		stdin.write(header + content, (err?: Error | null) => {
+			if (err) reject(err);
+			else resolve();
+		});
+	});
 }
 
 // =============================================================================
@@ -212,14 +222,15 @@ async function startMessageReader(client: LspClient): Promise<void> {
 	if (client.isReading) return;
 	client.isReading = true;
 
-	const reader = (client.proc.stdout as ReadableStream<Uint8Array>).getReader();
+	const stdout = client.proc.stdout;
+	if (!stdout) {
+		client.isReading = false;
+		return;
+	}
 
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-
-			const currentBuffer: Buffer = Buffer.concat([client.messageBuffer, value]);
+	return new Promise<void>((resolve) => {
+		stdout.on("data", async (chunk: Buffer) => {
+			const currentBuffer: Buffer = Buffer.concat([client.messageBuffer, chunk]);
 			client.messageBuffer = currentBuffer;
 
 			let workingBuffer = currentBuffer;
@@ -252,16 +263,18 @@ async function startMessageReader(client: LspClient): Promise<void> {
 			}
 
 			client.messageBuffer = workingBuffer;
-		}
-	} catch (err) {
-		for (const pending of Array.from(client.pendingRequests.values())) {
-			pending.reject(new Error(`LSP connection closed: ${err}`));
-		}
-		client.pendingRequests.clear();
-	} finally {
-		reader.releaseLock();
-		client.isReading = false;
-	}
+		});
+
+		stdout.on("end", () => {
+			client.isReading = false;
+			resolve();
+		});
+
+		stdout.on("error", () => {
+			client.isReading = false;
+			resolve();
+		});
+	});
 }
 
 // =============================================================================
@@ -295,7 +308,7 @@ async function handleApplyEditRequest(client: LspClient, message: LspJsonRpcRequ
 	try {
 		await applyWorkspaceEdit(params.edit, client.cwd);
 		await sendResponse(client, message.id, { applied: true }, "workspace/applyEdit");
-	} catch (err) {
+	} catch (err: unknown) {
 		await sendResponse(client, message.id, { applied: false, failureReason: String(err) }, "workspace/applyEdit");
 	}
 }
@@ -341,23 +354,26 @@ async function sendResponse(
 // =============================================================================
 
 async function startStderrReader(client: LspClient): Promise<void> {
-	const reader = (client.proc.stderr as ReadableStream<Uint8Array>).getReader();
-	const decoder = new TextDecoder();
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			// Keep only the last 4KB of stderr
-			client.stderrBuffer += decoder.decode(value, { stream: true });
+	const stderr = client.proc.stderr;
+	if (!stderr) return;
+
+	return new Promise<void>((resolve) => {
+		stderr.on("data", (chunk: Buffer) => {
+			const text = chunk.toString("utf-8");
+			client.stderrBuffer += text;
 			if (client.stderrBuffer.length > 4096) {
 				client.stderrBuffer = client.stderrBuffer.slice(-4096);
 			}
-		}
-	} catch {
-		// stderr stream closed
-	} finally {
-		reader.releaseLock();
-	}
+		});
+
+		stderr.on("end", () => {
+			resolve();
+		});
+
+		stderr.on("error", () => {
+			resolve();
+		});
+	});
 }
 
 // =============================================================================
@@ -393,24 +409,26 @@ export async function getOrCreateClient(config: ServerConfig, cwd: string, initT
 			? await getLspmuxCommand(baseCommand, baseArgs)
 			: { command: baseCommand, args: baseArgs };
 
-		const proc = Bun.spawn([command, ...args], {
+		const proc = spawn(command, args, {
 			cwd,
-			stdin: "pipe",
-			stdout: "pipe",
-			stderr: "pipe",
-			env: env ? { ...Bun.env, ...env } : undefined,
+			stdio: ["pipe", "pipe", "pipe"],
+			env: env ? { ...process.env, ...env } : undefined,
+		});
+
+		const exitedPromise = new Promise<number>((resolve) => {
+			proc.on("exit", (code: number | null) => resolve(code ?? 1));
 		});
 
 		const client: LspClient = {
 			name: key,
 			cwd,
 			proc: {
-				stdin: proc.stdin as unknown as Bun.FileSink,
-				stdout: proc.stdout as ReadableStream<Uint8Array>,
-				stderr: proc.stderr as ReadableStream<Uint8Array>,
-				pid: proc.pid,
+				stdin: proc.stdin,
+				stdout: proc.stdout,
+				stderr: proc.stderr,
+				pid: proc.pid ?? 0,
 				exitCode: null,
-				exited: proc.exited,
+				exited: exitedPromise,
 				kill: (signal?: number) => proc.kill(signal),
 			},
 			config,
@@ -419,7 +437,7 @@ export async function getOrCreateClient(config: ServerConfig, cwd: string, initT
 			diagnosticsVersion: 0,
 			openFiles: new Map(),
 			pendingRequests: new Map(),
-			messageBuffer: new Uint8Array(0),
+			messageBuffer: Buffer.alloc(0),
 			isReading: false,
 			lastActivity: Date.now(),
 			stderrBuffer: "",
@@ -427,7 +445,7 @@ export async function getOrCreateClient(config: ServerConfig, cwd: string, initT
 		clients.set(key, client);
 
 		// Register crash recovery
-		proc.exited.then(code => {
+		exitedPromise.then((code: number) => {
 			client.proc.exitCode = code;
 			clients.delete(key);
 			clientLocks.delete(key);
@@ -477,7 +495,7 @@ export async function getOrCreateClient(config: ServerConfig, cwd: string, initT
 			clients.delete(key);
 			clientLocks.delete(key);
 			try {
-				killProcessTree(proc.pid);
+				killProcessTree(proc.pid ?? 0);
 			} catch {
 				proc.kill();
 			}
@@ -517,9 +535,9 @@ export async function ensureFileOpen(client: LspClient, filePath: string, signal
 
 		let content: string;
 		try {
-			content = await Bun.file(filePath).text();
+			content = await fsPromises.readFile(filePath, "utf-8");
 			throwIfAborted(signal);
-		} catch (err) {
+		} catch (err: unknown) {
 			if (isEnoent(err)) return;
 			throw err;
 		}
@@ -642,9 +660,9 @@ export async function refreshFile(client: LspClient, filePath: string, signal?: 
 
 		let content: string;
 		try {
-			content = await Bun.file(filePath).text();
+			content = await fsPromises.readFile(filePath, "utf-8");
 			throwIfAborted(signal);
-		} catch (err) {
+		} catch (err: unknown) {
 			if (isEnoent(err)) return;
 			throw err;
 		}
@@ -758,12 +776,12 @@ export async function sendRequest(
 	}
 
 	client.pendingRequests.set(id, {
-		resolve: result => {
+		resolve: (result: unknown) => {
 			if (timeout) clearTimeout(timeout);
 			cleanup();
 			resolve(result);
 		},
-		reject: err => {
+		reject: (err: Error) => {
 			if (timeout) clearTimeout(timeout);
 			cleanup();
 			reject(err);
@@ -771,7 +789,7 @@ export async function sendRequest(
 		method,
 	});
 
-	writeMessage(client.proc.stdin, request).catch(err => {
+	writeMessage(client.proc.stdin, request).catch((err: Error) => {
 		if (timeout) clearTimeout(timeout);
 		client.pendingRequests.delete(id);
 		cleanup();
@@ -807,7 +825,7 @@ export function shutdownAll(): void {
 		}
 
 		void (async () => {
-			const timeout = Bun.sleep(5_000);
+			const timeout = new Promise<void>(resolve => setTimeout(resolve, 5_000));
 			const result = sendRequest(client, "shutdown", null).catch(() => {});
 			await Promise.race([result, timeout]);
 			try {

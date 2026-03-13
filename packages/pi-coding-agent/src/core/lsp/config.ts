@@ -1,11 +1,16 @@
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
-import { YAML } from "bun";
+import { execSync } from "node:child_process";
+import YAML from "yaml";
+import { globSync } from "glob";
 import { CONFIG_DIR_NAME } from "../../config.js";
-import { isRecord } from "./helpers";
-import DEFAULTS from "./defaults.json" with { type: "json" };
-import type { ServerConfig } from "./types";
+import { isRecord } from "./helpers.js";
+import type { ServerConfig } from "./types.js";
+
+const require = createRequire(import.meta.url);
+const DEFAULTS = require("./defaults.json") as Record<string, Partial<ServerConfig>>;
 
 export interface LspConfig {
 	servers: Record<string, ServerConfig>;
@@ -125,7 +130,7 @@ function applyRuntimeDefaults(servers: Record<string, ServerConfig>): Record<str
 	const updated: Record<string, ServerConfig> = { ...servers };
 
 	if (updated.omnisharp?.args) {
-		const args = updated.omnisharp.args.map(arg => (arg === PID_TOKEN ? String(process.pid) : arg));
+		const args = updated.omnisharp.args.map((arg: string) => (arg === PID_TOKEN ? String(process.pid) : arg));
 		updated.omnisharp = { ...updated.omnisharp, args };
 	}
 
@@ -140,8 +145,8 @@ export function hasRootMarkers(cwd: string, markers: string[]): boolean {
 	for (const marker of markers) {
 		if (marker.includes("*")) {
 			try {
-				const scan = new Bun.Glob(marker).scanSync({ cwd, onlyFiles: false });
-				for (const _ of scan) {
+				const matches = globSync(marker, { cwd, nodir: false });
+				if (matches.length > 0) {
 					return true;
 				}
 			} catch {
@@ -171,6 +176,14 @@ const LOCAL_BIN_PATHS: Array<{ markers: string[]; binDir: string }> = [
 	{ markers: ["go.mod", "go.sum"], binDir: "bin" },
 ];
 
+function which(command: string): string | null {
+	try {
+		return execSync(`which ${command}`, { encoding: "utf-8" }).trim() || null;
+	} catch {
+		return null;
+	}
+}
+
 export function resolveCommand(command: string, cwd: string): string | null {
 	for (const { markers, binDir } of LOCAL_BIN_PATHS) {
 		if (hasRootMarkers(cwd, markers)) {
@@ -181,7 +194,7 @@ export function resolveCommand(command: string, cwd: string): string | null {
 		}
 	}
 
-	return Bun.which(command);
+	return which(command);
 }
 
 /**

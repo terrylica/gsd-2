@@ -1,4 +1,5 @@
 import { type Static, type TUnsafe, Type } from "@sinclair/typebox";
+import type { ChildProcess } from "node:child_process";
 
 function StringEnum<T extends readonly string[]>(
 	values: T,
@@ -375,9 +376,9 @@ export interface LspClient {
 	cwd: string;
 	config: ServerConfig;
 	proc: {
-		stdin: Bun.FileSink;
-		stdout: ReadableStream<Uint8Array>;
-		stderr: ReadableStream<Uint8Array>;
+		stdin: ChildProcess["stdin"];
+		stdout: ChildProcess["stdout"];
+		stderr: ChildProcess["stderr"];
 		pid: number;
 		exitCode: number | null;
 		exited: Promise<number>;
@@ -388,7 +389,7 @@ export interface LspClient {
 	diagnosticsVersion: number;
 	openFiles: Map<string, OpenFile>;
 	pendingRequests: Map<number, PendingRequest>;
-	messageBuffer: Uint8Array;
+	messageBuffer: Buffer;
 	isReading: boolean;
 	serverCapabilities?: LspServerCapabilities;
 	lastActivity: number;

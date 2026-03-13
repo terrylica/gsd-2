@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import path from "node:path";
-import type { CreateFile, DeleteFile, RenameFile, TextDocumentEdit, TextEdit, WorkspaceEdit } from "./types";
-import { uriToFile } from "./utils";
+import type { CreateFile, DeleteFile, RenameFile, TextDocumentEdit, TextEdit, WorkspaceEdit } from "./types.js";
+import { uriToFile } from "./utils.js";
 
 // =============================================================================
 // Text Edit Application
@@ -46,9 +46,9 @@ export function applyTextEditsToString(content: string, edits: TextEdit[]): stri
  * Edits are applied in reverse order (bottom-to-top) to preserve line/character indices.
  */
 export async function applyTextEdits(filePath: string, edits: TextEdit[]): Promise<void> {
-	const content = await Bun.file(filePath).text();
+	const content = await fs.readFile(filePath, "utf-8");
 	const result = applyTextEditsToString(content, edits);
-	await Bun.write(filePath, result);
+	await fs.writeFile(filePath, result);
 }
 
 // =============================================================================
@@ -86,7 +86,7 @@ export async function applyWorkspaceEdit(edit: WorkspaceEdit, cwd: string): Prom
 				if (change.kind === "create") {
 					const createOp = change as CreateFile;
 					const filePath = uriToFile(createOp.uri);
-					await Bun.write(filePath, "");
+					await fs.writeFile(filePath, "");
 					applied.push(`Created ${path.relative(cwd, filePath)}`);
 				} else if (change.kind === "rename") {
 					const renameOp = change as RenameFile;
