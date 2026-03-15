@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.14.3] - 2026-03-15
+
+### Fixed
+- **Copy planning artifacts into new auto-worktrees** — `createAutoWorktree` now copies `.gsd/milestones/`, `DECISIONS.md`, `REQUIREMENTS.md`, `PROJECT.md` from the source repo into the worktree. Prevents plan-slice loops in projects with pre-v2.14.0 `.gitignore`.
+
 ## [2.14.2] - 2026-03-15
 
 ### Fixed
@@ -648,7 +653,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.14.2...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.14.3...HEAD
+[2.14.3]: https://github.com/gsd-build/gsd-2/compare/v2.14.2...v2.14.3
 [2.14.2]: https://github.com/gsd-build/gsd-2/compare/v2.14.1...v2.14.2
 [2.14.1]: https://github.com/gsd-build/gsd-2/compare/v2.14.0...v2.14.1
 [2.14.0]: https://github.com/gsd-build/gsd-2/compare/v2.13.1...v2.14.0
