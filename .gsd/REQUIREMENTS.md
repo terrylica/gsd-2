@@ -57,7 +57,7 @@ This file is the explicit capability and coverage contract for the project.
 - Primary owning slice: M001/S03
 - Supporting slices: none
 - Validation: unmapped
-- Notes: Uses existing hook retry_on mechanism. Max retries configurable via `verification_max_retries` preference.
+- Notes: Uses module-level retry state parallel to pendingCrashRecovery pattern (not hook retry_on). Max retries configurable via `verification_max_retries` preference.
 
 ### R006 — Runtime Error Capture (bg-shell + browser console)
 - Class: failure-visibility

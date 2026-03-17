@@ -64,7 +64,7 @@ This milestone is complete only when all are true:
 - [x] **S02: Structured Evidence Format** `risk:medium` `depends:[S01]`
   > After this: Task summaries contain a canonical verification evidence table. T##-VERIFY.json files are written alongside summaries with machine-queryable results. Observability validator rejects summaries without evidence blocks.
 
-- [ ] **S03: Auto-Fix Retry Loop** `risk:medium` `depends:[S01]`
+- [x] **S03: Auto-Fix Retry Loop** `risk:medium` `depends:[S01]`
   > After this: When verification commands fail, the agent gets 2 auto-fix attempts with failure context injected. After 2 failures, the gate fails and surfaces for human review. Retry count visible in evidence.
 
 - [ ] **S04: Runtime Error Capture** `risk:medium` `depends:[S01]`
