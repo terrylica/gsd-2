@@ -77,6 +77,13 @@ Both are pure function changes with zero integration risk. All existing 28+ test
 - `grep -n "formatFailureContext" src/resources/extensions/gsd/verification-gate.ts` — confirms export exists
 - `grep -n "retryAttempt\|maxRetries" src/resources/extensions/gsd/verification-evidence.ts` — confirms fields added
 
+## Observability Impact
+
+- **New inspection surface:** `formatFailureContext` output is the text injected into retry prompts — inspect by calling the function on any `VerificationResult` with failed checks. Output is deterministic given the same input.
+- **New evidence fields:** `T##-VERIFY.json` gains optional `retryAttempt` and `maxRetries` fields. A future agent or human can inspect these to determine how many retries occurred for any verification run.
+- **Failure visibility:** No new runtime signals in this task (T02 wires the notifications). This task provides the pure formatting/serialization building blocks.
+- **How to inspect:** `grep retryAttempt` in any `*-VERIFY.json` file shows retry metadata. Absence of the fields means no retries were involved (backward compatible).
+
 ## Inputs
 
 - `src/resources/extensions/gsd/verification-gate.ts` — existing file with `discoverCommands()` and `runVerificationGate()`. Add `formatFailureContext` as a new export.

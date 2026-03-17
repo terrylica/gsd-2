@@ -30,6 +30,8 @@ export interface EvidenceJSON {
   passed: boolean;
   discoverySource: string;
   checks: EvidenceCheckJSON[];
+  retryAttempt?: number;
+  maxRetries?: number;
 }
 
 /**
@@ -44,6 +46,8 @@ export function writeVerificationJSON(
   tasksDir: string,
   taskId: string,
   unitId?: string,
+  retryAttempt?: number,
+  maxRetries?: number,
 ): void {
   mkdirSync(tasksDir, { recursive: true });
 
@@ -60,6 +64,8 @@ export function writeVerificationJSON(
       durationMs: check.durationMs,
       verdict: check.exitCode === 0 ? "pass" : "fail",
     })),
+    ...(retryAttempt !== undefined ? { retryAttempt } : {}),
+    ...(maxRetries !== undefined ? { maxRetries } : {}),
   };
 
   const filePath = join(tasksDir, `${taskId}-VERIFY.json`);

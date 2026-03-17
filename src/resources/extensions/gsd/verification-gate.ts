@@ -91,6 +91,52 @@ export function discoverCommands(options: DiscoverCommandsOptions): DiscoveredCo
   return { commands: [], source: "none" };
 }
 
+// ─── Failure Context Formatting ──────────────────────────────────────────────
+
+/** Maximum chars of stderr to include per failed check in failure context. */
+const MAX_STDERR_PER_CHECK = 2_000;
+
+/** Maximum total chars for the combined failure context output. */
+const MAX_FAILURE_CONTEXT_CHARS = 10_000;
+
+/**
+ * Format failed verification checks into a prompt-injectable text block.
+ *
+ * Each failed check gets a heading with the command name and exit code,
+ * followed by a truncated stderr excerpt. Individual stderr is capped to
+ * 2 000 chars; total output is capped to 10 000 chars.
+ *
+ * Returns an empty string when all checks pass or the checks array is empty.
+ */
+export function formatFailureContext(result: VerificationResult): string {
+  const failures = result.checks.filter((c) => c.exitCode !== 0);
+  if (failures.length === 0) return "";
+
+  const blocks: string[] = [];
+
+  for (const check of failures) {
+    let stderr = check.stderr ?? "";
+    if (stderr.length > MAX_STDERR_PER_CHECK) {
+      stderr = stderr.slice(0, MAX_STDERR_PER_CHECK) + "\n…[truncated]";
+    }
+
+    blocks.push(
+      `### ❌ \`${check.command}\` (exit code ${check.exitCode})\n\`\`\`stderr\n${stderr}\n\`\`\``,
+    );
+  }
+
+  let body = blocks.join("\n\n");
+  const header = "## Verification Failures\n\n";
+
+  if (header.length + body.length > MAX_FAILURE_CONTEXT_CHARS) {
+    body =
+      body.slice(0, MAX_FAILURE_CONTEXT_CHARS - header.length) +
+      "\n\n…[remaining failures truncated]";
+  }
+
+  return header + body;
+}
+
 // ─── Gate Execution ─────────────────────────────────────────────────────────
 
 export interface RunVerificationGateOptions {

@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { discoverCommands, runVerificationGate } from "../verification-gate.ts";
+import { discoverCommands, runVerificationGate, formatFailureContext } from "../verification-gate.ts";
 import { validatePreferences } from "../preferences.ts";
 
 function makeTempDir(prefix: string): string {
@@ -457,4 +457,105 @@ test("verification-gate: verification_max_retries -1 produces a validation error
     "negative max_retries should error",
   );
   assert.equal(result.preferences.verification_max_retries, undefined);
+});
+
+// ─── formatFailureContext Tests (S03/T01) ─────────────────────────────────────
+
+test("formatFailureContext: formats a single failure with command, exit code, stderr", () => {
+  const result: import("../types.ts").VerificationResult = {
+    passed: false,
+    checks: [
+      { command: "npm run lint", exitCode: 1, stdout: "", stderr: "error: unused var", durationMs: 500 },
+    ],
+    discoverySource: "preference",
+    timestamp: Date.now(),
+  };
+  const output = formatFailureContext(result);
+  assert.ok(output.startsWith("## Verification Failures"), "should start with header");
+  assert.ok(output.includes("`npm run lint`"), "should include command name");
+  assert.ok(output.includes("exit code 1"), "should include exit code");
+  assert.ok(output.includes("error: unused var"), "should include stderr content");
+  assert.ok(output.includes("```stderr"), "should have stderr code block");
+});
+
+test("formatFailureContext: formats multiple failures", () => {
+  const result: import("../types.ts").VerificationResult = {
+    passed: false,
+    checks: [
+      { command: "npm run lint", exitCode: 1, stdout: "", stderr: "lint error", durationMs: 100 },
+      { command: "npm run test", exitCode: 2, stdout: "", stderr: "test failure", durationMs: 200 },
+      { command: "npm run typecheck", exitCode: 0, stdout: "ok", stderr: "", durationMs: 50 },
+    ],
+    discoverySource: "preference",
+    timestamp: Date.now(),
+  };
+  const output = formatFailureContext(result);
+  assert.ok(output.includes("`npm run lint`"), "should include first failed command");
+  assert.ok(output.includes("exit code 1"), "should include first exit code");
+  assert.ok(output.includes("`npm run test`"), "should include second failed command");
+  assert.ok(output.includes("exit code 2"), "should include second exit code");
+  // Passing check should NOT appear
+  assert.ok(!output.includes("npm run typecheck"), "should not include passing command");
+});
+
+test("formatFailureContext: truncates stderr longer than 2000 chars", () => {
+  const longStderr = "x".repeat(3000);
+  const result: import("../types.ts").VerificationResult = {
+    passed: false,
+    checks: [
+      { command: "big-err", exitCode: 1, stdout: "", stderr: longStderr, durationMs: 100 },
+    ],
+    discoverySource: "preference",
+    timestamp: Date.now(),
+  };
+  const output = formatFailureContext(result);
+  // The output should contain 2000 x's followed by truncation marker, not 3000
+  assert.ok(!output.includes("x".repeat(2001)), "should not contain more than 2000 chars of stderr");
+  assert.ok(output.includes("…[truncated]"), "should include truncation marker");
+});
+
+test("formatFailureContext: returns empty string when all checks pass", () => {
+  const result: import("../types.ts").VerificationResult = {
+    passed: true,
+    checks: [
+      { command: "npm run lint", exitCode: 0, stdout: "ok", stderr: "", durationMs: 100 },
+      { command: "npm run test", exitCode: 0, stdout: "ok", stderr: "", durationMs: 200 },
+    ],
+    discoverySource: "preference",
+    timestamp: Date.now(),
+  };
+  assert.equal(formatFailureContext(result), "");
+});
+
+test("formatFailureContext: returns empty string for empty checks array", () => {
+  const result: import("../types.ts").VerificationResult = {
+    passed: true,
+    checks: [],
+    discoverySource: "none",
+    timestamp: Date.now(),
+  };
+  assert.equal(formatFailureContext(result), "");
+});
+
+test("formatFailureContext: caps total output at 10,000 chars", () => {
+  // Generate many failures to exceed 10,000 chars total
+  const checks: import("../types.ts").VerificationCheck[] = [];
+  for (let i = 0; i < 20; i++) {
+    checks.push({
+      command: `failing-command-${i}`,
+      exitCode: 1,
+      stdout: "",
+      stderr: "e".repeat(1000), // 1000 chars each, 20 * ~1050 (with formatting) > 10,000
+      durationMs: 100,
+    });
+  }
+  const result: import("../types.ts").VerificationResult = {
+    passed: false,
+    checks,
+    discoverySource: "preference",
+    timestamp: Date.now(),
+  };
+  const output = formatFailureContext(result);
+  assert.ok(output.length <= 10_100, `total output should be capped near 10,000 chars, got ${output.length}`);
+  assert.ok(output.includes("…[remaining failures truncated]"), "should include total truncation marker");
 });

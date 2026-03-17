@@ -381,3 +381,54 @@ ${table}
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+// ─── Retry Evidence Field Tests (S03/T01) ─────────────────────────────────────
+
+test("verification-evidence: writeVerificationJSON with retryAttempt and maxRetries includes them in output", () => {
+  const tmp = makeTempDir("ve-retry-fields");
+  try {
+    const result = makeResult({
+      passed: false,
+      checks: [
+        { command: "npm run lint", exitCode: 1, stdout: "", stderr: "error", durationMs: 300 },
+      ],
+    });
+
+    writeVerificationJSON(result, tmp, "T01", "M001/S03/T01", 1, 2);
+
+    const json = JSON.parse(readFileSync(join(tmp, "T01-VERIFY.json"), "utf-8"));
+    assert.equal(json.retryAttempt, 1, "retryAttempt should be 1");
+    assert.equal(json.maxRetries, 2, "maxRetries should be 2");
+    // Other fields should still be correct
+    assert.equal(json.schemaVersion, 1);
+    assert.equal(json.taskId, "T01");
+    assert.equal(json.unitId, "M001/S03/T01");
+    assert.equal(json.passed, false);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("verification-evidence: writeVerificationJSON without retry params omits retryAttempt/maxRetries keys", () => {
+  const tmp = makeTempDir("ve-no-retry");
+  try {
+    const result = makeResult({
+      passed: true,
+      checks: [
+        { command: "npm run test", exitCode: 0, stdout: "ok", stderr: "", durationMs: 100 },
+      ],
+    });
+
+    writeVerificationJSON(result, tmp, "T02");
+
+    const raw = readFileSync(join(tmp, "T02-VERIFY.json"), "utf-8");
+    const json = JSON.parse(raw);
+    assert.ok(!("retryAttempt" in json), "retryAttempt key should not be present");
+    assert.ok(!("maxRetries" in json), "maxRetries key should not be present");
+    // Confirm the JSON string does not contain these keys at all
+    assert.ok(!raw.includes('"retryAttempt"'), "raw JSON should not contain retryAttempt");
+    assert.ok(!raw.includes('"maxRetries"'), "raw JSON should not contain maxRetries");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

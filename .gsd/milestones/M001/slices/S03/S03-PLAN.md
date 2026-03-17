@@ -44,7 +44,7 @@
 
 ## Tasks
 
-- [ ] **T01: Add formatFailureContext helper and extend evidence JSON with retry fields** `est:25m`
+- [x] **T01: Add formatFailureContext helper and extend evidence JSON with retry fields** `est:25m`
   - Why: Provides the pure functions that T02 wires into auto.ts — failure context formatting for prompt injection and retry metadata for evidence artifacts. Must exist before the integration task.
   - Files: `src/resources/extensions/gsd/verification-gate.ts`, `src/resources/extensions/gsd/verification-evidence.ts`, `src/resources/extensions/gsd/tests/verification-gate.test.ts`, `src/resources/extensions/gsd/tests/verification-evidence.test.ts`
   - Do: (1) Add `formatFailureContext(result: VerificationResult): string` to `verification-gate.ts` — formats each failed check as a block with command name, exit code, and truncated stderr (cap individual stderr to 2000 chars). Overall output capped to 10,000 chars. Returns empty string if no failures. (2) Add optional `retryAttempt?: number` and `maxRetries?: number` fields to `EvidenceJSON` interface in `verification-evidence.ts`. (3) Add optional `retryAttempt`/`maxRetries` params to `writeVerificationJSON()` function signature and write them to JSON when provided. (4) Write tests for `formatFailureContext` in `verification-gate.test.ts` (formats failures, truncates long stderr, returns empty for all-pass, handles empty checks). (5) Write tests for retry evidence fields in `verification-evidence.test.ts` (fields present when provided, absent when omitted).
