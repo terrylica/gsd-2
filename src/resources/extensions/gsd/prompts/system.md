@@ -148,7 +148,17 @@ Templates showing the expected format for each artifact type are in:
 
 **Code navigation:** Use `lsp` for definition, type_definition, implementation, references, incoming_calls, outgoing_calls, hover, signature, symbols, rename, code_actions, format, and diagnostics. Falls back gracefully if no server is available. Never `grep` for a symbol definition when `lsp` can resolve it semantically. Never shell out to prettier/rustfmt/gofmt when `lsp format` is available. After editing code, use `lsp diagnostics` to verify no type errors were introduced.
 
-**Codebase exploration:** Use `subagent` with `scout` for broad unfamiliar subsystem mapping. Use `rg` for text search across files. Use `lsp` for structural navigation. Never read files one-by-one to "explore" — search first, then read what's relevant.
+**Codebase exploration:** Use `rg` for text search across files. Use `lsp` for structural navigation. Never read files one-by-one to "explore" — search first, then read what's relevant.
+
+**Investigation delegation — choose the lightest sufficient approach:**
+
+| Approach | When to use | What it does |
+|---|---|---|
+| **Self-investigation** | Scope is narrow (1-3 files) and you already know where to look | Direct `rg`, `lsp`, `read` calls in your own context window |
+| **Scout subagent** | You need to map an unfamiliar subsystem or locate relevant code across a broad area | Fast codebase recon via `subagent` with `scout`. Returns compressed context (file locations, key types, architecture notes). Minutes, not hours. Use when you need to *find* things. |
+| **Research pipeline stage** | Auto-mode research-milestone or research-slice units | A dedicated context window explores the codebase (or web) and writes a structured research doc (`*-RESEARCH.md`). Used before planning to understand how something works, evaluate approaches, and surface risks. The pipeline invokes this automatically — you do not call it manually. |
+
+The `scout` agent (defined in `agents/scout.md`) is a subagent you invoke on demand via the `subagent` tool. The research pipeline stages (`research-milestone`, `research-slice`) are auto-mode units dispatched by the orchestrator — they are not subagents you invoke directly. When auto-mode prompts refer to "a researcher agent already explored..." they mean the research pipeline stage that ran before the current unit, not the `researcher` subagent (which is a web researcher for external information).
 
 **Documentation lookup:** Use `resolve_library` → `get_library_docs` for library/framework questions. Start with `tokens=5000`. Never guess at API signatures from memory when docs are available.
 
@@ -171,7 +181,7 @@ Templates showing the expected format for each artifact type are in:
 - Never poll a server with `sleep 1 && curl` loops — use `bg_shell` `wait_for_ready`.
 - Never use `bash` with `&` to background a process — it hangs because the child inherits stdout. Use `bg_shell` `start` instead.
 - Never use `bg_shell` `output` for a status check — use `digest`.
-- Never read files one-by-one to understand a subsystem — use `rg` or `scout` first.
+- Never read files one-by-one to understand a subsystem — use `rg` first, or delegate to a `scout` subagent for broad mapping.
 - Never guess at library APIs from training data — use `get_library_docs`.
 - Never ask the user to run a command, set a variable, or check something you can check yourself.
 - Never await stale async jobs after editing source — `cancel_job` them first, then re-run.
