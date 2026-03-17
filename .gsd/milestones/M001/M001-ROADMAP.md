@@ -70,7 +70,7 @@ This milestone is complete only when all are true:
 - [x] **S04: Runtime Error Capture** `risk:medium` `depends:[S01]`
   > After this: Server crashes and unhandled rejections from bg-shell processes appear in verification evidence and block the gate. Console.error and deprecation warnings are logged in evidence but do not block.
 
-- [ ] **S05: Dependency Security Scan** `risk:low` `depends:[S01]`
+- [x] **S05: Dependency Security Scan** `risk:low` `depends:[S01]`
   > After this: When package.json or lockfile changes during a task, npm audit runs automatically. High/critical vulnerabilities appear as warnings in the verification evidence. Non-blocking — the gate does not fail on audit warnings.
 
 ## Boundary Map

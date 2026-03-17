@@ -39,7 +39,7 @@ See `.gsd/REQUIREMENTS.md` for the explicit capability contract, requirement sta
 
 ## Milestone Sequence
 
-- 🔄 M001: Verification Enforcement — S01 complete (gate fires, commands discovered, 28 tests). S02 complete (evidence JSON + markdown table, validator enforcement, 15 tests). S03 complete (auto-fix retry loop, 2 retries with failure context injection, 8 new tests). S04 complete (runtime error capture, bg-shell crash detection + browser console capture, 20 new tests). S05 remaining.
+- ✅ M001: Verification Enforcement — All 5 slices complete. S01: gate fires + command discovery (28 tests). S02: evidence JSON + markdown + validator (15 tests). S03: auto-fix retry loop, 2 retries (8 tests). S04: runtime error capture, crash detection + browser console (20 tests). S05: conditional npm audit, non-blocking warnings in evidence (18 tests). Total: 1106 pass, 8 pre-existing fail.
 - [ ] M002: Executable UAT — eliminate human pauses for automatable checks
 - [ ] M003: Operational Automation — git push, draft PR, deploy+verify with Vercel
 - [ ] M004: Supervisor Upgrade — bounded diagnostic reasoning for failure recovery
