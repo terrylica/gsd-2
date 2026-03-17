@@ -740,6 +740,7 @@ export async function pauseAuto(ctx?: ExtensionContext, _pi?: ExtensionAPI): Pro
   active = false;
   paused = true;
   pendingVerificationRetry = null;
+  verificationRetryCount.clear();
   // Preserve: unitDispatchCount, currentUnit, basePath, verbose, cmdCtx,
   // completedUnits, autoStartTime, currentMilestoneId, originalModelId
   // — all needed for resume and dashboard display

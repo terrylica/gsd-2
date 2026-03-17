@@ -54,12 +54,13 @@ export function discoverCommands(options: DiscoverCommandsOptions): DiscoveredCo
     }
   }
 
-  // 2. Task plan verify field
+  // 2. Task plan verify field (commands are untrusted — sanitize)
   if (options.taskPlanVerify && options.taskPlanVerify.trim()) {
     const commands = options.taskPlanVerify
       .split("&&")
       .map(c => c.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter(c => sanitizeCommand(c) !== null);
     if (commands.length > 0) {
       return { commands, source: "task-plan" };
     }
@@ -139,12 +140,29 @@ export function formatFailureContext(result: VerificationResult): string {
 
 // ─── Gate Execution ─────────────────────────────────────────────────────────
 
+/** Characters that indicate shell injection when found in a command string. */
+const SHELL_INJECTION_PATTERN = /[;|`]|\$\(/;
+
+/**
+ * Validate a command string for obvious shell injection patterns.
+ * Returns the command unchanged if safe, or null if suspicious.
+ */
+function sanitizeCommand(cmd: string): string | null {
+  if (SHELL_INJECTION_PATTERN.test(cmd)) return null;
+  return cmd;
+}
+
+/** Default timeout for verification commands (ms). */
+const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
+
 export interface RunVerificationGateOptions {
   basePath: string;
   unitId: string;
   cwd: string;
   preferenceCommands?: string[];
   taskPlanVerify?: string;
+  /** Per-command timeout in ms. Defaults to 120 000 (2 minutes). */
+  commandTimeoutMs?: number;
 }
 
 /**
@@ -182,6 +200,7 @@ export function runVerificationGate(options: RunVerificationGateOptions): Verifi
       cwd: options.cwd,
       stdio: "pipe",
       encoding: "utf-8",
+      timeout: options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS,
     });
     const durationMs = Date.now() - start;
 
