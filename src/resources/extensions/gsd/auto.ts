@@ -2500,7 +2500,7 @@ async function dispatchNextUnit(
           // Milestone is complete — evicting this key would fight self-heal.
           // Clear skip counter and re-dispatch from fresh state.
           unitConsecutiveSkips.delete(idempotencyKey);
-          invalidateStateCache();
+          invalidateAllCaches();
           ctx.ui.notify(
             `Phantom skip loop cleared: ${unitType} ${unitId} belongs to completed milestone ${skippedMid}. Re-dispatching from fresh state.`,
             "info",
@@ -2578,7 +2578,7 @@ async function dispatchNextUnit(
         : false;
       if (skippedMilestoneComplete2) {
         unitConsecutiveSkips.delete(idempotencyKey);
-        invalidateStateCache();
+        invalidateAllCaches();
         ctx.ui.notify(
           `Phantom skip loop cleared: ${unitType} ${unitId} belongs to completed milestone ${skippedMid2}. Re-dispatching from fresh state.`,
           "info",
