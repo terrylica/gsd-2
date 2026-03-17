@@ -2,95 +2,97 @@
 
 This file is the explicit capability and coverage contract for the project.
 
-## Active
+## Validated
 
 ### R001 — Enforced Verification Gate
 - Class: core-capability
-- Status: active
+- Status: validated
 - Description: A built-in post-unit hook fires after every execute-task completion, runs discovered verification commands, and blocks task completion until all pass or explicit override.
 - Why it matters: Without mechanical enforcement, verification is prompt-dependent (~30% coverage). This makes it mandatory (~95%).
 - Source: user
 - Primary owning slice: M001/S01
 - Supporting slices: M001/S03
-- Validation: unmapped
-- Notes: Must integrate with existing hook engine without creating hook-on-hook chains. Built-in hooks are distinct from user-configured hooks.
+- Validation: Gate fires in handleAgentEnd for execute-task units (auto.ts line 1521). 28 unit tests for gate logic. Retry loop blocks completion until pass or exhaustion. Code review confirms gate before user hooks, non-fatal wrapper.
+- Notes: Hardcoded in auto.ts handleAgentEnd (D001). Built-in hooks are distinct from user-configured hooks.
 
 ### R002 — Verification Command Discovery
 - Class: core-capability
-- Status: active
+- Status: validated
 - Description: Verification gate discovers commands from (a) `verification_commands` preference, (b) task plan `verify:` field, (c) package.json scripts (typecheck, lint, test). Preference overrides auto-detection.
 - Why it matters: Auto-detection is ergonomic for projects with standard scripts. Preference override gives control for non-standard setups.
 - Source: user
 - Primary owning slice: M001/S01
 - Supporting slices: none
-- Validation: unmapped
+- Validation: discoverCommands() implements D003 order. 8+ discovery tests cover all paths including fallthrough, whitespace, partial scripts. First-non-empty-wins confirmed.
 - Notes: Discovery order: explicit preference → task plan → package.json. First non-empty source wins.
 
 ### R003 — Structured Verification Evidence (MD + JSON)
 - Class: primary-user-loop
-- Status: active
+- Status: validated
 - Description: Every task summary contains a canonical verification evidence table. A machine-readable T##-VERIFY.json is written alongside the summary.
 - Why it matters: Structured evidence enables downstream querying (milestone validation, regression audit) without parsing prose.
 - Source: user
 - Primary owning slice: M001/S02
 - Supporting slices: none
-- Validation: unmapped
-- Notes: JSON schema must be stable and versioned. Evidence includes check name, command/tool, expected, observed, verdict.
+- Validation: writeVerificationJSON persists T##-VERIFY.json (schemaVersion 1). formatEvidenceTable generates 5-column markdown. Template, prompt, and auto.ts wired. 15+ tests pass.
+- Notes: JSON schema versioned at schemaVersion 1. stdout/stderr excluded from JSON per D021.
 
 ### R004 — Evidence Block Validation
 - Class: quality-attribute
-- Status: active
+- Status: validated
 - Description: The verification gate validates that the task summary contains a well-formed evidence block before allowing completion. Missing or malformed evidence blocks fail the gate.
 - Why it matters: Ensures evidence is always present and machine-parseable, not just encouraged by prompts.
 - Source: user
 - Primary owning slice: M001/S02
 - Supporting slices: none
-- Validation: unmapped
-- Notes: Extends observability-validator.ts with evidence block structure checks.
+- Validation: evidence_block_missing and evidence_block_placeholder rules in observability-validator.ts. 4 validator tests prove acceptance of real evidence and rejection of missing/placeholder content.
+- Notes: Validator rules are warnings (same pattern as diagnostics rules).
 
 ### R005 — Verification Auto-Fix Retry Loop (2 retries)
 - Class: core-capability
-- Status: active
+- Status: validated
 - Description: When verification commands fail, the agent gets up to 2 auto-fix attempts. Failure context (stderr, exit code) is injected into the retry prompt. After 2 failures, the gate fails and surfaces for human review.
 - Why it matters: Most verification failures are fixable (typos, missing imports, lint issues). Auto-fix eliminates unnecessary human pauses.
 - Source: user
 - Primary owning slice: M001/S03
 - Supporting slices: none
-- Validation: unmapped
+- Validation: 3-path gate logic (pass/retry/exhaust) in handleAgentEnd. formatFailureContext 6 tests pass. Retry evidence with retryAttempt/maxRetries fields 2 tests pass. pauseAuto on exhaustion confirmed.
 - Notes: Uses module-level retry state parallel to pendingCrashRecovery pattern (not hook retry_on). Max retries configurable via `verification_max_retries` preference.
 
 ### R006 — Runtime Error Capture (bg-shell + browser console)
 - Class: failure-visibility
-- Status: active
+- Status: validated
 - Description: After browser verification or dev server execution, the verification gate captures and reviews server stderr/stdout from bg-shell processes and browser console errors.
 - Why it matters: Prevents "tests pass but server is crashing" blindness. Surfaces runtime errors that static checks miss.
 - Source: user
 - Primary owning slice: M001/S04
 - Supporting slices: none
-- Validation: unmapped
-- Notes: Signals: server stderr from bg-shell, browser console errors, unhandled promise rejections, deprecation warnings.
+- Validation: captureRuntimeErrors() scans bg-shell (crashed, non-zero exit, fatal signal, recentErrors) and browser console (errors, warnings, unhandled rejections). 14 unit tests cover all 7 severity classes plus graceful degradation.
+- Notes: Dynamic import with dependency injection for testability (D023).
 
 ### R007 — Crash-Severity Gate (crashes block, warnings log)
 - Class: quality-attribute
-- Status: active
+- Status: validated
 - Description: Unhandled rejections and process crashes fail the verification gate. Console.error and deprecation warnings are logged in evidence but do not block.
 - Why it matters: Distinguishes fatal from informational — prevents false failures from third-party library noise while catching real crashes.
 - Source: user
 - Primary owning slice: M001/S04
 - Supporting slices: none
-- Validation: unmapped
+- Validation: D004 severity classification. 14 tests verify blocking (crash/unhandled rejection) and non-blocking (console.error/deprecation). Gate override in auto.ts flips result.passed on blocking errors.
 - Notes: Severity classification: crash/unhandled rejection = blocking. console.error/deprecation = logged, non-blocking.
 
 ### R008 — Dependency Security Scan
 - Class: quality-attribute
-- Status: active
+- Status: validated
 - Description: If package.json or lockfile changed during task execution, `npm audit --audit-level=moderate` runs. High/critical vulnerabilities appear in evidence as warnings. Non-blocking — warn, don't fail.
 - Why it matters: Catches supply-chain risks early without interrupting flow for low-severity issues.
 - Source: user
 - Primary owning slice: M001/S05
 - Supporting slices: none
-- Validation: unmapped
-- Notes: Conditional — only fires when package manifest changes detected via git diff.
+- Validation: runDependencyAudit() uses git diff to detect 5 lockfile types, runs npm audit --json, parses vulnerabilities. 12 unit tests cover all paths. Non-blocking confirmed — never modifies result.passed.
+- Notes: Only npm audit supported (not pnpm/yarn/bun audit). Conditional on git diff detecting lockfile changes.
+
+## Active
 
 ### R009 — Executable UAT Type System Expansion
 - Class: core-capability
@@ -219,14 +221,14 @@ This file is the explicit capability and coverage contract for the project.
 
 | ID | Class | Status | Primary owner | Supporting | Proof |
 |---|---|---|---|---|---|
-| R001 | core-capability | active | M001/S01 | M001/S03 | unmapped |
-| R002 | core-capability | active | M001/S01 | none | unmapped |
-| R003 | primary-user-loop | active | M001/S02 | none | unmapped |
-| R004 | quality-attribute | active | M001/S02 | none | unmapped |
-| R005 | core-capability | active | M001/S03 | none | unmapped |
-| R006 | failure-visibility | active | M001/S04 | none | unmapped |
-| R007 | quality-attribute | active | M001/S04 | none | unmapped |
-| R008 | quality-attribute | active | M001/S05 | none | unmapped |
+| R001 | core-capability | validated | M001/S01 | M001/S03 | 28 gate tests, retry loop blocks, code review |
+| R002 | core-capability | validated | M001/S01 | none | 8+ discovery tests, D003 order confirmed |
+| R003 | primary-user-loop | validated | M001/S02 | none | 15+ evidence tests, template/prompt/auto.ts wired |
+| R004 | quality-attribute | validated | M001/S02 | none | 4 validator tests, evidence_block rules |
+| R005 | core-capability | validated | M001/S03 | none | 8 retry tests, 3-path gate logic, pauseAuto |
+| R006 | failure-visibility | validated | M001/S04 | none | 14 tests, 7 severity classes, graceful degradation |
+| R007 | quality-attribute | validated | M001/S04 | none | 14 tests, D004 classification, gate override |
+| R008 | quality-attribute | validated | M001/S05 | none | 12 tests, 5 lockfile types, non-blocking |
 | R009 | core-capability | active | M002/S01 | M002/S04 | unmapped |
 | R010 | core-capability | active | M002/S02 | none | unmapped |
 | R011 | continuity | active | M002/S03 | M002/S04 | unmapped |
@@ -241,7 +243,8 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Coverage Summary
 
-- Active requirements: 17
-- Mapped to slices: 17
-- Validated: 0
+- Active requirements: 9
+- Mapped to slices: 9
+- Validated: 8
+- Deferred: 2
 - Unmapped active requirements: 0
