@@ -576,7 +576,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      await ctx.ui.custom<void>(
+      const result = await ctx.ui.custom<void>(
         (tui, theme, _kb, done) => {
           return new GSDDashboardOverlay(tui, theme, () => done());
         },
@@ -590,6 +590,12 @@ export default function (pi: ExtensionAPI) {
           },
         },
       );
+
+      // Fallback for RPC mode where ctx.ui.custom() returns undefined.
+      if (result === undefined) {
+        const { fireStatusViaCommand } = await import("./commands.js");
+        await fireStatusViaCommand(ctx);
+      }
     },
   });
 
