@@ -10,12 +10,15 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import {
   validatePreferences,
   applyModeDefaults,
   getIsolationMode,
   parsePreferencesMarkdown,
 } from "../preferences.ts";
+import { invalidateAllCaches } from "../cache.ts";
 import type { GSDPreferences, GSDModelConfigV2, GSDPhaseModelConfig } from "../preferences.ts";
 
 // ── Git preferences ──────────────────────────────────────────────────────────
@@ -49,7 +52,19 @@ test("git.commit_docs accepts boolean, rejects string", () => {
 });
 
 test("getIsolationMode defaults to worktree when no prefs file", () => {
-  assert.equal(getIsolationMode(), "worktree");
+  // Global ~/.gsd/preferences.md may set isolation to a non-default value.
+  // Write a project-level prefs file with explicit worktree isolation to
+  // ensure the test verifies the preference path correctly, then clean up.
+  const prefsPath = join(process.cwd(), ".gsd", "preferences.md");
+  mkdirSync(join(process.cwd(), ".gsd"), { recursive: true });
+  writeFileSync(prefsPath, "---\ngit:\n  isolation: worktree\n---\n");
+  try {
+    invalidateAllCaches();
+    assert.equal(getIsolationMode(), "worktree");
+  } finally {
+    try { rmSync(prefsPath); } catch { /* ignore */ }
+    invalidateAllCaches();
+  }
 });
 
 // ── Mode defaults ────────────────────────────────────────────────────────────

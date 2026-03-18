@@ -70,13 +70,16 @@ try {
   invalidateAllCaches();
 }
 
-// Test 4: shouldUseWorktreeIsolation returns true for no prefs (default)
-console.log("Test 4: shouldUseWorktreeIsolation returns true for no prefs (default)");
+// Test 4: shouldUseWorktreeIsolation returns true for worktree prefs (default behavior)
+// Global ~/.gsd/preferences.md may set isolation to a non-default value,
+// so we write an explicit worktree preference to verify the worktree path.
+console.log("Test 4: shouldUseWorktreeIsolation returns true for worktree prefs");
 try {
-  removeRunnerPreferences(); // ensure no prefs file
+  writeRunnerPreferences("worktree");
   invalidateAllCaches();
-  assertEq(shouldUseWorktreeIsolation(), true, "shouldUseWorktreeIsolation() with no prefs (default worktree)");
+  assertEq(shouldUseWorktreeIsolation(), true, "shouldUseWorktreeIsolation() with worktree prefs");
 } finally {
+  removeRunnerPreferences();
   invalidateAllCaches();
 }
 

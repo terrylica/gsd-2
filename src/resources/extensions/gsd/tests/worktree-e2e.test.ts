@@ -22,6 +22,7 @@ import {
 import { getSliceBranchName } from "../worktree.ts";
 import { abortAndReset } from "../git-self-heal.ts";
 import { runGSDDoctor } from "../doctor.ts";
+import { invalidateAllCaches } from "../cache.ts";
 import { createTestContext } from "./test-helpers.ts";
 
 const { assertEq, assertTrue, assertMatch, report } = createTestContext();
@@ -78,6 +79,17 @@ function addSliceToMilestone(
   }
   run(`git checkout milestone/${milestoneId}`, wtPath);
   run(`git merge --no-ff ${sliceBranch} -m "merge ${sliceId}"`, wtPath);
+}
+
+// Global ~/.gsd/preferences.md may set isolation: none which skips worktree
+// checks in the doctor. Override with project-level prefs for the doctor test.
+const RUNNER_PREFS_PATH = join(process.cwd(), ".gsd", "preferences.md");
+function writeRunnerPreferences(isolation: "none" | "worktree" | "branch"): void {
+  mkdirSync(join(process.cwd(), ".gsd"), { recursive: true });
+  writeFileSync(RUNNER_PREFS_PATH, `---\ngit:\n  isolation: "${isolation}"\n---\n`);
+}
+function removeRunnerPreferences(): void {
+  try { rmSync(RUNNER_PREFS_PATH); } catch { /* ignore */ }
 }
 
 async function main(): Promise<void> {
@@ -209,13 +221,13 @@ _None_
       run("git worktree add -b milestone/M001 .gsd/worktrees/M001", repo);
 
       // Detect
-      const detect = await runGSDDoctor(repo);
+      const detect = await runGSDDoctor(repo, { isolationMode: "worktree" });
       const orphanIssues = detect.issues.filter(i => i.code === "orphaned_auto_worktree");
       assertTrue(orphanIssues.length > 0, "doctor detects orphaned worktree");
       assertEq(orphanIssues[0]?.unitId, "M001", "orphaned worktree unitId is M001");
 
       // Fix
-      const fixed = await runGSDDoctor(repo, { fix: true });
+      const fixed = await runGSDDoctor(repo, { fix: true, isolationMode: "worktree" });
       assertTrue(
         fixed.fixesApplied.some(f => f.includes("removed orphaned worktree")),
         "doctor fix removes orphaned worktree",

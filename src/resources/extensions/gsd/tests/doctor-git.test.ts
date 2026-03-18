@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
 import { runGSDDoctor } from "../doctor.ts";
+import { invalidateAllCaches } from "../cache.ts";
 import { createTestContext } from "./test-helpers.ts";
 
 const { assertEq, assertTrue, report } = createTestContext();
@@ -146,12 +147,12 @@ async function main(): Promise<void> {
       mkdirSync(join(dir, ".gsd", "worktrees"), { recursive: true });
       run("git worktree add -b milestone/M001 .gsd/worktrees/M001", dir);
 
-      const detect = await runGSDDoctor(dir);
+      const detect = await runGSDDoctor(dir, { isolationMode: "worktree" });
       const orphanIssues = detect.issues.filter(i => i.code === "orphaned_auto_worktree");
       assertTrue(orphanIssues.length > 0, "detects orphaned worktree");
       assertEq(orphanIssues[0]?.unitId, "M001", "orphaned worktree unitId is M001");
 
-      const fixed = await runGSDDoctor(dir, { fix: true });
+      const fixed = await runGSDDoctor(dir, { fix: true, isolationMode: "worktree" });
       assertTrue(fixed.fixesApplied.some(f => f.includes("removed orphaned worktree")), "fix removes orphaned worktree");
 
       // Verify worktree is gone
@@ -174,12 +175,12 @@ async function main(): Promise<void> {
       // Create a milestone/M001 branch (no worktree)
       run("git branch milestone/M001", dir);
 
-      const detect = await runGSDDoctor(dir);
+      const detect = await runGSDDoctor(dir, { isolationMode: "worktree" });
       const staleIssues = detect.issues.filter(i => i.code === "stale_milestone_branch");
       assertTrue(staleIssues.length > 0, "detects stale milestone branch");
       assertEq(staleIssues[0]?.unitId, "M001", "stale branch unitId is M001");
 
-      const fixed = await runGSDDoctor(dir, { fix: true });
+      const fixed = await runGSDDoctor(dir, { fix: true, isolationMode: "worktree" });
       assertTrue(fixed.fixesApplied.some(f => f.includes("deleted stale branch")), "fix deletes stale branch");
 
       // Verify branch is gone
@@ -200,11 +201,11 @@ async function main(): Promise<void> {
       const headHash = run("git rev-parse HEAD", dir);
       writeFileSync(join(dir, ".git", "MERGE_HEAD"), headHash + "\n");
 
-      const detect = await runGSDDoctor(dir);
+      const detect = await runGSDDoctor(dir, { isolationMode: "worktree" });
       const mergeIssues = detect.issues.filter(i => i.code === "corrupt_merge_state");
       assertTrue(mergeIssues.length > 0, "detects corrupt merge state");
 
-      const fixed = await runGSDDoctor(dir, { fix: true });
+      const fixed = await runGSDDoctor(dir, { fix: true, isolationMode: "worktree" });
       assertTrue(fixed.fixesApplied.some(f => f.includes("cleaned merge state")), "fix cleans merge state");
 
       // Verify MERGE_HEAD is gone
@@ -224,11 +225,11 @@ async function main(): Promise<void> {
       run("git add -f .gsd/activity/test.log", dir);
       run("git commit -m \"track runtime file\"", dir);
 
-      const detect = await runGSDDoctor(dir);
+      const detect = await runGSDDoctor(dir, { isolationMode: "worktree" });
       const trackedIssues = detect.issues.filter(i => i.code === "tracked_runtime_files");
       assertTrue(trackedIssues.length > 0, "detects tracked runtime files");
 
-      const fixed = await runGSDDoctor(dir, { fix: true });
+      const fixed = await runGSDDoctor(dir, { fix: true, isolationMode: "worktree" });
       assertTrue(fixed.fixesApplied.some(f => f.includes("untracked")), "fix untracks runtime files");
 
       // Verify file is no longer tracked
@@ -245,7 +246,7 @@ async function main(): Promise<void> {
       // Create minimal .gsd structure (no git)
       mkdirSync(join(dir, ".gsd"), { recursive: true });
 
-      const result = await runGSDDoctor(dir);
+      const result = await runGSDDoctor(dir, { isolationMode: "worktree" });
       const gitIssues = result.issues.filter(i =>
         ["orphaned_auto_worktree", "stale_milestone_branch", "corrupt_merge_state", "tracked_runtime_files"].includes(i.code)
       );
@@ -265,7 +266,7 @@ async function main(): Promise<void> {
       mkdirSync(join(dir, ".gsd", "worktrees"), { recursive: true });
       run("git worktree add -b milestone/M001 .gsd/worktrees/M001", dir);
 
-      const detect = await runGSDDoctor(dir);
+      const detect = await runGSDDoctor(dir, { isolationMode: "worktree" });
       const orphanIssues = detect.issues.filter(i => i.code === "orphaned_auto_worktree");
       assertEq(orphanIssues.length, 0, "active worktree NOT flagged as orphaned");
     }
@@ -274,28 +275,18 @@ async function main(): Promise<void> {
     }
 
     // ─── Test 7: none-mode skips orphaned worktree check ───────────────
-    // NOTE: loadEffectiveGSDPreferences() resolves PROJECT_PREFERENCES_PATH
-    // at module load time from process.cwd(). We write the prefs file to
-    // the test runner's cwd .gsd/preferences.md and clean up afterwards.
     if (process.platform !== "win32") {
     console.log("\n=== none-mode skips orphaned worktree ===");
     {
       const dir = createRepoWithCompletedMilestone();
       cleanups.push(dir);
 
-      // Create worktree with milestone/M001 branch under .gsd/worktrees/
       mkdirSync(join(dir, ".gsd", "worktrees"), { recursive: true });
       run("git worktree add -b milestone/M001 .gsd/worktrees/M001", dir);
 
-      // Write preferences to runner's cwd (where the module resolves project prefs)
-      writeRunnerPreferences("none");
-      try {
-        const result = await runGSDDoctor(dir);
-        const orphanIssues = result.issues.filter(i => i.code === "orphaned_auto_worktree");
-        assertEq(orphanIssues.length, 0, "none-mode: orphaned worktree NOT detected");
-      } finally {
-        removeRunnerPreferences();
-      }
+      const result = await runGSDDoctor(dir, { isolationMode: "none" });
+      const orphanIssues = result.issues.filter(i => i.code === "orphaned_auto_worktree");
+      assertEq(orphanIssues.length, 0, "none-mode: orphaned worktree NOT detected");
     }
     } else {
       console.log("\n=== none-mode skips orphaned worktree (skipped on Windows) ===");
@@ -308,18 +299,11 @@ async function main(): Promise<void> {
       const dir = createRepoWithCompletedMilestone();
       cleanups.push(dir);
 
-      // Create a milestone/M001 branch (no worktree)
       run("git branch milestone/M001", dir);
 
-      // Write preferences to runner's cwd
-      writeRunnerPreferences("none");
-      try {
-        const result = await runGSDDoctor(dir);
-        const staleIssues = result.issues.filter(i => i.code === "stale_milestone_branch");
-        assertEq(staleIssues.length, 0, "none-mode: stale branch NOT detected");
-      } finally {
-        removeRunnerPreferences();
-      }
+      const result = await runGSDDoctor(dir, { isolationMode: "none" });
+      const staleIssues = result.issues.filter(i => i.code === "stale_milestone_branch");
+      assertEq(staleIssues.length, 0, "none-mode: stale branch NOT detected");
     }
     } else {
       console.log("\n=== none-mode skips stale branch (skipped on Windows) ===");
@@ -331,19 +315,12 @@ async function main(): Promise<void> {
       const dir = createRepoWithCompletedMilestone();
       cleanups.push(dir);
 
-      // Inject MERGE_HEAD into .git
       const headHash = run("git rev-parse HEAD", dir);
       writeFileSync(join(dir, ".git", "MERGE_HEAD"), headHash + "\n");
 
-      // Write preferences to runner's cwd
-      writeRunnerPreferences("none");
-      try {
-        const result = await runGSDDoctor(dir);
-        const mergeIssues = result.issues.filter(i => i.code === "corrupt_merge_state");
-        assertTrue(mergeIssues.length > 0, "none-mode: corrupt merge state IS detected");
-      } finally {
-        removeRunnerPreferences();
-      }
+      const result = await runGSDDoctor(dir, { isolationMode: "none" });
+      const mergeIssues = result.issues.filter(i => i.code === "corrupt_merge_state");
+      assertTrue(mergeIssues.length > 0, "none-mode: corrupt merge state IS detected");
     }
 
     // ─── Test 10: none-mode still detects tracked runtime files ────────
@@ -352,25 +329,20 @@ async function main(): Promise<void> {
       const dir = createRepoWithCompletedMilestone();
       cleanups.push(dir);
 
-      // Force-add a runtime file
       const activityDir = join(dir, ".gsd", "activity");
       mkdirSync(activityDir, { recursive: true });
       writeFileSync(join(activityDir, "test.log"), "log data\n");
       run("git add -f .gsd/activity/test.log", dir);
       run("git commit -m \"track runtime file\"", dir);
 
-      // Write preferences to runner's cwd
-      writeRunnerPreferences("none");
-      try {
-        const result = await runGSDDoctor(dir);
-        const trackedIssues = result.issues.filter(i => i.code === "tracked_runtime_files");
-        assertTrue(trackedIssues.length > 0, "none-mode: tracked runtime files IS detected");
-      } finally {
-        removeRunnerPreferences();
-      }
+      const result = await runGSDDoctor(dir, { isolationMode: "none" });
+      const trackedIssues = result.issues.filter(i => i.code === "tracked_runtime_files");
+      assertTrue(trackedIssues.length > 0, "none-mode: tracked runtime files IS detected");
     }
 
   } finally {
+    removeRunnerPreferences();
+    invalidateAllCaches();
     for (const dir of cleanups) {
       try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
     }

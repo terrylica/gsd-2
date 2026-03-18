@@ -80,14 +80,19 @@ test("stopAutoRemote cleans up stale lock (dead PID) and returns found:false", (
   }
 });
 
-test("stopAutoRemote sends SIGTERM to a live process and returns found:true", async () => {
+test("stopAutoRemote sends SIGTERM to a live process and returns found:true", { timeout: 15000 }, async () => {
   const base = makeTmpBase();
 
-  // Spawn a child process that sleeps, acting as a fake auto-mode session
+  // Spawn a child process that sleeps, acting as a fake auto-mode session.
+  // Use a pipe on stdout so we can detect when the child is actually ready.
   const child = spawn(
     process.execPath,
-    ["-e", "process.on('SIGTERM', () => process.exit(0)); setTimeout(() => process.exit(1), 30000);"],
-    { stdio: "ignore", detached: false },
+    ["-e", `
+      process.on('SIGTERM', () => process.exit(0));
+      process.stdout.write('ready\\n');
+      setTimeout(() => process.exit(1), 60000);
+    `],
+    { stdio: ["ignore", "pipe", "ignore"], detached: false },
   );
 
   if (!child.pid) {
@@ -95,8 +100,12 @@ test("stopAutoRemote sends SIGTERM to a live process and returns found:true", as
   }
 
   try {
-    // Wait for child to be ready
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Wait for child to signal it's ready (SIGTERM handler registered)
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("child not ready in 5s")), 5000);
+      child.stdout!.once("data", () => { clearTimeout(timeout); resolve(); });
+      child.once("error", (err) => { clearTimeout(timeout); reject(err); });
+    });
 
     // Write lock with child's PID
     const lockData = {
@@ -109,7 +118,7 @@ test("stopAutoRemote sends SIGTERM to a live process and returns found:true", as
     };
     writeFileSync(join(base, ".gsd", "auto.lock"), JSON.stringify(lockData, null, 2), "utf-8");
 
-    const exitPromise = waitForChildExit(child);
+    const exitPromise = waitForChildExit(child, 10000);
     const result = stopAutoRemote(base);
     assert.equal(result.found, true, "should find running auto-mode");
     assert.equal(result.pid, child.pid, "should return the PID");
