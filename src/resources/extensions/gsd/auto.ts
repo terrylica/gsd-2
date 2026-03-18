@@ -104,7 +104,8 @@ import { computeBudgets, resolveExecutorContextWindow } from "./context-budget.j
 import { GSDError, GSD_ARTIFACT_MISSING } from "./errors.js";
 import { join } from "node:path";
 import { sep as pathSep } from "node:path";
-import { readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync, renameSync, unlinkSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync, statSync } from "node:fs";
+import { atomicWriteSync } from "./atomic-write.js";
 import { nativeIsRepo, nativeInit, nativeAddAll, nativeCommit } from "./native-git-bridge.js";
 import {
   autoCommitCurrentBranch,
@@ -185,6 +186,18 @@ export {
 } from "./auto/session.js";
 export type { CompletedUnit, CurrentUnit, UnitRouting, StartModel } from "./auto/session.js";
 
+// ── ENCAPSULATION INVARIANT ─────────────────────────────────────────────────
+// ALL mutable auto-mode state lives in the AutoSession class (auto/session.ts).
+// This file must NOT declare module-level `let` or `var` variables for state.
+// The single `s` instance below is the only mutable module-level binding.
+//
+// When adding features or fixing bugs:
+//   - New mutable state → add a property to AutoSession, not a module-level variable
+//   - New constants → module-level `const` is fine (immutable)
+//   - New state that needs reset on stopAuto → add to AutoSession.reset()
+//
+// Tests in auto-session-encapsulation.test.ts enforce this invariant.
+// ─────────────────────────────────────────────────────────────────────────────
 const s = new AutoSession();
 
 /** Throttle STATE.md rebuilds — at most once per 30 seconds */
@@ -2149,9 +2162,7 @@ async function dispatchNextUnit(
     try {
       const file = completedKeysPath(s.basePath);
       if (existsSync(file)) {
-        const tmpFile = file + ".tmp";
-        writeFileSync(tmpFile, JSON.stringify([]), "utf-8");
-        renameSync(tmpFile, file);
+        atomicWriteSync(file, JSON.stringify([]));
       }
       s.completedKeySet.clear();
     } catch (e) { debugLog("completed-keys-reset-failed", { error: e instanceof Error ? e.message : String(e) }); }
@@ -2348,9 +2359,7 @@ async function dispatchNextUnit(
     try {
       const file = completedKeysPath(s.basePath);
       if (existsSync(file)) {
-        const tmpFile = file + ".tmp";
-        writeFileSync(tmpFile, JSON.stringify([]), "utf-8");
-        renameSync(tmpFile, file);
+        atomicWriteSync(file, JSON.stringify([]));
       }
       s.completedKeySet.clear();
     } catch (e) { debugLog("completed-keys-reset-failed", { error: e instanceof Error ? e.message : String(e) }); }

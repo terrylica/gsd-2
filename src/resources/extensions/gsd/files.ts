@@ -4,8 +4,8 @@
 // Pure functions, zero Pi dependencies - uses only Node built-ins.
 
 import { promises as fs } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { resolve } from 'node:path';
+import { atomicWriteAsync } from './atomic-write.js';
 import { resolveMilestoneFile, relMilestoneFile, resolveGsdRootFile } from './paths.js';
 import { milestoneIdSort, findMilestoneIds } from './guided-flow.js';
 
@@ -23,10 +23,9 @@ import { checkExistingEnvKeys } from '../get-secrets-from-user.js';
 import { parseRoadmapSlices } from './roadmap-slices.js';
 import { nativeParseRoadmap, nativeExtractSection, nativeParsePlanFile, nativeParseSummaryFile, NATIVE_UNAVAILABLE } from './native-parser-bridge.js';
 import { debugTime, debugCount } from './debug-logger.js';
+import { CACHE_MAX } from './constants.js';
 
 // ─── Parse Cache ──────────────────────────────────────────────────────────
-
-const CACHE_MAX = 50;
 
 /** Fast composite key: length + first/mid/last 100 chars. The middle sample
  *  prevents collisions when only a few characters change in the interior of
@@ -703,24 +702,7 @@ export async function loadFile(path: string): Promise<string | null> {
  * Creates parent directories if needed.
  */
 export async function saveFile(path: string, content: string): Promise<void> {
-  const dir = dirname(path);
-  await fs.mkdir(dir, { recursive: true });
-
-  // Use a unique temp path per call to avoid collisions when parallel
-  // tool calls target the same file (e.g. concurrent gsd_save_decision).
-  // rename() is atomic on POSIX, so last-writer-wins is correct for
-  // regenerate-from-DB writes.
-  const tmpPath = path + `.tmp.${randomBytes(4).toString("hex")}`;
-  await fs.writeFile(tmpPath, content, 'utf-8');
-  try {
-    await fs.rename(tmpPath, path);
-  } catch (err) {
-    // Clean up orphaned temp file on rename failure
-    await fs.unlink(tmpPath).catch((unlinkErr) => {
-      if (process.env.GSD_DEBUG) console.error(`[gsd] temp file cleanup failed for ${tmpPath}:`, unlinkErr);
-    });
-    throw err;
-  }
+  await atomicWriteAsync(path, content);
 }
 
 export function parseRequirementCounts(content: string | null): RequirementCounts {
