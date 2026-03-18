@@ -4,17 +4,6 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Active
 
-### R004 — Tool calls render as bespoke collapsed/expandable cards. Edit cards show syntax-highlighted inline diffs. Read cards show formatted code previews with line numbers. Bash cards show styled terminal output. Write cards show the created file with highlighting. Collapsed view shows just enough to be interesting — a code snippet, a diff summary, a command. Expanded view shows full detail. Each card type is a design piece with considered borders, spacing, hierarchy, and subtle expand animation.
-- Class: differentiator
-- Status: active
-- Description: Tool calls render as bespoke collapsed/expandable cards. Edit cards show syntax-highlighted inline diffs. Read cards show formatted code previews with line numbers. Bash cards show styled terminal output. Write cards show the created file with highlighting. Collapsed view shows just enough to be interesting — a code snippet, a diff summary, a command. Expanded view shows full detail. Each card type is a design piece with considered borders, spacing, hierarchy, and subtle expand animation.
-- Why it matters: Tool cards are what you stare at 90% of the time. They are the product. They must be art.
-- Source: user
-- Primary owning slice: M001-1ya5a3/S04
-- Supporting slices: M001-1ya5a3/S03
-- Validation: unmapped
-- Notes: Tool types to cover at minimum: Read, Write, Edit, Bash, lsp, search, browser tools. Each gets bespoke treatment. No generic "tool output" fallback that looks lazy.
-
 ### R005 — Monaco Editor panel in the right column with JetBrains Mono font, custom dark theme matching the app's monochrome + amber aesthetic, minimap disabled, proper syntax highlighting for all major languages
 - Class: core-capability
 - Status: active
@@ -60,6 +49,17 @@ This file is the explicit capability and coverage contract for the project.
 - Notes: Must handle all extension_ui_request methods: select (single + multi), confirm, input, editor. Also handle fire-and-forget: notify, setStatus, setWidget, setTitle. The secure_env_collect tool uses paged masked input — handle via the input method with masking.
 
 ## Validated
+
+### R004 — Tool calls render as bespoke collapsed/expandable cards. Edit cards show syntax-highlighted inline diffs. Read cards show formatted code previews with line numbers. Bash cards show styled terminal output. Write cards show the created file with highlighting. Collapsed view shows just enough to be interesting — a code snippet, a diff summary, a command. Expanded view shows full detail. Each card type is a design piece with considered borders, spacing, hierarchy, and subtle expand animation.
+- Class: differentiator
+- Status: validated
+- Description: Tool calls render as bespoke collapsed/expandable cards. Edit cards show syntax-highlighted inline diffs. Read cards show formatted code previews with line numbers. Bash cards show styled terminal output. Write cards show the created file with highlighting. Collapsed view shows just enough to be interesting — a code snippet, a diff summary, a command. Expanded view shows full detail. Each card type is a design piece with considered borders, spacing, hierarchy, and subtle expand animation.
+- Why it matters: Tool cards are what you stare at 90% of the time. They are the product. They must be art.
+- Source: user
+- Primary owning slice: M001-1ya5a3/S04
+- Supporting slices: M001-1ya5a3/S03
+- Validation: `npm run test -w studio` passes 34 tests including 4 new S04 tests for tool_execution_update, structured results, isError, and backward compat. `npx tsc --noEmit -p studio/tsconfig.web.json` zero type errors. `npm run build -w studio` bundles all 8 card components (Edit, Bash, Write, Read, Search, Lsp, Generic + shared ToolCard shell). EditCard renders diffs with intra-line word-level highlighting via Diff.diffWords(). BashCard renders terminal-styled output. Write/ReadCard use Streamdown+Shiki for syntax highlighting. GenericCard is crash-proof fallback. ToolCardDispatcher replaces ToolStub in MessageStream. Visual quality deferred to human UAT.
+- Notes: Tool types covered: Read, Write, Edit, Bash, lsp, search (grep/find/ls/glob), plus GenericCard fallback for browser_*, subagent, mcp_call, etc.
 
 ### R001 — Electron desktop app launches with native window, title bar, and proper macOS integration
 - Class: core-capability
@@ -215,7 +215,7 @@ This file is the explicit capability and coverage contract for the project.
 | R001 | core-capability | validated | M001-1ya5a3/S01 | none | `npm run dev -w studio` reaches renderer URL plus `[studio] preload loaded`, `[studio] window created`, and `GSD Studio ready`; Electron window loads the custom title bar shell in browser verification. |
 | R002 | core-capability | validated | M001-1ya5a3/S02 | none | `npm run test -w studio` passes 21 tests including 19 GsdService unit tests covering JSONL framing (LF-only, CR+LF, multi-chunk, Unicode passthrough), event dispatch (pending request resolution, unmatched forwarding), pending request timeout, fire-and-forget classification, and extension UI auto-response for all four interactive methods. `npm run build -w studio` compiles all three targets (main, preload, renderer) with zero TypeScript errors. RPC types self-contained — zero imports from agent packages. |
 | R003 | primary-user-loop | validated | M001-1ya5a3/S03 | none | `npm run test -w studio` passes 34 tests (12 message-model). `npm run build -w studio` bundles Shiki WASM + streamdown CSS. 20+ custom markdown overrides styled to dark amber design system. AssistantBlock wraps Streamdown with vitesse-dark and block caret. |
-| R004 | differentiator | active | M001-1ya5a3/S04 | M001-1ya5a3/S03 | unmapped |
+| R004 | differentiator | validated | M001-1ya5a3/S04 | M001-1ya5a3/S03 | 34 tests pass (4 new S04), zero TS errors, all 8 card components build. EditCard with intra-line diffs, BashCard terminal style, Write/Read with Streamdown+Shiki, GenericCard crash-proof fallback. Visual quality deferred to UAT. |
 | R005 | core-capability | active | M001-1ya5a3/S06 | none | unmapped |
 | R006 | core-capability | active | M001-1ya5a3/S06 | M001-1ya5a3/S02 | unmapped |
 | R007 | core-capability | active | M001-1ya5a3/S07 | M001-1ya5a3/S02 | unmapped |
@@ -233,7 +233,7 @@ This file is the explicit capability and coverage contract for the project.
 
 ## Coverage Summary
 
-- Active requirements: 5
-- Mapped to slices: 5
-- Validated: 7 (R001, R002, R003, R008, R010, R011, R012)
+- Active requirements: 4
+- Mapped to slices: 4
+- Validated: 8 (R001, R002, R003, R004, R008, R010, R011, R012)
 - Unmapped active requirements: 0

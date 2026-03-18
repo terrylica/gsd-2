@@ -81,3 +81,27 @@ while ((idx = buffer.indexOf('\n')) !== -1) {
 **Context:** Git worktrees don't share `dist/` output directories. The root `npm run test` imports from `packages/*/dist/` and `dist/`, which don't exist in a fresh worktree.
 
 **Solution:** Build packages before running root tests: `npm run build -w packages/pi-ai && npm run build -w packages/pi-agent-core && npm run build -w packages/pi-tui && npx tsc` (root). `packages/pi-coding-agent` has pre-existing TypeScript errors and cannot be built in the current state. Workspace-scoped tests (`npm run test -w studio`) don't need dist/ builds.
+
+---
+
+## K009: Rendering syntax-highlighted code inside React components without direct Shiki calls
+
+**Context:** Tool card components (WriteCard, ReadCard) need to display syntax-highlighted file content. Calling `codeToHtml` directly requires managing the Shiki highlighter instance, async loading, and HTML injection.
+
+**Solution:** Wrap content in a markdown code fence (`` ```lang\ncontent\n``` ``) and render through `<Streamdown>` with the existing `codePlugin` and `components` props. This reuses all Shiki infrastructure — lazy WASM loading, theme configuration, component overrides — with zero new wiring.
+
+**Pattern:**
+```tsx
+const fenced = `\`\`\`${lang}\n${content}\n\`\`\``
+return <Streamdown content={fenced} plugins={[codePlugin]} components={components} />
+```
+
+**Trade-off:** Adds Streamdown's markdown parsing overhead for what's really just a code block. But the overhead is negligible compared to Shiki highlighting, and maintaining a single rendering path is worth it.
+
+---
+
+## K010: Root npm run test has pre-existing e2e-smoke version mismatch failure
+
+**Context:** The `gsd with no TTY exits 1 with clean terminal-required error` test in `e2e-smoke.test.ts` fails because the installed gsd binary version (v2.28.0) doesn't match the synced resources version (v2.29.0-next.1). The test expects a TTY error but gets a version mismatch error instead.
+
+**Solution:** This is infrastructure state, not a code bug. Workspace-scoped tests (`npm run test -w studio`) are unaffected and are the correct verification target for studio work. Document the failure as pre-existing when it appears in task summaries.

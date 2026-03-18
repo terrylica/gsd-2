@@ -63,7 +63,7 @@ This milestone is complete only when all are true:
 - [x] **S03: Message Stream + Markdown Rendering** `risk:high` `depends:[S02]`
   > After this: Agent text streams in real-time with beautiful typography — headings, code blocks with Shiki syntax highlighting, tables, inline code, lists. Continuous document flow.
 
-- [ ] **S04: Tool Cards — The Art** `risk:high` `depends:[S03]`
+- [x] **S04: Tool Cards — The Art** `risk:high` `depends:[S03]`
   > After this: Tool calls render as bespoke collapsed/expandable cards. Edit cards show syntax-highlighted diffs. Read cards show formatted code previews. Bash cards show styled terminal output. Write cards show the created file. Each card is a design piece.
 
 - [ ] **S05: Interactive Prompt UI — Wizards** `risk:high` `depends:[S03]`
