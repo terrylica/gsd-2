@@ -32,6 +32,15 @@ export interface ProgressSignal {
   label: string;
 }
 
+function escalateLevel(level: ProgressLevel, next: ProgressLevel): ProgressLevel {
+  const ranks: Record<ProgressLevel, number> = {
+    green: 0,
+    yellow: 1,
+    red: 2,
+  };
+  return ranks[next] > ranks[level] ? next : level;
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -45,17 +54,17 @@ export function computeProgressScore(): ProgressScore {
   const consecutiveErrors = getConsecutiveErrorUnits();
   if (consecutiveErrors >= 3) {
     signals.push({ kind: "negative", label: `${consecutiveErrors} consecutive error units` });
-    level = "red";
+    level = escalateLevel(level, "red");
   } else if (consecutiveErrors >= 1) {
     signals.push({ kind: "negative", label: `${consecutiveErrors} consecutive error unit(s)` });
-    if (level !== "red") level = "yellow";
+    level = escalateLevel(level, "yellow");
   }
 
   // Check health trend
   const trend = getHealthTrend();
   if (trend === "degrading") {
     signals.push({ kind: "negative", label: "Health trend declining" });
-    if (level !== "red") level = "yellow";
+    level = escalateLevel(level, "yellow");
   } else if (trend === "improving") {
     signals.push({ kind: "positive", label: "Health trend improving" });
   } else if (trend === "stable") {
@@ -89,16 +98,16 @@ export function computeProgressScoreWithContext(context: {
 
   if (context.sameUnitCount && context.sameUnitCount >= 3) {
     base.signals.push({ kind: "negative", label: `Same unit dispatched ${context.sameUnitCount}× consecutively` });
-    base.level = "red";
+    base.level = escalateLevel(base.level, "red");
     base.summary = "Stuck on same unit";
   } else if (context.sameUnitCount && context.sameUnitCount >= 2) {
     base.signals.push({ kind: "negative", label: `Same unit dispatched ${context.sameUnitCount}×` });
-    if (base.level !== "red") base.level = "yellow";
+    base.level = escalateLevel(base.level, "yellow");
   }
 
   if (context.recoveryCount && context.recoveryCount > 0) {
     base.signals.push({ kind: "negative", label: `${context.recoveryCount} recovery attempts` });
-    if (base.level !== "red") base.level = "yellow";
+    base.level = escalateLevel(base.level, "yellow");
   }
 
   if (context.completedCount && context.completedCount > 0) {

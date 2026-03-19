@@ -36,7 +36,12 @@ function readRoadmapFromDisk(base: string, milestoneId: string): string | null {
   }
 }
 
-export function getPriorSliceCompletionBlocker(base: string, _mainBranch: string, unitType: string, unitId: string): string | null {
+export function getPriorSliceCompletionBlocker(
+  base: string,
+  _mainBranch: string,
+  unitType: string,
+  unitId: string,
+): string | null {
   if (!SLICE_DISPATCH_TYPES.has(unitType)) return null;
 
   const [targetMid, targetSid] = unitId.split("/");
@@ -50,23 +55,27 @@ export function getPriorSliceCompletionBlocker(base: string, _mainBranch: string
   const milestoneIds = allIds.slice(0, targetIdx + 1);
 
   for (const mid of milestoneIds) {
+    if (resolveMilestoneFile(base, mid, "PARKED")) continue;
+
     // Read from disk (working tree) — always has the latest state
     const roadmapContent = readRoadmapFromDisk(base, mid);
     if (!roadmapContent) continue;
 
     const slices = parseRoadmapSlices(roadmapContent);
     if (mid !== targetMid) {
-      const incomplete = slices.find(slice => !slice.done);
+      const incomplete = slices.find((slice) => !slice.done);
       if (incomplete) {
         return `Cannot dispatch ${unitType} ${unitId}: earlier slice ${mid}/${incomplete.id} is not complete.`;
       }
       continue;
     }
 
-    const targetIndex = slices.findIndex(slice => slice.id === targetSid);
+    const targetIndex = slices.findIndex((slice) => slice.id === targetSid);
     if (targetIndex === -1) return null;
 
-    const incomplete = slices.slice(0, targetIndex).find(slice => !slice.done);
+    const incomplete = slices
+      .slice(0, targetIndex)
+      .find((slice) => !slice.done);
     if (incomplete) {
       return `Cannot dispatch ${unitType} ${unitId}: earlier slice ${targetMid}/${incomplete.id} is not complete.`;
     }

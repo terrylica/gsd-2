@@ -8,10 +8,9 @@
  */
 
 import type { ExtensionContext } from "@gsd/pi-coding-agent";
-import {
-  clearUnitRuntimeRecord,
-} from "./unit-runtime.js";
+import { clearUnitRuntimeRecord } from "./unit-runtime.js";
 import { clearParseCache, parseRoadmap, parsePlan } from "./files.js";
+import { isValidationTerminal } from "./state.js";
 import {
   nativeConflictFiles,
   nativeCommit,
@@ -36,7 +35,13 @@ import {
   clearPathCache,
   resolveGsdRootFile,
 } from "./paths.js";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  unlinkSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 // ─── Artifact Resolution & Verification ───────────────────────────────────────
@@ -44,7 +49,11 @@ import { dirname, join } from "node:path";
 /**
  * Resolve the expected artifact for a unit to an absolute path.
  */
-export function resolveExpectedArtifactPath(unitType: string, unitId: string, base: string): string | null {
+export function resolveExpectedArtifactPath(
+  unitType: string,
+  unitId: string,
+  base: string,
+): string | null {
   const parts = unitId.split("/");
   const mid = parts[0]!;
   const sid = parts[1];
@@ -76,7 +85,9 @@ export function resolveExpectedArtifactPath(unitType: string, unitId: string, ba
     case "execute-task": {
       const tid = parts[2];
       const dir = resolveSlicePath(base, mid, sid!);
-      return dir && tid ? join(dir, "tasks", buildTaskFileName(tid, "SUMMARY")) : null;
+      return dir && tid
+        ? join(dir, "tasks", buildTaskFileName(tid, "SUMMARY"))
+        : null;
     }
     case "complete-slice": {
       const dir = resolveSlicePath(base, mid, sid!);
@@ -110,7 +121,11 @@ export function resolveExpectedArtifactPath(unitType: string, unitId: string, ba
  * the summary allowed the unit to be marked complete when the LLM
  * skipped writing the UAT file (see #176).
  */
-export function verifyExpectedArtifact(unitType: string, unitId: string, base: string): boolean {
+export function verifyExpectedArtifact(
+  unitType: string,
+  unitId: string,
+  base: string,
+): boolean {
   // Hook units have no standard artifact — always pass. Their lifecycle
   // is managed by the hook engine, not the artifact verification system.
   if (unitType.startsWith("hook/")) return true;
@@ -135,6 +150,11 @@ export function verifyExpectedArtifact(unitType: string, unitId: string, base: s
   // is missing on disk — treat as stale completion state so the key gets evicted (#313).
   if (!absPath) return false;
   if (!existsSync(absPath)) return false;
+
+  if (unitType === "validate-milestone") {
+    const validationContent = readFileSync(absPath, "utf-8");
+    if (!isValidationTerminal(validationContent)) return false;
+  }
 
   // plan-slice must produce a plan with actual task entries, not just a scaffold.
   // The plan file may exist from a prior discussion/context step with only headings
@@ -210,7 +230,7 @@ export function verifyExpectedArtifact(unitType: string, unitId: string, base: s
         try {
           const roadmapContent = readFileSync(roadmapFile, "utf-8");
           const roadmap = parseRoadmap(roadmapContent);
-          const slice = roadmap.slices.find(s => s.id === sid);
+          const slice = roadmap.slices.find((s) => s.id === sid);
           if (slice && !slice.done) return false;
         } catch {
           // Corrupt/unparseable roadmap — fail verification so the unit
@@ -229,7 +249,12 @@ export function verifyExpectedArtifact(unitType: string, unitId: string, base: s
  * Write a placeholder artifact so the pipeline can advance past a stuck unit.
  * Returns the relative path written, or null if the path couldn't be resolved.
  */
-export function writeBlockerPlaceholder(unitType: string, unitId: string, base: string, reason: string): string | null {
+export function writeBlockerPlaceholder(
+  unitType: string,
+  unitId: string,
+  base: string,
+  reason: string,
+): string | null {
   const absPath = resolveExpectedArtifactPath(unitType, unitId, base);
   if (!absPath) return null;
   const dir = dirname(absPath);
@@ -248,7 +273,11 @@ export function writeBlockerPlaceholder(unitType: string, unitId: string, base: 
   return diagnoseExpectedArtifact(unitType, unitId, base);
 }
 
-export function diagnoseExpectedArtifact(unitType: string, unitId: string, base: string): string | null {
+export function diagnoseExpectedArtifact(
+  unitType: string,
+  unitId: string,
+  base: string,
+): string | null {
   const parts = unitId.split("/");
   const mid = parts[0];
   const sid = parts[1];
@@ -291,9 +320,13 @@ export function diagnoseExpectedArtifact(unitType: string, unitId: string, base:
  * the [x] checkbox in the slice plan. Returns true if artifacts were written.
  */
 export function skipExecuteTask(
-  base: string, mid: string, sid: string, tid: string,
+  base: string,
+  mid: string,
+  sid: string,
+  tid: string,
   status: { summaryExists: boolean; taskChecked: boolean },
-  reason: string, maxAttempts: number,
+  reason: string,
+  maxAttempts: number,
 ): boolean {
   // Write a blocker task summary if missing.
   if (!status.summaryExists) {
@@ -344,7 +377,10 @@ export function skipExecuteTask(
  *
  * Returns true if state was dirty and re-derivation is needed.
  */
-export function reconcileMergeState(basePath: string, ctx: ExtensionContext): boolean {
+export function reconcileMergeState(
+  basePath: string,
+  ctx: ExtensionContext,
+): boolean {
   const mergeHeadPath = join(basePath, ".git", "MERGE_HEAD");
   const squashMsgPath = join(basePath, ".git", "SQUASH_MSG");
   const hasMergeHead = existsSync(mergeHeadPath);
@@ -355,7 +391,7 @@ export function reconcileMergeState(basePath: string, ctx: ExtensionContext): bo
   if (conflictedFiles.length === 0) {
     // All conflicts resolved — finalize the merge/squash commit
     try {
-      nativeCommit(basePath, "");  // --no-edit equivalent: use empty message placeholder
+      nativeCommit(basePath, ""); // --no-edit equivalent: use empty message placeholder
       const mode = hasMergeHead ? "merge" : "squash commit";
       ctx.ui.notify(`Finalized leftover ${mode} from prior session.`, "info");
     } catch {
@@ -363,8 +399,8 @@ export function reconcileMergeState(basePath: string, ctx: ExtensionContext): bo
     }
   } else {
     // Still conflicted — try auto-resolving .gsd/ state file conflicts (#530)
-    const gsdConflicts = conflictedFiles.filter(f => f.startsWith(".gsd/"));
-    const codeConflicts = conflictedFiles.filter(f => !f.startsWith(".gsd/"));
+    const gsdConflicts = conflictedFiles.filter((f) => f.startsWith(".gsd/"));
+    const codeConflicts = conflictedFiles.filter((f) => !f.startsWith(".gsd/"));
 
     if (gsdConflicts.length > 0 && codeConflicts.length === 0) {
       // All conflicts are in .gsd/ state files — auto-resolve by accepting theirs
@@ -377,7 +413,10 @@ export function reconcileMergeState(basePath: string, ctx: ExtensionContext): bo
       }
       if (resolved) {
         try {
-          nativeCommit(basePath, "chore: auto-resolve .gsd/ state file conflicts");
+          nativeCommit(
+            basePath,
+            "chore: auto-resolve .gsd/ state file conflicts",
+          );
           ctx.ui.notify(
             `Auto-resolved ${gsdConflicts.length} .gsd/ state file conflict(s) from prior merge.`,
             "info",
@@ -388,11 +427,23 @@ export function reconcileMergeState(basePath: string, ctx: ExtensionContext): bo
       }
       if (!resolved) {
         if (hasMergeHead) {
-          try { nativeMergeAbort(basePath); } catch { /* best-effort */ }
+          try {
+            nativeMergeAbort(basePath);
+          } catch {
+            /* best-effort */
+          }
         } else if (hasSquashMsg) {
-          try { unlinkSync(squashMsgPath); } catch { /* best-effort */ }
+          try {
+            unlinkSync(squashMsgPath);
+          } catch {
+            /* best-effort */
+          }
         }
-        try { nativeResetHard(basePath); } catch { /* best-effort */ }
+        try {
+          nativeResetHard(basePath);
+        } catch {
+          /* best-effort */
+        }
         ctx.ui.notify(
           "Detected leftover merge state — auto-resolve failed, cleaned up. Re-deriving state.",
           "warning",
@@ -401,11 +452,23 @@ export function reconcileMergeState(basePath: string, ctx: ExtensionContext): bo
     } else {
       // Code conflicts present — abort and reset
       if (hasMergeHead) {
-        try { nativeMergeAbort(basePath); } catch { /* best-effort */ }
+        try {
+          nativeMergeAbort(basePath);
+        } catch {
+          /* best-effort */
+        }
       } else if (hasSquashMsg) {
-        try { unlinkSync(squashMsgPath); } catch { /* best-effort */ }
+        try {
+          unlinkSync(squashMsgPath);
+        } catch {
+          /* best-effort */
+        }
       }
-      try { nativeResetHard(basePath); } catch { /* best-effort */ }
+      try {
+        nativeResetHard(basePath);
+      } catch {
+        /* best-effort */
+      }
       ctx.ui.notify(
         "Detected leftover merge state with unresolved conflicts — cleaned up. Re-deriving state.",
         "warning",
@@ -445,7 +508,10 @@ export async function selfHealRuntimeRecords(
       }
     }
     if (healed > 0) {
-      ctx.ui.notify(`Self-heal: cleared ${healed} stale runtime record(s).`, "info");
+      ctx.ui.notify(
+        `Self-heal: cleared ${healed} stale runtime record(s).`,
+        "info",
+      );
     }
   } catch (e) {
     // Non-fatal — self-heal should never block auto-mode start
@@ -459,7 +525,11 @@ export async function selfHealRuntimeRecords(
  * Build concrete, manual remediation steps for a loop-detected unit failure.
  * These are shown when automatic reconciliation is not possible.
  */
-export function buildLoopRemediationSteps(unitType: string, unitId: string, base: string): string | null {
+export function buildLoopRemediationSteps(
+  unitType: string,
+  unitId: string,
+  base: string,
+): string | null {
   const parts = unitId.split("/");
   const mid = parts[0];
   const sid = parts[1];
@@ -479,9 +549,10 @@ export function buildLoopRemediationSteps(unitType: string, unitId: string, base
     case "plan-slice":
     case "research-slice": {
       if (!mid || !sid) break;
-      const artifactRel = unitType === "plan-slice"
-        ? relSliceFile(base, mid, sid, "PLAN")
-        : relSliceFile(base, mid, sid, "RESEARCH");
+      const artifactRel =
+        unitType === "plan-slice"
+          ? relSliceFile(base, mid, sid, "PLAN")
+          : relSliceFile(base, mid, sid, "RESEARCH");
       return [
         `   1. Write ${artifactRel} manually (or with the LLM in interactive mode)`,
         `   2. Run \`gsd doctor\` to reconcile .gsd/ state`,

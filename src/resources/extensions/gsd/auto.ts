@@ -22,21 +22,46 @@ import { getManifestStatus } from "./files.js";
 export { inlinePriorMilestoneSummary } from "./files.js";
 import { collectSecretsFromManifest } from "../get-secrets-from-user.js";
 import {
-  gsdRoot, resolveMilestoneFile, resolveSliceFile, resolveSlicePath,
-  resolveMilestonePath, resolveDir, resolveTasksDir, resolveTaskFile,
-  milestonesDir, buildTaskFileName,
+  gsdRoot,
+  resolveMilestoneFile,
+  resolveSliceFile,
+  resolveSlicePath,
+  resolveMilestonePath,
+  resolveDir,
+  resolveTasksDir,
+  resolveTaskFile,
+  milestonesDir,
+  buildTaskFileName,
 } from "./paths.js";
 import { invalidateAllCaches } from "./cache.js";
 import { clearActivityLogState } from "./activity-log.js";
-import { synthesizeCrashRecovery, getDeepDiagnostic } from "./session-forensics.js";
-import { writeLock, clearLock, readCrashLock, isLockProcessAlive } from "./crash-recovery.js";
+import {
+  synthesizeCrashRecovery,
+  getDeepDiagnostic,
+} from "./session-forensics.js";
+import {
+  writeLock,
+  clearLock,
+  readCrashLock,
+  isLockProcessAlive,
+} from "./crash-recovery.js";
+import {
+  acquireSessionLock,
+  validateSessionLock,
+  releaseSessionLock,
+  updateSessionLock,
+} from "./session-lock.js";
 import {
   clearUnitRuntimeRecord,
   inspectExecuteTaskDurability,
   readUnitRuntimeRecord,
   writeUnitRuntimeRecord,
 } from "./unit-runtime.js";
-import { resolveAutoSupervisorConfig, loadEffectiveGSDPreferences, getIsolationMode } from "./preferences.js";
+import {
+  resolveAutoSupervisorConfig,
+  loadEffectiveGSDPreferences,
+  getIsolationMode,
+} from "./preferences.js";
 import { sendDesktopNotification } from "./notifications.js";
 import type { GSDPreferences } from "./preferences.js";
 import {
@@ -89,10 +114,17 @@ import {
   getConsecutiveErrorUnits,
 } from "./doctor-proactive.js";
 import { clearSkillSnapshot } from "./skill-discovery.js";
-import { captureAvailableSkills, resetSkillTelemetry } from "./skill-telemetry.js";
 import {
-  initMetrics, resetMetrics, getLedger,
-  getProjectTotals, formatCost, formatTokenCount,
+  captureAvailableSkills,
+  resetSkillTelemetry,
+} from "./skill-telemetry.js";
+import {
+  initMetrics,
+  resetMetrics,
+  getLedger,
+  getProjectTotals,
+  formatCost,
+  formatTokenCount,
 } from "./metrics.js";
 import { join } from "node:path";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
@@ -118,6 +150,7 @@ import {
   getAutoWorktreeOriginalBase,
   mergeMilestoneToMain,
   autoWorktreeBranch,
+  syncWorktreeStateBack,
 } from "./auto-worktree.js";
 import { pruneQueueOrder } from "./queue-order.js";
 
@@ -155,10 +188,16 @@ import { countPendingCaptures } from "./captures.js";
 // ── Extracted modules ──────────────────────────────────────────────────────
 import { startUnitSupervision } from "./auto-timers.js";
 import { runPostUnitVerification } from "./auto-verification.js";
-import { postUnitPreVerification, postUnitPostVerification } from "./auto-post-unit.js";
+import {
+  postUnitPreVerification,
+  postUnitPostVerification,
+} from "./auto-post-unit.js";
 import { bootstrapAutoSession, type BootstrapDeps } from "./auto-start.js";
 import { autoLoop, resolveAgentEnd, type LoopDeps } from "./auto-loop.js";
-import { WorktreeResolver, type WorktreeResolverDeps } from "./worktree-resolver.js";
+import {
+  WorktreeResolver,
+  type WorktreeResolverDeps,
+} from "./worktree-resolver.js";
 import { reorderForCaching } from "./prompt-ordering.js";
 
 // Worktree sync, resource staleness, stale worktree escape → auto-worktree-sync.ts
@@ -167,15 +206,29 @@ import { reorderForCaching } from "./prompt-ordering.js";
 
 import {
   AutoSession,
-  MAX_UNIT_DISPATCHES, STUB_RECOVERY_THRESHOLD, MAX_LIFETIME_DISPATCHES,
+  MAX_UNIT_DISPATCHES,
+  STUB_RECOVERY_THRESHOLD,
+  MAX_LIFETIME_DISPATCHES,
   NEW_SESSION_TIMEOUT_MS,
 } from "./auto/session.js";
-import type { CompletedUnit, CurrentUnit, UnitRouting, StartModel } from "./auto/session.js";
+import type {
+  CompletedUnit,
+  CurrentUnit,
+  UnitRouting,
+  StartModel,
+} from "./auto/session.js";
 export {
-  MAX_UNIT_DISPATCHES, STUB_RECOVERY_THRESHOLD, MAX_LIFETIME_DISPATCHES,
+  MAX_UNIT_DISPATCHES,
+  STUB_RECOVERY_THRESHOLD,
+  MAX_LIFETIME_DISPATCHES,
   NEW_SESSION_TIMEOUT_MS,
 } from "./auto/session.js";
-export type { CompletedUnit, CurrentUnit, UnitRouting, StartModel } from "./auto/session.js";
+export type {
+  CompletedUnit,
+  CurrentUnit,
+  UnitRouting,
+  StartModel,
+} from "./auto/session.js";
 
 // ── ENCAPSULATION INVARIANT ─────────────────────────────────────────────────
 // ALL mutable auto-mode state lives in the AutoSession class (auto/session.ts).
@@ -241,7 +294,11 @@ export function shouldUseWorktreeIsolation(): boolean {
  * running suspiciously long (e.g., a Bash command hung because `&` kept stdout open).
  */
 // Re-export budget utilities for external consumers
-export { getBudgetAlertLevel, getNewBudgetAlertLevel, getBudgetEnforcementAction } from "./auto-budget.js";
+export {
+  getBudgetAlertLevel,
+  getNewBudgetAlertLevel,
+  getBudgetEnforcementAction,
+} from "./auto-budget.js";
 
 /** Wrapper: register SIGTERM handler and store reference. */
 function registerSigtermHandler(currentBasePath: string): void {
@@ -268,12 +325,15 @@ export function getAutoDashboardData(): AutoDashboardData {
   } catch {
     // Non-fatal — captures module may not be loaded
   }
-  return { active: s.active, paused: s.paused,
+  return {
+    active: s.active,
+    paused: s.paused,
     stepMode: s.stepMode,
     startTime: s.autoStartTime,
-    elapsed: (s.active || s.paused) ? Date.now() - s.autoStartTime : 0,
+    elapsed: s.active || s.paused ? Date.now() - s.autoStartTime : 0,
     currentUnit: s.currentUnit ? { ...s.currentUnit } : null,
-    completedUnits: [...s.completedUnits], basePath: s.basePath,
+    completedUnits: [...s.completedUnits],
+    basePath: s.basePath,
     totalCost: totals?.cost ?? 0,
     totalTokens: totals?.tokens.total ?? 0,
     pendingCaptureCount,
@@ -295,7 +355,10 @@ export function isAutoPaused(): boolean {
  * Used by error-recovery to fall back to the session's own model
  * instead of reading (potentially stale) preferences from disk (#1065).
  */
-export function getAutoModeStartModel(): { provider: string; id: string } | null {
+export function getAutoModeStartModel(): {
+  provider: string;
+  id: string;
+} | null {
   return s.autoModeStartModel;
 }
 
@@ -330,7 +393,11 @@ function lockBase(): string {
  *
  * Returns true if a remote session was found and signaled, false otherwise.
  */
-export function stopAutoRemote(projectRoot: string): { found: boolean; pid?: number; error?: string } {
+export function stopAutoRemote(projectRoot: string): {
+  found: boolean;
+  pid?: number;
+  error?: string;
+} {
   const lock = readCrashLock(projectRoot);
   if (!lock) return { found: false };
 
@@ -373,10 +440,18 @@ function clearUnitTimeout(): void {
   clearInFlightTools();
 }
 
-
 /** Build snapshot metric opts, enriching with continueHereFired from the runtime record. */
-function buildSnapshotOpts(unitType: string, unitId: string): { continueHereFired?: boolean; promptCharCount?: number; baselineCharCount?: number } & Record<string, unknown> {
-  const runtime = s.currentUnit ? readUnitRuntimeRecord(s.basePath, unitType, unitId) : null;
+function buildSnapshotOpts(
+  unitType: string,
+  unitId: string,
+): {
+  continueHereFired?: boolean;
+  promptCharCount?: number;
+  baselineCharCount?: number;
+} & Record<string, unknown> {
+  const runtime = s.currentUnit
+    ? readUnitRuntimeRecord(s.basePath, unitType, unitId)
+    : null;
   return {
     promptCharCount: s.lastPromptCharCount,
     baselineCharCount: s.lastBaselineCharCount,
@@ -385,12 +460,31 @@ function buildSnapshotOpts(unitType: string, unitId: string): { continueHereFire
   };
 }
 
+function handleLostSessionLock(ctx?: ExtensionContext): void {
+  debugLog("session-lock-lost", { lockBase: lockBase() });
+  s.active = false;
+  s.paused = false;
+  clearUnitTimeout();
+  deregisterSigtermHandler();
+  ctx?.ui.notify(
+    "Session lock lost — another GSD process appears to have taken over. Stopping gracefully.",
+    "error",
+  );
+  ctx?.ui.setStatus("gsd-auto", undefined);
+  ctx?.ui.setWidget("gsd-progress", undefined);
+  ctx?.ui.setFooter(undefined);
+}
 
-export async function stopAuto(ctx?: ExtensionContext, pi?: ExtensionAPI, reason?: string): Promise<void> {
+export async function stopAuto(
+  ctx?: ExtensionContext,
+  pi?: ExtensionAPI,
+  reason?: string,
+): Promise<void> {
   if (!s.active && !s.paused) return;
   const reasonSuffix = reason ? ` — ${reason}` : "";
   clearUnitTimeout();
   if (lockBase()) clearLock(lockBase());
+  if (lockBase()) releaseSessionLock(lockBase());
   clearSkillSnapshot();
   resetSkillTelemetry();
 
@@ -399,8 +493,12 @@ export async function stopAuto(ctx?: ExtensionContext, pi?: ExtensionAPI, reason
 
   // ── Auto-worktree: exit worktree and reset s.basePath on stop ──
   if (s.currentMilestoneId) {
-    const notifyCtx = ctx ? { notify: ctx.ui.notify.bind(ctx.ui) } : { notify: () => {} };
-    buildResolver().exitMilestone(s.currentMilestoneId, notifyCtx, { preserveBranch: true });
+    const notifyCtx = ctx
+      ? { notify: ctx.ui.notify.bind(ctx.ui) }
+      : { notify: () => {} };
+    buildResolver().exitMilestone(s.currentMilestoneId, notifyCtx, {
+      preserveBranch: true,
+    });
   }
 
   // ── DB cleanup: close the SQLite connection ──
@@ -408,12 +506,20 @@ export async function stopAuto(ctx?: ExtensionContext, pi?: ExtensionAPI, reason
     try {
       const { closeDatabase } = await import("./gsd-db.js");
       closeDatabase();
-    } catch (e) { debugLog("db-close-failed", { error: e instanceof Error ? e.message : String(e) }); }
+    } catch (e) {
+      debugLog("db-close-failed", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   if (s.originalBasePath) {
     s.basePath = s.originalBasePath;
-    try { process.chdir(s.basePath); } catch { /* best-effort */ }
+    try {
+      process.chdir(s.basePath);
+    } catch {
+      /* best-effort */
+    }
   }
 
   const ledger = getLedger();
@@ -428,7 +534,13 @@ export async function stopAuto(ctx?: ExtensionContext, pi?: ExtensionAPI, reason
   }
 
   if (s.basePath) {
-    try { await rebuildState(s.basePath); } catch (e) { debugLog("stop-rebuild-state-failed", { error: e instanceof Error ? e.message : String(e) }); }
+    try {
+      await rebuildState(s.basePath);
+    } catch (e) {
+      debugLog("stop-rebuild-state-failed", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   if (isDebugEnabled()) {
@@ -469,7 +581,10 @@ export async function stopAuto(ctx?: ExtensionContext, pi?: ExtensionAPI, reason
   ctx?.ui.setFooter(undefined);
 
   if (pi && ctx && s.originalModelId && s.originalModelProvider) {
-    const original = ctx.modelRegistry.find(s.originalModelProvider, s.originalModelId);
+    const original = ctx.modelRegistry.find(
+      s.originalModelProvider,
+      s.originalModelId,
+    );
     if (original) await pi.setModel(original);
     s.originalModelId = null;
     s.originalModelProvider = null;
@@ -483,13 +598,17 @@ export async function stopAuto(ctx?: ExtensionContext, pi?: ExtensionAPI, reason
  * The user can interact with the agent, then `/gsd auto` resumes
  * from disk state. Called when the user presses Escape during auto-mode.
  */
-export async function pauseAuto(ctx?: ExtensionContext, _pi?: ExtensionAPI): Promise<void> {
+export async function pauseAuto(
+  ctx?: ExtensionContext,
+  _pi?: ExtensionAPI,
+): Promise<void> {
   if (!s.active) return;
   clearUnitTimeout();
 
   s.pausedSessionFile = ctx?.sessionManager?.getSessionFile() ?? null;
 
   if (lockBase()) clearLock(lockBase());
+  if (lockBase()) releaseSessionLock(lockBase());
 
   deregisterSigtermHandler();
 
@@ -517,6 +636,7 @@ function buildResolverDeps(): WorktreeResolverDeps {
     shouldUseWorktreeIsolation,
     getIsolationMode,
     mergeMilestoneToMain,
+    syncWorktreeStateBack,
     teardownAutoWorktree,
     createAutoWorktree,
     enterAutoWorktree,
@@ -525,9 +645,12 @@ function buildResolverDeps(): WorktreeResolverDeps {
     getCurrentBranch,
     autoWorktreeBranch,
     resolveMilestoneFile,
-    readFileSync: (path: string, encoding: string) => readFileSync(path, encoding as BufferEncoding),
-    GitServiceImpl: GitServiceImpl as unknown as WorktreeResolverDeps["GitServiceImpl"],
-    loadEffectiveGSDPreferences: loadEffectiveGSDPreferences as unknown as WorktreeResolverDeps["loadEffectiveGSDPreferences"],
+    readFileSync: (path: string, encoding: string) =>
+      readFileSync(path, encoding as BufferEncoding),
+    GitServiceImpl:
+      GitServiceImpl as unknown as WorktreeResolverDeps["GitServiceImpl"],
+    loadEffectiveGSDPreferences:
+      loadEffectiveGSDPreferences as unknown as WorktreeResolverDeps["loadEffectiveGSDPreferences"],
     invalidateAllCaches,
     captureIntegrationBranch,
   };
@@ -568,6 +691,11 @@ function buildLoopDeps(): LoopDeps {
 
     // Resource version guard
     checkResourcesStale,
+
+    // Session lock
+    validateSessionLock,
+    updateSessionLock,
+    handleLostSessionLock,
 
     // Milestone transition
     sendDesktopNotification,
@@ -625,7 +753,8 @@ function buildLoopDeps(): LoopDeps {
 
     // Filesystem
     existsSync,
-    readFileSync: (path: string, encoding: string) => readFileSync(path, encoding as BufferEncoding),
+    readFileSync: (path: string, encoding: string) =>
+      readFileSync(path, encoding as BufferEncoding),
     atomicWriteSync,
 
     // Git
@@ -650,7 +779,6 @@ function buildLoopDeps(): LoopDeps {
   } as unknown as LoopDeps;
 }
 
-
 export async function startAuto(
   ctx: ExtensionCommandContext,
   pi: ExtensionAPI,
@@ -665,6 +793,12 @@ export async function startAuto(
 
   // If resuming from paused state, just re-activate and dispatch next unit.
   if (s.paused) {
+    const resumeLock = acquireSessionLock(base);
+    if (!resumeLock.acquired) {
+      ctx.ui.notify(`Cannot resume: ${resumeLock.reason}`, "error");
+      return;
+    }
+
     s.paused = false;
     s.active = true;
     s.verbose = verboseMode;
@@ -677,23 +811,48 @@ export async function startAuto(
     if (s.currentMilestoneId) setActiveMilestoneId(base, s.currentMilestoneId);
 
     // ── Auto-worktree: re-enter worktree on resume ──
-    if (s.currentMilestoneId && shouldUseWorktreeIsolation() && s.originalBasePath && !isInAutoWorktree(s.basePath) && !detectWorktreeName(s.basePath) && !detectWorktreeName(s.originalBasePath)) {
-      buildResolver().enterMilestone(s.currentMilestoneId, { notify: ctx.ui.notify.bind(ctx.ui) });
+    if (
+      s.currentMilestoneId &&
+      shouldUseWorktreeIsolation() &&
+      s.originalBasePath &&
+      !isInAutoWorktree(s.basePath) &&
+      !detectWorktreeName(s.basePath) &&
+      !detectWorktreeName(s.originalBasePath)
+    ) {
+      buildResolver().enterMilestone(s.currentMilestoneId, {
+        notify: ctx.ui.notify.bind(ctx.ui),
+      });
     }
 
     registerSigtermHandler(lockBase());
 
     ctx.ui.setStatus("gsd-auto", s.stepMode ? "next" : "auto");
     ctx.ui.setFooter(hideFooter);
-    ctx.ui.notify(s.stepMode ? "Step-mode resumed." : "Auto-mode resumed.", "info");
+    ctx.ui.notify(
+      s.stepMode ? "Step-mode resumed." : "Auto-mode resumed.",
+      "info",
+    );
     restoreHookState(s.basePath);
-    try { await rebuildState(s.basePath); } catch (e) { debugLog("resume-rebuild-state-failed", { error: e instanceof Error ? e.message : String(e) }); }
+    try {
+      await rebuildState(s.basePath);
+    } catch (e) {
+      debugLog("resume-rebuild-state-failed", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
     try {
       const report = await runGSDDoctor(s.basePath, { fix: true });
       if (report.fixesApplied.length > 0) {
-        ctx.ui.notify(`Resume: applied ${report.fixesApplied.length} fix(es) to state.`, "info");
+        ctx.ui.notify(
+          `Resume: applied ${report.fixesApplied.length} fix(es) to state.`,
+          "info",
+        );
       }
-    } catch (e) { debugLog("resume-doctor-failed", { error: e instanceof Error ? e.message : String(e) }); }
+    } catch (e) {
+      debugLog("resume-doctor-failed", {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
     invalidateAllCaches();
 
     if (s.pausedSessionFile) {
@@ -701,7 +860,8 @@ export async function startAuto(
       const recovery = synthesizeCrashRecovery(
         s.basePath,
         s.currentUnit?.type ?? "unknown",
-        s.currentUnit?.id ?? "unknown", s.pausedSessionFile ?? undefined,
+        s.currentUnit?.id ?? "unknown",
+        s.pausedSessionFile ?? undefined,
         activityDir,
       );
       if (recovery && recovery.trace.toolCallCount > 0) {
@@ -714,7 +874,18 @@ export async function startAuto(
       s.pausedSessionFile = null;
     }
 
-    writeLock(lockBase(), "resuming", s.currentMilestoneId ?? "unknown", s.completedUnits.length);
+    updateSessionLock(
+      lockBase(),
+      "resuming",
+      s.currentMilestoneId ?? "unknown",
+      s.completedUnits.length,
+    );
+    writeLock(
+      lockBase(),
+      "resuming",
+      s.currentMilestoneId ?? "unknown",
+      s.completedUnits.length,
+    );
 
     await autoLoop(ctx, pi, s, buildLoopDeps());
     return;
@@ -728,7 +899,15 @@ export async function startAuto(
     buildResolver,
   };
 
-  const ready = await bootstrapAutoSession(s, ctx, pi, base, verboseMode, requestedStepMode, bootstrapDeps);
+  const ready = await bootstrapAutoSession(
+    s,
+    ctx,
+    pi,
+    base,
+    verboseMode,
+    requestedStepMode,
+    bootstrapDeps,
+  );
   if (!ready) return;
 
   // Dispatch the first unit
@@ -765,9 +944,17 @@ function updateProgressWidget(
   state: GSDState,
 ): void {
   const badge = s.currentUnitRouting?.tier
-    ? ({ light: "L", standard: "S", heavy: "H" }[s.currentUnitRouting.tier] ?? undefined)
+    ? ({ light: "L", standard: "S", heavy: "H" }[s.currentUnitRouting.tier] ??
+      undefined)
     : undefined;
-  _updateProgressWidget(ctx, unitType, unitId, state, widgetStateAccessors, badge);
+  _updateProgressWidget(
+    ctx,
+    unitType,
+    unitId,
+    state,
+    widgetStateAccessors,
+    badge,
+  );
 }
 
 /** State accessors for the widget — closures over module globals. */
@@ -786,7 +973,10 @@ const widgetStateAccessors: WidgetStateAccessors = {
  * dispatching a unit. The LLM should never need to mkdir or git checkout.
  */
 function ensurePreconditions(
-  unitType: string, unitId: string, base: string, state: GSDState,
+  unitType: string,
+  unitId: string,
+  base: string,
+  state: GSDState,
 ): void {
   const parts = unitId.split("/");
   const mid = parts[0]!;
@@ -814,15 +1004,17 @@ function ensurePreconditions(
       }
     }
   }
-
 }
 
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
 /** Build recovery context from module state for recoverTimedOutUnit */
 function buildRecoveryContext(): import("./auto-timeout-recovery.js").RecoveryContext {
-  return { basePath: s.basePath, verbose: s.verbose,
-    currentUnitStartedAt: s.currentUnit?.startedAt ?? Date.now(), unitRecoveryCount: s.unitRecoveryCount,
+  return {
+    basePath: s.basePath,
+    verbose: s.verbose,
+    currentUnitStartedAt: s.currentUnit?.startedAt ?? Date.now(),
+    unitRecoveryCount: s.unitRecoveryCount,
   };
 }
 
@@ -868,7 +1060,11 @@ export async function dispatchHookUnit(
   const hookUnitType = `hook/${hookName}`;
   const hookStartedAt = Date.now();
 
-  s.currentUnit = { type: triggerUnitType, id: triggerUnitId, startedAt: hookStartedAt };
+  s.currentUnit = {
+    type: triggerUnitType,
+    id: triggerUnitId,
+    startedAt: hookStartedAt,
+  };
 
   const result = await s.cmdCtx!.newSession();
   if (result.cancelled) {
@@ -876,31 +1072,49 @@ export async function dispatchHookUnit(
     return false;
   }
 
-  s.currentUnit = { type: hookUnitType, id: triggerUnitId, startedAt: hookStartedAt };
+  s.currentUnit = {
+    type: hookUnitType,
+    id: triggerUnitId,
+    startedAt: hookStartedAt,
+  };
 
-  writeUnitRuntimeRecord(s.basePath, hookUnitType, triggerUnitId, hookStartedAt, {
-    phase: "dispatched",
-    wrapupWarningSent: false,
-    timeoutAt: null,
-    lastProgressAt: hookStartedAt,
-    progressCount: 0,
-    lastProgressKind: "dispatch",
-  });
+  writeUnitRuntimeRecord(
+    s.basePath,
+    hookUnitType,
+    triggerUnitId,
+    hookStartedAt,
+    {
+      phase: "dispatched",
+      wrapupWarningSent: false,
+      timeoutAt: null,
+      lastProgressAt: hookStartedAt,
+      progressCount: 0,
+      lastProgressKind: "dispatch",
+    },
+  );
 
   if (hookModel) {
     const availableModels = ctx.modelRegistry.getAvailable();
-    const match = availableModels.find(m =>
-      m.id === hookModel || `${m.provider}/${m.id}` === hookModel,
+    const match = availableModels.find(
+      (m) => m.id === hookModel || `${m.provider}/${m.id}` === hookModel,
     );
     if (match) {
       try {
         await pi.setModel(match);
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     }
   }
 
   const sessionFile = ctx.sessionManager.getSessionFile();
-  writeLock(lockBase(), hookUnitType, triggerUnitId, s.completedUnits.length, sessionFile);
+  writeLock(
+    lockBase(),
+    hookUnitType,
+    triggerUnitId,
+    s.completedUnits.length,
+    sessionFile,
+  );
 
   clearUnitTimeout();
   const supervisor = resolveAutoSupervisorConfig();
@@ -909,10 +1123,16 @@ export async function dispatchHookUnit(
     s.unitTimeoutHandle = null;
     if (!s.active) return;
     if (s.currentUnit) {
-      writeUnitRuntimeRecord(s.basePath, hookUnitType, triggerUnitId, hookStartedAt, {
-        phase: "timeout",
-        timeoutAt: Date.now(),
-      });
+      writeUnitRuntimeRecord(
+        s.basePath,
+        hookUnitType,
+        triggerUnitId,
+        hookStartedAt,
+        {
+          phase: "timeout",
+          timeoutAt: Date.now(),
+        },
+      );
     }
     ctx.ui.notify(
       `Hook ${hookName} exceeded ${supervisor.hard_timeout_minutes ?? 30}min timeout. Pausing auto-mode.`,
@@ -925,7 +1145,10 @@ export async function dispatchHookUnit(
   ctx.ui.setStatus("gsd-auto", s.stepMode ? "next" : "auto");
   ctx.ui.notify(`Running post-unit hook: ${hookName}`, "info");
 
-  debugLog("dispatchHookUnit", { phase: "send-message", promptLength: hookPrompt.length });
+  debugLog("dispatchHookUnit", {
+    phase: "send-message",
+    promptLength: hookPrompt.length,
+  });
   pi.sendMessage(
     { customType: "gsd-auto", content: hookPrompt, display: true },
     { triggerTurn: true },
@@ -933,7 +1156,6 @@ export async function dispatchHookUnit(
 
   return true;
 }
-
 
 // Direct phase dispatch → auto-direct-dispatch.ts
 export { dispatchDirectPhase } from "./auto-direct-dispatch.js";

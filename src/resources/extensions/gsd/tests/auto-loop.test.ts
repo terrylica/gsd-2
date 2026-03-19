@@ -9,6 +9,7 @@ import {
   autoLoop,
   _resetPendingResolve,
   _setActiveSession,
+  isSessionSwitchInFlight,
   type UnitResult,
   type AgentEndEvent,
   type LoopDeps,
@@ -16,7 +17,9 @@ import {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function makeEvent(messages: unknown[] = [{ role: "assistant" }]): AgentEndEvent {
+function makeEvent(
+  messages: unknown[] = [{ role: "assistant" }],
+): AgentEndEvent {
   return { messages };
 }
 
@@ -27,14 +30,18 @@ function makeMockSession(opts?: {
   newSessionResult?: { cancelled: boolean };
   newSessionThrows?: string;
   newSessionDelayMs?: number;
+  onNewSessionStart?: (session: any) => void;
+  onNewSessionSettle?: (session: any) => void;
 }) {
-  return {
+  const session = {
     active: true,
     verbose: false,
+    sessionSwitchInFlight: false,
     pendingResolve: null,
     pendingAgentEndQueue: [],
     cmdCtx: {
       newSession: () => {
+        opts?.onNewSessionStart?.(session);
         if (opts?.newSessionThrows) {
           return Promise.reject(new Error(opts.newSessionThrows));
         }
@@ -42,14 +49,19 @@ function makeMockSession(opts?: {
         const delay = opts?.newSessionDelayMs ?? 0;
         if (delay > 0) {
           return new Promise<{ cancelled: boolean }>((res) =>
-            setTimeout(() => res(result), delay),
+            setTimeout(() => {
+              opts?.onNewSessionSettle?.(session);
+              res(result);
+            }, delay),
           );
         }
+        opts?.onNewSessionSettle?.(session);
         return Promise.resolve(result);
       },
     },
     clearTimers: () => {},
   } as any;
+  return session;
 }
 
 /**
@@ -68,7 +80,9 @@ function makeMockCtx() {
 function makeMockPi() {
   const calls: unknown[] = [];
   return {
-    sendMessage: (...args: unknown[]) => { calls.push(args); },
+    sendMessage: (...args: unknown[]) => {
+      calls.push(args);
+    },
     calls,
   } as any;
 }
@@ -86,7 +100,15 @@ test("resolveAgentEnd resolves a pending runUnit promise", async () => {
 
   // Start runUnit — it will create the promise and send a message,
   // then block awaiting agent_end
-  const resultPromise = runUnit(ctx, pi, s, "task", "T01", "do stuff", undefined);
+  const resultPromise = runUnit(
+    ctx,
+    pi,
+    s,
+    "task",
+    "T01",
+    "do stuff",
+    undefined,
+  );
 
   // Give the microtask queue a tick so runUnit reaches the await
   await new Promise((r) => setTimeout(r, 10));
@@ -132,7 +154,11 @@ test("double resolveAgentEnd only resolves once (second is queued)", async () =>
   assert.doesNotThrow(() => {
     resolveAgentEnd(event2);
   });
-  assert.equal(s.pendingAgentEndQueue.length, 1, "second event should be queued");
+  assert.equal(
+    s.pendingAgentEndQueue.length,
+    1,
+    "second event should be queued",
+  );
 
   const result = await resultPromise;
   assert.equal(result.status, "completed");
@@ -184,13 +210,57 @@ test("runUnit returns cancelled when s.active is false before sendMessage", asyn
   assert.equal(pi.calls.length, 0);
 });
 
+test("runUnit only arms pendingResolve after newSession completes", async () => {
+  _resetPendingResolve();
+
+  let sawSwitchFlag = false;
+  let sawPendingResolve: unknown = "unset";
+
+  const ctx = makeMockCtx();
+  const pi = makeMockPi();
+  const s = makeMockSession({
+    newSessionDelayMs: 20,
+    onNewSessionStart: (session) => {
+      sawSwitchFlag = session.sessionSwitchInFlight;
+      sawPendingResolve = session.pendingResolve;
+    },
+  });
+  _setActiveSession(s);
+
+  const resultPromise = runUnit(ctx, pi, s, "task", "T01", "prompt", undefined);
+
+  await new Promise((r) => setTimeout(r, 30));
+
+  assert.equal(sawSwitchFlag, true, "session switch guard should be active during newSession");
+  assert.equal(sawPendingResolve, null, "pendingResolve should not be armed before newSession completes");
+  assert.equal(isSessionSwitchInFlight(), false, "session switch guard should clear after newSession settles");
+
+  resolveAgentEnd(makeEvent());
+
+  const result = await resultPromise;
+  assert.equal(result.status, "completed");
+  assert.equal(pi.calls.length, 1);
+});
+
 // ─── Structural assertions ───────────────────────────────────────────────────
 
 test("auto-loop.ts exports autoLoop, runUnit, resolveAgentEnd", async () => {
   const mod = await import("../auto-loop.js");
-  assert.equal(typeof mod.autoLoop, "function", "autoLoop should be exported as a function");
-  assert.equal(typeof mod.runUnit, "function", "runUnit should be exported as a function");
-  assert.equal(typeof mod.resolveAgentEnd, "function", "resolveAgentEnd should be exported as a function");
+  assert.equal(
+    typeof mod.autoLoop,
+    "function",
+    "autoLoop should be exported as a function",
+  );
+  assert.equal(
+    typeof mod.runUnit,
+    "function",
+    "runUnit should be exported as a function",
+  );
+  assert.equal(
+    typeof mod.resolveAgentEnd,
+    "function",
+    "resolveAgentEnd should be exported as a function",
+  );
 });
 
 test("auto-loop.ts contains a while keyword", () => {
@@ -198,7 +268,10 @@ test("auto-loop.ts contains a while keyword", () => {
     resolve(import.meta.dirname, "..", "auto-loop.ts"),
     "utf-8",
   );
-  assert.ok(src.includes("while"), "auto-loop.ts should contain a while keyword (loop or placeholder)");
+  assert.ok(
+    src.includes("while"),
+    "auto-loop.ts should contain a while keyword (loop or placeholder)",
+  );
 });
 
 test("auto-loop.ts one-shot pattern: pendingResolve is nulled before calling resolver", () => {
@@ -213,10 +286,13 @@ test("auto-loop.ts one-shot pattern: pendingResolve is nulled before calling res
     src.indexOf("export function resolveAgentEnd") + 600,
   );
   const nullIdx = resolveBlock.indexOf("pendingResolve = null");
-  const callIdx = resolveBlock.indexOf('r({');
+  const callIdx = resolveBlock.indexOf("r({");
   assert.ok(nullIdx > 0, "should null pendingResolve in resolveAgentEnd");
   assert.ok(callIdx > 0, "should call resolver in resolveAgentEnd");
-  assert.ok(nullIdx < callIdx, "pendingResolve should be nulled before calling the resolver (one-shot)");
+  assert.ok(
+    nullIdx < callIdx,
+    "pendingResolve should be nulled before calling the resolver (one-shot)",
+  );
 });
 
 // ─── autoLoop tests (T02) ─────────────────────────────────────────────────
@@ -225,22 +301,34 @@ test("auto-loop.ts one-shot pattern: pendingResolve is nulled before calling res
  * Build a mock LoopDeps that tracks call order and allows controlling
  * behavior via overrides.
  */
-function makeMockDeps(overrides?: Partial<LoopDeps>): LoopDeps & { callLog: string[] } {
+function makeMockDeps(
+  overrides?: Partial<LoopDeps>,
+): LoopDeps & { callLog: string[] } {
   const callLog: string[] = [];
 
   const baseDeps: LoopDeps = {
     lockBase: () => "/tmp/test-lock",
     buildSnapshotOpts: () => ({}),
-    stopAuto: async () => { callLog.push("stopAuto"); },
-    pauseAuto: async () => { callLog.push("pauseAuto"); },
+    stopAuto: async () => {
+      callLog.push("stopAuto");
+    },
+    pauseAuto: async () => {
+      callLog.push("pauseAuto");
+    },
     clearUnitTimeout: () => {},
     updateProgressWidget: () => {},
-    invalidateAllCaches: () => { callLog.push("invalidateAllCaches"); },
+    invalidateAllCaches: () => {
+      callLog.push("invalidateAllCaches");
+    },
     deriveState: async () => {
       callLog.push("deriveState");
       return {
         phase: "executing",
-        activeMilestone: { id: "M001", title: "Test Milestone", status: "active" },
+        activeMilestone: {
+          id: "M001",
+          title: "Test Milestone",
+          status: "active",
+        },
         activeSlice: { id: "S01", title: "Test Slice" },
         activeTask: { id: "T01" },
         registry: [{ id: "M001", status: "active" }],
@@ -251,6 +339,13 @@ function makeMockDeps(overrides?: Partial<LoopDeps>): LoopDeps & { callLog: stri
     preDispatchHealthGate: async () => ({ proceed: true, fixesApplied: [] }),
     syncProjectRootToWorktree: () => {},
     checkResourcesStale: () => null,
+    validateSessionLock: () => true,
+    updateSessionLock: () => {
+      callLog.push("updateSessionLock");
+    },
+    handleLostSessionLock: () => {
+      callLog.push("handleLostSessionLock");
+    },
     sendDesktopNotification: () => {},
     setActiveMilestoneId: () => {},
     pruneQueueOrder: () => {},
@@ -306,9 +401,15 @@ function makeMockDeps(overrides?: Partial<LoopDeps>): LoopDeps & { callLog: stri
     atomicWriteSync: () => {},
     GitServiceImpl: class {} as any,
     resolver: {
-      get workPath() { return "/tmp/project"; },
-      get projectRoot() { return "/tmp/project"; },
-      get lockPath() { return "/tmp/project"; },
+      get workPath() {
+        return "/tmp/project";
+      },
+      get projectRoot() {
+        return "/tmp/project";
+      },
+      get lockPath() {
+        return "/tmp/project";
+      },
       enterMilestone: () => {},
       exitMilestone: () => {},
       mergeAndExit: () => {},
@@ -387,7 +488,10 @@ test("autoLoop exits when s.active is set to false", async (t) => {
   await autoLoop(ctx, pi, s, deps);
 
   // Loop body should not have executed (deriveState never called)
-  assert.ok(!deps.callLog.includes("deriveState"), "loop should not have iterated");
+  assert.ok(
+    !deps.callLog.includes("deriveState"),
+    "loop should not have iterated",
+  );
 });
 
 test("autoLoop exits on terminal complete state", async (t) => {
@@ -415,9 +519,15 @@ test("autoLoop exits on terminal complete state", async (t) => {
   await autoLoop(ctx, pi, s, deps);
 
   assert.ok(deps.callLog.includes("deriveState"), "should have derived state");
-  assert.ok(deps.callLog.includes("stopAuto"), "should have called stopAuto for complete state");
+  assert.ok(
+    deps.callLog.includes("stopAuto"),
+    "should have called stopAuto for complete state",
+  );
   // Should NOT have dispatched a unit
-  assert.ok(!deps.callLog.includes("resolveDispatch"), "should not dispatch when complete");
+  assert.ok(
+    !deps.callLog.includes("resolveDispatch"),
+    "should not dispatch when complete",
+  );
 });
 
 test("autoLoop exits on terminal blocked state", async (t) => {
@@ -445,8 +555,14 @@ test("autoLoop exits on terminal blocked state", async (t) => {
   await autoLoop(ctx, pi, s, deps);
 
   assert.ok(deps.callLog.includes("deriveState"), "should have derived state");
-  assert.ok(deps.callLog.includes("stopAuto"), "should have called stopAuto for blocked state");
-  assert.ok(!deps.callLog.includes("resolveDispatch"), "should not dispatch when blocked");
+  assert.ok(
+    deps.callLog.includes("stopAuto"),
+    "should have called stopAuto for blocked state",
+  );
+  assert.ok(
+    !deps.callLog.includes("resolveDispatch"),
+    "should not dispatch when blocked",
+  );
 });
 
 test("autoLoop calls deriveState → resolveDispatch → runUnit in sequence", async (t) => {
@@ -497,7 +613,7 @@ test("autoLoop calls deriveState → resolveDispatch → runUnit in sequence", a
   const loopPromise = autoLoop(ctx, pi, s, deps);
 
   // Give the loop time to reach runUnit's await
-  await new Promise(r => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 50));
 
   // Resolve the first unit's agent_end
   resolveAgentEnd(makeEvent());
@@ -512,10 +628,22 @@ test("autoLoop calls deriveState → resolveDispatch → runUnit in sequence", a
   const postVerIdx = deps.callLog.indexOf("postUnitPostVerification");
 
   assert.ok(deriveIdx >= 0, "deriveState should have been called");
-  assert.ok(dispatchIdx > deriveIdx, "resolveDispatch should come after deriveState");
-  assert.ok(preVerIdx > dispatchIdx, "postUnitPreVerification should come after resolveDispatch");
-  assert.ok(verIdx > preVerIdx, "runPostUnitVerification should come after pre-verification");
-  assert.ok(postVerIdx > verIdx, "postUnitPostVerification should come after verification");
+  assert.ok(
+    dispatchIdx > deriveIdx,
+    "resolveDispatch should come after deriveState",
+  );
+  assert.ok(
+    preVerIdx > dispatchIdx,
+    "postUnitPreVerification should come after resolveDispatch",
+  );
+  assert.ok(
+    verIdx > preVerIdx,
+    "runPostUnitVerification should come after pre-verification",
+  );
+  assert.ok(
+    postVerIdx > verIdx,
+    "postUnitPostVerification should come after verification",
+  );
 });
 
 test("autoLoop handles verification retry by continuing loop", async (t) => {
@@ -569,21 +697,28 @@ test("autoLoop handles verification retry by continuing loop", async (t) => {
   const loopPromise = autoLoop(ctx, pi, s, deps);
 
   // First iteration: runUnit → verification returns "retry" → loop continues
-  await new Promise(r => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 50));
   resolveAgentEnd(makeEvent()); // resolve first unit
 
   // Second iteration: runUnit → verification returns "continue"
-  await new Promise(r => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 50));
   resolveAgentEnd(makeEvent()); // resolve retry unit
 
   await loopPromise;
 
   // Verify deriveState was called twice (two iterations)
-  const deriveCount = deps.callLog.filter(c => c === "deriveState").length;
-  assert.ok(deriveCount >= 2, `deriveState should be called at least 2 times (got ${deriveCount})`);
+  const deriveCount = deps.callLog.filter((c) => c === "deriveState").length;
+  assert.ok(
+    deriveCount >= 2,
+    `deriveState should be called at least 2 times (got ${deriveCount})`,
+  );
 
   // Verify verification was called twice
-  assert.equal(verifyCallCount, 2, "verification should have been called twice (once retry, once pass)");
+  assert.equal(
+    verifyCallCount,
+    2,
+    "verification should have been called twice (once retry, once pass)",
+  );
 });
 
 test("autoLoop handles dispatch stop action", async (t) => {
@@ -607,8 +742,14 @@ test("autoLoop handles dispatch stop action", async (t) => {
 
   await autoLoop(ctx, pi, s, deps);
 
-  assert.ok(deps.callLog.includes("resolveDispatch"), "should have called resolveDispatch");
-  assert.ok(deps.callLog.includes("stopAuto"), "should have stopped on dispatch stop action");
+  assert.ok(
+    deps.callLog.includes("resolveDispatch"),
+    "should have called resolveDispatch",
+  );
+  assert.ok(
+    deps.callLog.includes("stopAuto"),
+    "should have stopped on dispatch stop action",
+  );
 });
 
 test("autoLoop handles dispatch skip action by continuing", async (t) => {
@@ -628,17 +769,28 @@ test("autoLoop handles dispatch skip action by continuing", async (t) => {
         return { action: "skip" as const };
       }
       // Second time: stop to exit the loop
-      return { action: "stop" as const, reason: "done", level: "info" as const };
+      return {
+        action: "stop" as const,
+        reason: "done",
+        level: "info" as const,
+      };
     },
   });
 
   await autoLoop(ctx, pi, s, deps);
 
   // Should have called resolveDispatch twice (skip → re-derive → stop)
-  const dispatchCalls = deps.callLog.filter(c => c === "resolveDispatch");
-  assert.equal(dispatchCalls.length, 2, "resolveDispatch should be called twice (skip then stop)");
-  const deriveCalls = deps.callLog.filter(c => c === "deriveState");
-  assert.ok(deriveCalls.length >= 2, "deriveState should be called at least twice (one per iteration)");
+  const dispatchCalls = deps.callLog.filter((c) => c === "resolveDispatch");
+  assert.equal(
+    dispatchCalls.length,
+    2,
+    "resolveDispatch should be called twice (skip then stop)",
+  );
+  const deriveCalls = deps.callLog.filter((c) => c === "deriveState");
+  assert.ok(
+    deriveCalls.length >= 2,
+    "deriveState should be called at least twice (one per iteration)",
+  );
 });
 
 test("autoLoop drains sidecar queue after postUnitPostVerification enqueues items", async (t) => {
@@ -674,17 +826,21 @@ test("autoLoop drains sidecar queue after postUnitPostVerification enqueues item
   const loopPromise = autoLoop(ctx, pi, s, deps);
 
   // Wait for main unit's runUnit to be awaiting
-  await new Promise(r => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 50));
   resolveAgentEnd(makeEvent()); // resolve main unit
 
   // Wait for the sidecar unit's runUnit to be awaiting
-  await new Promise(r => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 50));
   resolveAgentEnd(makeEvent()); // resolve sidecar unit
 
   await loopPromise;
 
   // postUnitPostVerification should have been called twice (main + sidecar)
-  assert.equal(postVerCallCount, 2, "postUnitPostVerification should be called twice (main + sidecar)");
+  assert.equal(
+    postVerCallCount,
+    2,
+    "postUnitPostVerification should be called twice (main + sidecar)",
+  );
 });
 
 test("autoLoop exits when no active milestone found", async (t) => {
@@ -711,7 +867,10 @@ test("autoLoop exits when no active milestone found", async (t) => {
 
   await autoLoop(ctx, pi, s, deps);
 
-  assert.ok(deps.callLog.includes("stopAuto"), "should stop when no milestone and all complete");
+  assert.ok(
+    deps.callLog.includes("stopAuto"),
+    "should stop when no milestone and all complete",
+  );
 });
 
 test("autoLoop exports LoopDeps type", async () => {
@@ -719,7 +878,10 @@ test("autoLoop exports LoopDeps type", async () => {
     resolve(import.meta.dirname, "..", "auto-loop.ts"),
     "utf-8",
   );
-  assert.ok(src.includes("export interface LoopDeps"), "auto-loop.ts should export LoopDeps interface");
+  assert.ok(
+    src.includes("export interface LoopDeps"),
+    "auto-loop.ts should export LoopDeps interface",
+  );
 });
 
 test("autoLoop signature accepts deps parameter", async () => {
@@ -751,9 +913,18 @@ test("auto-loop.ts exports autoLoop, runUnit, and resolveAgentEnd", () => {
     resolve(import.meta.dirname, "..", "auto-loop.ts"),
     "utf-8",
   );
-  assert.ok(src.includes("export async function autoLoop"), "must export autoLoop");
-  assert.ok(src.includes("export async function runUnit"), "must export runUnit");
-  assert.ok(src.includes("export function resolveAgentEnd"), "must export resolveAgentEnd");
+  assert.ok(
+    src.includes("export async function autoLoop"),
+    "must export autoLoop",
+  );
+  assert.ok(
+    src.includes("export async function runUnit"),
+    "must export runUnit",
+  );
+  assert.ok(
+    src.includes("export function resolveAgentEnd"),
+    "must export resolveAgentEnd",
+  );
 });
 
 test("auto.ts startAuto calls autoLoop (not dispatchNextUnit as first dispatch)", () => {
@@ -765,7 +936,8 @@ test("auto.ts startAuto calls autoLoop (not dispatchNextUnit as first dispatch)"
   const fnIdx = src.indexOf("export async function startAuto");
   assert.ok(fnIdx > -1, "startAuto must exist in auto.ts");
   const fnEnd = src.indexOf("\n// ─── ", fnIdx + 100);
-  const fnBlock = fnEnd > -1 ? src.slice(fnIdx, fnEnd) : src.slice(fnIdx, fnIdx + 5000);
+  const fnBlock =
+    fnEnd > -1 ? src.slice(fnIdx, fnEnd) : src.slice(fnIdx, fnIdx + 5000);
   assert.ok(
     fnBlock.includes("autoLoop("),
     "startAuto must call autoLoop() instead of dispatchNextUnit()",
@@ -784,6 +956,10 @@ test("index.ts agent_end handler calls resolveAgentEnd (not handleAgentEnd)", ()
   assert.ok(
     handlerBlock.includes("resolveAgentEnd(event)"),
     "agent_end success path must call resolveAgentEnd(event) instead of handleAgentEnd(ctx, pi)",
+  );
+  assert.ok(
+    handlerBlock.includes("isSessionSwitchInFlight()"),
+    "agent_end handler must ignore session-switch agent_end events from cmdCtx.newSession()",
   );
 });
 
@@ -829,7 +1005,8 @@ test("handleAgentEnd in auto.ts is a thin wrapper calling resolveAgentEnd", () =
   const fnIdx = src.indexOf("export async function handleAgentEnd");
   assert.ok(fnIdx > -1, "handleAgentEnd must exist");
   const fnEnd = src.indexOf("\n// ─── ", fnIdx + 100);
-  const fnBlock = fnEnd > -1 ? src.slice(fnIdx, fnEnd) : src.slice(fnIdx, fnIdx + 1000);
+  const fnBlock =
+    fnEnd > -1 ? src.slice(fnIdx, fnEnd) : src.slice(fnIdx, fnIdx + 1000);
   assert.ok(
     fnBlock.includes("resolveAgentEnd("),
     "handleAgentEnd must call resolveAgentEnd",
@@ -840,7 +1017,8 @@ test("handleAgentEnd in auto.ts is a thin wrapper calling resolveAgentEnd", () =
     "handleAgentEnd must not call dispatchNextUnit (it's now a thin wrapper)",
   );
   assert.ok(
-    !fnBlock.includes("postUnitPreVerification") && !fnBlock.includes("postUnitPostVerification"),
+    !fnBlock.includes("postUnitPreVerification") &&
+      !fnBlock.includes("postUnitPostVerification"),
     "handleAgentEnd must not contain verification logic (moved to autoLoop)",
   );
 });
@@ -858,14 +1036,15 @@ test("stuck counter: stops when deriveState returns same unit 5 consecutive time
 
   let stopReason = "";
   const deps = makeMockDeps({
-    deriveState: async () => ({
-      phase: "executing",
-      activeMilestone: { id: "M001", title: "Test", status: "active" },
-      activeSlice: { id: "S01", title: "Slice 1" },
-      activeTask: { id: "T01" },
-      registry: [{ id: "M001", status: "active" }],
-      blockers: [],
-    } as any),
+    deriveState: async () =>
+      ({
+        phase: "executing",
+        activeMilestone: { id: "M001", title: "Test", status: "active" },
+        activeSlice: { id: "S01", title: "Slice 1" },
+        activeTask: { id: "T01" },
+        registry: [{ id: "M001", status: "active" }],
+        blockers: [],
+      }) as any,
     resolveDispatch: async () => ({
       action: "dispatch" as const,
       unitType: "execute-task",
@@ -895,16 +1074,28 @@ test("stuck counter: stops when deriveState returns same unit 5 consecutive time
   // So we need to resolve 5 agent_end events (iterations 1-5 each run a unit).
 
   for (let i = 0; i < 5; i++) {
-    await new Promise(r => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 30));
     resolveAgentEnd(makeEvent());
   }
 
   await loopPromise;
 
-  assert.ok(deps.callLog.includes("stopAuto"), "stopAuto should have been called");
-  assert.ok(stopReason.includes("Stuck"), `stop reason should mention 'Stuck', got: ${stopReason}`);
-  assert.ok(stopReason.includes("execute-task"), "stop reason should include unitType");
-  assert.ok(stopReason.includes("M001/S01/T01"), "stop reason should include unitId");
+  assert.ok(
+    deps.callLog.includes("stopAuto"),
+    "stopAuto should have been called",
+  );
+  assert.ok(
+    stopReason.includes("Stuck"),
+    `stop reason should mention 'Stuck', got: ${stopReason}`,
+  );
+  assert.ok(
+    stopReason.includes("execute-task"),
+    "stop reason should include unitType",
+  );
+  assert.ok(
+    stopReason.includes("M001/S01/T01"),
+    "stop reason should include unitId",
+  );
 });
 
 test("stuck counter: resets when deriveState returns a different unit", async () => {
@@ -962,15 +1153,21 @@ test("stuck counter: resets when deriveState returns a different unit", async ()
 
   // Resolve agent_end for iterations 1-4
   for (let i = 0; i < 4; i++) {
-    await new Promise(r => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 30));
     resolveAgentEnd(makeEvent());
   }
 
   await loopPromise;
 
   // The counter should have reset when T02 was derived — no stuck stop
-  assert.ok(!stopCalled, "stopAuto should NOT have been called — counter reset on unit change");
-  assert.ok(deriveCallCount >= 4, `deriveState should have been called at least 4 times (got ${deriveCallCount})`);
+  assert.ok(
+    !stopCalled,
+    "stopAuto should NOT have been called — counter reset on unit change",
+  );
+  assert.ok(
+    deriveCallCount >= 4,
+    `deriveState should have been called at least 4 times (got ${deriveCallCount})`,
+  );
 });
 
 test("stuck counter: does not increment during verification retry", async () => {
@@ -986,14 +1183,15 @@ test("stuck counter: does not increment during verification retry", async () => 
   let stopReason = "";
 
   const deps = makeMockDeps({
-    deriveState: async () => ({
-      phase: "executing",
-      activeMilestone: { id: "M001", title: "Test", status: "active" },
-      activeSlice: { id: "S01", title: "Slice 1" },
-      activeTask: { id: "T01" },
-      registry: [{ id: "M001", status: "active" }],
-      blockers: [],
-    } as any),
+    deriveState: async () =>
+      ({
+        phase: "executing",
+        activeMilestone: { id: "M001", title: "Test", status: "active" },
+        activeSlice: { id: "S01", title: "Slice 1" },
+        activeTask: { id: "T01" },
+        registry: [{ id: "M001", status: "active" }],
+        blockers: [],
+      }) as any,
     resolveDispatch: async () => ({
       action: "dispatch" as const,
       unitType: "execute-task",
@@ -1027,7 +1225,7 @@ test("stuck counter: does not increment during verification retry", async () => 
 
   // Resolve agent_end for 4 iterations (1 initial + 3 retries)
   for (let i = 0; i < 4; i++) {
-    await new Promise(r => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 30));
     resolveAgentEnd(makeEvent());
   }
 
@@ -1035,8 +1233,15 @@ test("stuck counter: does not increment during verification retry", async () => 
 
   // Even though same unit was derived 4 times, verification retries should
   // not count, so stuck counter should not have fired
-  assert.ok(!stopReason.includes("Stuck"), `stuck counter should not fire during verification retries, got: ${stopReason}`);
-  assert.equal(verifyCallCount, 4, "verification should have been called 4 times (1 initial + 3 retries)");
+  assert.ok(
+    !stopReason.includes("Stuck"),
+    `stuck counter should not fire during verification retries, got: ${stopReason}`,
+  );
+  assert.equal(
+    verifyCallCount,
+    4,
+    "verification should have been called 4 times (1 initial + 3 retries)",
+  );
 });
 
 test("stuck counter: logs debug output with stuck-detected phase", () => {
@@ -1153,7 +1358,11 @@ test("autoLoop lifecycle: advances through research → plan → execute → ver
 
       if (dispatchCallCount > dispatches.length) {
         // Safety: shouldn't reach here, but stop if it does
-        return { action: "stop" as const, reason: "done", level: "info" as const };
+        return {
+          action: "stop" as const,
+          reason: "done",
+          level: "info" as const,
+        };
       }
 
       const d = dispatches[dispatchCallCount - 1];
@@ -1175,7 +1384,7 @@ test("autoLoop lifecycle: advances through research → plan → execute → ver
 
   // Resolve each iteration's agent_end — 5 iterations, each dispatches a unit
   for (let i = 0; i < 5; i++) {
-    await new Promise(r => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 30));
     resolveAgentEnd(makeEvent());
   }
 
@@ -1210,8 +1419,8 @@ test("autoLoop lifecycle: advances through research → plan → execute → ver
   );
 
   // Assert call sequence: deriveState and resolveDispatch entries are interleaved
-  const deriveEntries = deps.callLog.filter(c => c === "deriveState");
-  const dispatchEntries = deps.callLog.filter(c => c === "resolveDispatch");
+  const deriveEntries = deps.callLog.filter((c) => c === "deriveState");
+  const dispatchEntries = deps.callLog.filter((c) => c === "resolveDispatch");
   assert.ok(
     deriveEntries.length >= 5,
     `callLog should have at least 5 deriveState entries (got ${deriveEntries.length})`,
@@ -1237,7 +1446,13 @@ test("autoLoop lifecycle: advances through research → plan → execute → ver
   // Assert the exact sequence of dispatched unit types
   assert.deepEqual(
     dispatchedUnitTypes,
-    ["research-slice", "plan-slice", "execute-task", "verify-slice", "complete-slice"],
+    [
+      "research-slice",
+      "plan-slice",
+      "execute-task",
+      "verify-slice",
+      "complete-slice",
+    ],
     "dispatched unit types should follow the full lifecycle sequence",
   );
 });

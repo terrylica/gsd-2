@@ -36,7 +36,7 @@ import { saveFile, formatContinue, loadFile, parseContinue, parseSummary, loadAc
 import { loadPrompt } from "./prompt-loader.js";
 import { deriveState } from "./state.js";
 import { isAutoActive, isAutoPaused, pauseAuto, getAutoDashboardData, getAutoModeStartModel, markToolStart, markToolEnd } from "./auto.js";
-import { resolveAgentEnd } from "./auto-loop.js";
+import { isSessionSwitchInFlight, resolveAgentEnd } from "./auto-loop.js";
 import { saveActivityLog } from "./activity-log.js";
 import { checkAutoStartAfterDiscuss, getDiscussionMilestoneId, findMilestoneIds, nextMilestoneId } from "./guided-flow.js";
 import { GSDDashboardOverlay } from "./dashboard-overlay.js";
@@ -106,6 +106,8 @@ let activeQueuePhase = false;
 // Tracks per-model retry attempts for transient network errors.
 // Cleared when a model switch occurs or retries are exhausted.
 const networkRetryCounters = new Map<string, number>();
+const MAX_TRANSIENT_AUTO_RESUMES = 3;
+let consecutiveTransientErrors = 0;
 
 export function isDepthVerified(): boolean {
   return depthVerificationDone;
@@ -755,6 +757,13 @@ export default function (pi: ExtensionAPI) {
     // If auto-mode is already running, advance to next unit
     if (!isAutoActive()) return;
 
+    // Fresh-session auto-mode intentionally aborts the previous session during
+    // cmdCtx.newSession(). Ignore that agent_end so we neither pause nor
+    // resolve the new unit with an event from the old session.
+    if (isSessionSwitchInFlight()) {
+      return;
+    }
+
     // If the agent was aborted (user pressed Escape) or hit a provider
     // error (fetch failure, rate limit, etc.), pause auto-mode instead of
     // advancing. This preserves the conversation so the user can inspect
@@ -894,23 +903,41 @@ export default function (pi: ExtensionAPI) {
       const explicitRetryAfterMs = ("retryAfterMs" in lastMsg && typeof lastMsg.retryAfterMs === "number")
         ? lastMsg.retryAfterMs
         : undefined;
-      const retryAfterMs = explicitRetryAfterMs ?? classification.suggestedDelayMs;
+      if (classification.isTransient) {
+        consecutiveTransientErrors += 1;
+      } else {
+        consecutiveTransientErrors = 0;
+      }
+      const baseRetryAfterMs = explicitRetryAfterMs ?? classification.suggestedDelayMs;
+      const retryAfterMs = classification.isTransient ? baseRetryAfterMs * 2 ** Math.max(0, consecutiveTransientErrors - 1) : baseRetryAfterMs;
+      const allowAutoResume = classification.isTransient
+        && consecutiveTransientErrors <= MAX_TRANSIENT_AUTO_RESUMES;
+
+      if (classification.isTransient && !allowAutoResume) {
+        ctx.ui.notify(
+          `Transient provider errors persisted after ${MAX_TRANSIENT_AUTO_RESUMES} auto-resume attempts. Pausing for manual review.`,
+          "warning",
+        );
+      }
 
       await pauseAutoForProviderError(ctx.ui, errorDetail, () => pauseAuto(ctx, pi), {
         isRateLimit: classification.isRateLimit,
-        isTransient: classification.isTransient,
+        isTransient: allowAutoResume,
         retryAfterMs,
-        resume: () => {
-          pi.sendMessage(
-            { customType: "gsd-auto-timeout-recovery", content: "Continue execution \u2014 provider error recovery delay elapsed.", display: false },
-            { triggerTurn: true },
-          );
-        },
+        resume: allowAutoResume
+          ? () => {
+            pi.sendMessage(
+              { customType: "gsd-auto-timeout-recovery", content: "Continue execution \u2014 provider error recovery delay elapsed.", display: false },
+              { triggerTurn: true },
+            );
+          }
+          : undefined,
       });
       return;
     }
 
     try {
+      consecutiveTransientErrors = 0;
       networkRetryCounters.clear(); // Clear network retry state on successful unit completion
       resolveAgentEnd(event);
     } catch (err) {

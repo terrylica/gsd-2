@@ -10,7 +10,14 @@
  * Also contains resource staleness detection and stale worktree escape.
  */
 
-import { existsSync, mkdirSync, readFileSync, cpSync, unlinkSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  cpSync,
+  unlinkSync,
+  readdirSync,
+} from "node:fs";
 import { join, sep as pathSep } from "node:path";
 import { homedir } from "node:os";
 import { safeCopy, safeCopyRecursive } from "./safe-fs.js";
@@ -24,7 +31,11 @@ import { safeCopy, safeCopyRecursive } from "./safe-fs.js";
  * gsd.db in the worktree so it rebuilds from fresh disk state (#853).
  * Non-fatal — sync failure should never block dispatch.
  */
-export function syncProjectRootToWorktree(projectRoot: string, worktreePath: string, milestoneId: string | null): void {
+export function syncProjectRootToWorktree(
+  projectRoot: string,
+  worktreePath: string,
+  milestoneId: string | null,
+): void {
   if (!worktreePath || !projectRoot || worktreePath === projectRoot) return;
   if (!milestoneId) return;
 
@@ -33,7 +44,10 @@ export function syncProjectRootToWorktree(projectRoot: string, worktreePath: str
 
   // Copy milestone directory from project root to worktree if the project root
   // has newer artifacts (e.g. slices that don't exist in the worktree yet)
-  safeCopyRecursive(join(prGsd, "milestones", milestoneId), join(wtGsd, "milestones", milestoneId))
+  safeCopyRecursive(
+    join(prGsd, "milestones", milestoneId),
+    join(wtGsd, "milestones", milestoneId),
+  );
 
   // Delete worktree gsd.db so it rebuilds from the freshly synced files.
   // Stale DB rows are the root cause of the infinite skip loop (#853).
@@ -42,7 +56,9 @@ export function syncProjectRootToWorktree(projectRoot: string, worktreePath: str
     if (existsSync(wtDb)) {
       unlinkSync(wtDb);
     }
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 }
 
 // ─── Worktree → Project Root Sync ─────────────────────────────────────────
@@ -53,7 +69,11 @@ export function syncProjectRootToWorktree(projectRoot: string, worktreePath: str
  * Copies: STATE.md + active milestone directory (roadmap, slice plans, task summaries).
  * Non-fatal — sync failure should never block dispatch.
  */
-export function syncStateToProjectRoot(worktreePath: string, projectRoot: string, milestoneId: string | null): void {
+export function syncStateToProjectRoot(
+  worktreePath: string,
+  projectRoot: string,
+  milestoneId: string | null,
+): void {
   if (!worktreePath || !projectRoot || worktreePath === projectRoot) return;
   if (!milestoneId) return;
 
@@ -61,17 +81,25 @@ export function syncStateToProjectRoot(worktreePath: string, projectRoot: string
   const prGsd = join(projectRoot, ".gsd");
 
   // 1. STATE.md — the quick-glance status used by initial deriveState()
-  safeCopy(join(wtGsd, "STATE.md"), join(prGsd, "STATE.md"), { force: true })
+  safeCopy(join(wtGsd, "STATE.md"), join(prGsd, "STATE.md"), { force: true });
 
   // 2. Milestone directory — ROADMAP, slice PLANs, task summaries
   // Copy the entire milestone .gsd subtree so deriveState reads current checkboxes
-  safeCopyRecursive(join(wtGsd, "milestones", milestoneId), join(prGsd, "milestones", milestoneId), { force: true })
+  safeCopyRecursive(
+    join(wtGsd, "milestones", milestoneId),
+    join(prGsd, "milestones", milestoneId),
+    { force: true },
+  );
 
   // 4. Runtime records — unit dispatch state used by selfHealRuntimeRecords().
   // Without this, a crash during a unit leaves the runtime record only in the
   // worktree. If the next session resolves basePath before worktree re-entry,
   // selfHeal can't find or clear the stale record (#769).
-  safeCopyRecursive(join(wtGsd, "runtime", "units"), join(prGsd, "runtime", "units"), { force: true })
+  safeCopyRecursive(
+    join(wtGsd, "runtime", "units"),
+    join(prGsd, "runtime", "units"),
+    { force: true },
+  );
 }
 
 // ─── Resource Staleness ───────────────────────────────────────────────────
@@ -82,11 +110,14 @@ export function syncStateToProjectRoot(worktreePath: string, projectRoot: string
  * doesn't falsely trigger staleness (#804).
  */
 export function readResourceVersion(): string | null {
-  const agentDir = process.env.GSD_CODING_AGENT_DIR || join(homedir(), ".gsd", "agent");
+  const agentDir =
+    process.env.GSD_CODING_AGENT_DIR || join(homedir(), ".gsd", "agent");
   const manifestPath = join(agentDir, "managed-resources.json");
   try {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-    return typeof manifest?.gsdVersion === "string" ? manifest.gsdVersion : null;
+    return typeof manifest?.gsdVersion === "string"
+      ? manifest.gsdVersion
+      : null;
   } catch {
     return null;
   }
@@ -96,7 +127,9 @@ export function readResourceVersion(): string | null {
  * Check if managed resources have been updated since session start.
  * Returns a warning message if stale, null otherwise.
  */
-export function checkResourcesStale(versionOnStart: string | null): string | null {
+export function checkResourcesStale(
+  versionOnStart: string | null,
+): string | null {
   if (versionOnStart === null) return null;
   const current = readResourceVersion();
   if (current === null) return null;
@@ -159,9 +192,13 @@ export function cleanStaleRuntimeUnits(
         try {
           unlinkSync(join(runtimeUnitsDir, file));
           cleaned++;
-        } catch { /* non-fatal */ }
+        } catch {
+          /* non-fatal */
+        }
       }
     }
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
   return cleaned;
 }

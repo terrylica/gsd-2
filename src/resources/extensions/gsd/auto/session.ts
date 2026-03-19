@@ -135,6 +135,13 @@ export class AutoSession {
 
   // ── Loop promise state ──────────────────────────────────────────────────
   /**
+   * True only while runUnit is rotating into a fresh session. agent_end events
+   * emitted from the previous session's abort during this window must be
+   * ignored; they do not belong to the new unit.
+   */
+  sessionSwitchInFlight = false;
+
+  /**
    * One-shot resolver for the current unit's agent_end promise.
    * Non-null only while a unit is in-flight (between sendMessage and agent_end).
    * Scoped to the session to prevent concurrent session corruption.
@@ -226,6 +233,7 @@ export class AutoSession {
     this.sigtermHandler = null;
 
     // Loop promise state
+    this.sessionSwitchInFlight = false;
     this.pendingResolve = null;
     this.pendingAgentEndQueue = [];
   }

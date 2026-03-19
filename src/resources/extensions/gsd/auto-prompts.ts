@@ -55,6 +55,55 @@ function formatExecutorConstraints(): string {
   ].join("\n");
 }
 
+function buildSourceFilePaths(
+  base: string,
+  mid: string,
+  sid?: string,
+): string {
+  const paths: string[] = [];
+
+  const projectPath = resolveGsdRootFile(base, "PROJECT");
+  if (existsSync(projectPath)) {
+    paths.push(`- **Project**: \`${relGsdRootFile("PROJECT")}\``);
+  }
+
+  const requirementsPath = resolveGsdRootFile(base, "REQUIREMENTS");
+  if (existsSync(requirementsPath)) {
+    paths.push(`- **Requirements**: \`${relGsdRootFile("REQUIREMENTS")}\``);
+  }
+
+  const decisionsPath = resolveGsdRootFile(base, "DECISIONS");
+  if (existsSync(decisionsPath)) {
+    paths.push(`- **Decisions**: \`${relGsdRootFile("DECISIONS")}\``);
+  }
+
+  const contextPath = resolveMilestoneFile(base, mid, "CONTEXT");
+  if (contextPath) {
+    paths.push(`- **Milestone Context**: \`${relMilestoneFile(base, mid, "CONTEXT")}\``);
+  }
+
+  const roadmapPath = resolveMilestoneFile(base, mid, "ROADMAP");
+  if (roadmapPath) {
+    paths.push(`- **Roadmap**: \`${relMilestoneFile(base, mid, "ROADMAP")}\``);
+  }
+
+  if (sid) {
+    const researchPath = resolveSliceFile(base, mid, sid, "RESEARCH");
+    if (researchPath) {
+      paths.push(`- **Slice Research**: \`${relSliceFile(base, mid, sid, "RESEARCH")}\``);
+    }
+  } else {
+    const researchPath = resolveMilestoneFile(base, mid, "RESEARCH");
+    if (researchPath) {
+      paths.push(`- **Milestone Research**: \`${relMilestoneFile(base, mid, "RESEARCH")}\``);
+    }
+  }
+
+  return paths.length > 0
+    ? paths.join("\n")
+    : "- Use `rg --files` and targeted reads to identify the relevant source files before planning.";
+}
+
 // ─── Inline Helpers ───────────────────────────────────────────────────────
 
 /**
@@ -603,6 +652,7 @@ export async function buildPlanMilestonePrompt(mid: string, midTitle: string, ba
   const inlinedContext = `## Inlined Context (preloaded — do not re-read these files)\n\n${inlined.join("\n\n---\n\n")}`;
 
   const outputRelPath = relMilestoneFile(base, mid, "ROADMAP");
+  const researchOutputPath = join(base, relMilestoneFile(base, mid, "RESEARCH"));
   const secretsOutputPath = join(base, relMilestoneFile(base, mid, "SECRETS"));
   return loadPrompt("plan-milestone", {
     workingDirectory: base,
@@ -610,9 +660,12 @@ export async function buildPlanMilestonePrompt(mid: string, midTitle: string, ba
     milestonePath: relMilestonePath(base, mid),
     contextPath: contextRel,
     researchPath: researchRel,
+    researchOutputPath,
     outputPath: join(base, outputRelPath),
     secretsOutputPath,
     inlinedContext,
+    sourceFilePaths: buildSourceFilePaths(base, mid),
+    ...buildSkillDiscoveryVars(),
   });
 }
 
@@ -713,6 +766,7 @@ export async function buildPlanSlicePrompt(
     outputPath: join(base, outputRelPath),
     inlinedContext,
     dependencySummaries: depContent,
+    sourceFilePaths: buildSourceFilePaths(base, mid, sid),
     executorContextConstraints,
     commitInstruction,
   });
