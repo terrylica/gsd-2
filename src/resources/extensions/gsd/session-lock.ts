@@ -122,6 +122,12 @@ function ensureExitHandler(gsdDir: string): void {
     try {
       if (_releaseFunction) { _releaseFunction(); _releaseFunction = null; }
     } catch { /* best-effort */ }
+    // Remove the auto.lock metadata file so crash-recovery doesn't
+    // falsely detect an interrupted session on the next startup.
+    try {
+      const lockFile = join(gsdDir, LOCK_FILE);
+      if (existsSync(lockFile)) unlinkSync(lockFile);
+    } catch { /* best-effort */ }
     try {
       const lockDir = join(gsdDir + ".lock");
       if (existsSync(lockDir)) rmSync(lockDir, { recursive: true, force: true });
@@ -142,6 +148,16 @@ function ensureExitHandler(gsdDir: string): void {
  */
 export function acquireSessionLock(basePath: string): SessionLockResult {
   const lp = lockPath(basePath);
+
+  // Re-entrant acquire on the same path: release our current OS lock first so
+  // proper-lockfile clears its update timer before we acquire a fresh lock.
+  if (_releaseFunction && _lockedPath === basePath) {
+    try { _releaseFunction(); } catch { /* may already be released */ }
+    _releaseFunction = null;
+    _lockedPath = null;
+    _lockPid = 0;
+    _lockCompromised = false;
+  }
 
   // Ensure the directory exists
   mkdirSync(dirname(lp), { recursive: true });
@@ -228,6 +244,7 @@ export function acquireSessionLock(basePath: string): SessionLockResult {
         _releaseFunction = release;
         _lockedPath = basePath;
         _lockPid = process.pid;
+        _lockCompromised = false;
 
         // Safety net — uses centralized handler to avoid double-registration
         ensureExitHandler(gsdDir);

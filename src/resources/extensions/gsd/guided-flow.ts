@@ -788,21 +788,34 @@ export async function showSmartEntry(
   // ── Self-heal stale runtime records from crashed auto-mode sessions ──
   selfHealRuntimeRecords(basePath, ctx);
 
-  // Check for crash from previous auto-mode session
+  // Check for crash from previous auto-mode session.
+  // Skip if the lock was written by the current process — acquireSessionLock()
+  // writes to the same file, so we'd always false-positive (#1398).
   const crashLock = readCrashLock(basePath);
-  if (crashLock) {
+  if (crashLock && crashLock.pid !== process.pid) {
     clearLock(basePath);
-    const resume = await showNextAction(ctx, {
-      title: "GSD — Interrupted Session Detected",
-      summary: [formatCrashInfo(crashLock)],
-      actions: [
-        { id: "resume", label: "Resume with /gsd auto", description: "Pick up where it left off", recommended: true },
-        { id: "continue", label: "Continue manually", description: "Open the wizard as normal" },
-      ],
-    });
-    if (resume === "resume") {
-      await startAuto(ctx, pi, basePath, false);
-      return;
+
+    // Bootstrap crash with zero completed units = no work was lost.
+    // Auto-discard instead of prompting the user — this commonly happens
+    // when the user exits during init wizard or discuss phase before any
+    // real auto-mode work begins.
+    const isBootstrapCrash = crashLock.unitType === "starting"
+      && crashLock.unitId === "bootstrap"
+      && crashLock.completedUnits === 0;
+
+    if (!isBootstrapCrash) {
+      const resume = await showNextAction(ctx, {
+        title: "GSD — Interrupted Session Detected",
+        summary: [formatCrashInfo(crashLock)],
+        actions: [
+          { id: "resume", label: "Resume with /gsd auto", description: "Pick up where it left off", recommended: true },
+          { id: "continue", label: "Continue manually", description: "Open the wizard as normal" },
+        ],
+      });
+      if (resume === "resume") {
+        await startAuto(ctx, pi, basePath, false);
+        return;
+      }
     }
   }
 
