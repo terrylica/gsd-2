@@ -2,9 +2,8 @@
  * doctor-runtime.test.ts — Tests for doctor runtime health checks.
  *
  * Tests detection and auto-fix of:
- *   stale_crash_lock, orphaned_completed_units, stale_hook_state,
- *   activity_log_bloat, state_file_missing, state_file_stale,
- *   gitignore_missing_patterns
+ *   stale_crash_lock, stale_hook_state, activity_log_bloat,
+ *   state_file_missing, state_file_stale, gitignore_missing_patterns
  */
 
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, realpathSync } from "node:fs";
@@ -263,32 +262,6 @@ node_modules/
     }
     } else {
       console.log("\n=== gitignore — blanket .gsd/ (skipped on Windows) ===");
-    }
-
-    // ─── Test 9: Orphaned completed-units detection & fix ─────────────
-    console.log("\n=== orphaned_completed_units ===");
-    {
-      const dir = createMinimalProject();
-      cleanups.push(dir);
-
-      // Write completed-units.json with keys that reference non-existent artifacts
-      const completedKeys = [
-        "execute-task/M001/S01/T99",  // T99 doesn't exist
-        "complete-slice/M001/S99",     // S99 doesn't exist
-      ];
-      writeFileSync(join(dir, ".gsd", "completed-units.json"), JSON.stringify(completedKeys));
-
-      const detect = await runGSDDoctor(dir);
-      const orphanIssues = detect.issues.filter(i => i.code === "orphaned_completed_units");
-      assertTrue(orphanIssues.length > 0, "detects orphaned completed-unit keys");
-      assertTrue(orphanIssues[0]?.message.includes("2 completed-unit key"), "message includes count");
-
-      const fixed = await runGSDDoctor(dir, { fix: true });
-      assertTrue(fixed.fixesApplied.some(f => f.includes("removed") && f.includes("orphaned")), "fix removes orphaned keys");
-
-      // Verify keys were cleaned
-      const content = JSON.parse(readFileSync(join(dir, ".gsd", "completed-units.json"), "utf-8"));
-      assertEq(content.length, 0, "all orphaned keys removed");
     }
 
   } finally {

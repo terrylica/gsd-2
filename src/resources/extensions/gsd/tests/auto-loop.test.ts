@@ -256,7 +256,6 @@ function makeMockDeps(overrides?: Partial<LoopDeps>): LoopDeps & { callLog: stri
     getCurrentBranch: () => "main",
     autoWorktreeBranch: () => "auto/M001",
     resolveMilestoneFile: () => null,
-    completedKeysPath: () => "/tmp/completed-keys.json",
     reconcileMergeState: () => false,
     getLedger: () => null,
     getProjectTotals: () => ({ cost: 0 }),
@@ -280,17 +279,8 @@ function makeMockDeps(overrides?: Partial<LoopDeps>): LoopDeps & { callLog: stri
     getMainBranch: () => "main",
     collectObservabilityWarnings: async () => [],
     buildObservabilityRepairBlock: () => null,
-    checkIdempotency: () => {
-      callLog.push("checkIdempotency");
-      return { action: "proceed" };
-    },
-    checkStuckAndRecover: async () => {
-      callLog.push("checkStuckAndRecover");
-      return { action: "proceed" };
-    },
     closeoutUnit: async () => {},
     verifyExpectedArtifact: () => true,
-    persistCompletedKey: () => {},
     clearUnitRuntimeRecord: () => {},
     writeUnitRuntimeRecord: () => {},
     recordOutcome: () => {},
@@ -342,8 +332,6 @@ function makeLoopSession(overrides?: Partial<Record<string, unknown>>) {
     currentUnit: null,
     currentUnitRouting: null,
     completedUnits: [],
-    completedKeySet: new Set<string>(),
-    skipDepth: 0,
     resourceVersionOnStart: null,
     lastPromptCharCount: undefined,
     lastBaselineCharCount: undefined,
@@ -358,8 +346,6 @@ function makeLoopSession(overrides?: Partial<Record<string, unknown>>) {
     unitDispatchCount: new Map<string, number>(),
     unitLifetimeDispatches: new Map<string, number>(),
     unitRecoveryCount: new Map<string, number>(),
-    unitConsecutiveSkips: new Map<string, number>(),
-    recentlyEvictedKeys: new Set<string>(),
     verificationRetryCount: new Map<string, number>(),
     gitService: null,
     autoStartTime: Date.now(),
@@ -833,5 +819,220 @@ test("handleAgentEnd in auto.ts is a thin wrapper calling resolveAgentEnd", () =
   assert.ok(
     !fnBlock.includes("postUnitPreVerification") && !fnBlock.includes("postUnitPostVerification"),
     "handleAgentEnd must not contain verification logic (moved to autoLoop)",
+  );
+});
+
+// ── Stuck counter tests ──────────────────────────────────────────────────────
+
+test("stuck counter: stops when deriveState returns same unit 5 consecutive times", async () => {
+  _resetPendingResolve();
+
+  const ctx = makeMockCtx();
+  ctx.ui.setStatus = () => {};
+  ctx.ui.notify = () => {};
+  const pi = makeMockPi();
+  const s = makeLoopSession();
+
+  let stopReason = "";
+  const deps = makeMockDeps({
+    deriveState: async () => ({
+      phase: "executing",
+      activeMilestone: { id: "M001", title: "Test", status: "active" },
+      activeSlice: { id: "S01", title: "Slice 1" },
+      activeTask: { id: "T01" },
+      registry: [{ id: "M001", status: "active" }],
+      blockers: [],
+    } as any),
+    resolveDispatch: async () => ({
+      action: "dispatch" as const,
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      prompt: "do the thing",
+    }),
+    stopAuto: async (_ctx?: any, _pi?: any, reason?: string) => {
+      deps.callLog.push("stopAuto");
+      stopReason = reason ?? "";
+      s.active = false;
+    },
+  });
+
+  const loopPromise = autoLoop(ctx, pi, s, deps);
+
+  // The loop will dispatch the same unit each iteration. On iteration 1, sameUnitCount
+  // starts at 0 and the unit key is set. On iterations 2-5, sameUnitCount increments.
+  // At sameUnitCount=5 (iteration 6), stopAuto is called.
+  // Each iteration requires resolving an agent_end event.
+  // But the stuck counter fires BEFORE runUnit, so we only need to resolve 4 times
+  // (iterations 1-4 each run a unit, iteration 5 increments to 5 and stops).
+
+  // Actually: iteration 1 sets lastDerivedUnit (sameUnitCount=0).
+  // Iteration 2: derivedKey === lastDerivedUnit → sameUnitCount=1.
+  // Iteration 3: sameUnitCount=2. Iteration 4: sameUnitCount=3.
+  // Iteration 5: sameUnitCount=4. Iteration 6: sameUnitCount=5 → stop.
+  // So we need to resolve 5 agent_end events (iterations 1-5 each run a unit).
+
+  for (let i = 0; i < 5; i++) {
+    await new Promise(r => setTimeout(r, 30));
+    resolveAgentEnd(makeEvent());
+  }
+
+  await loopPromise;
+
+  assert.ok(deps.callLog.includes("stopAuto"), "stopAuto should have been called");
+  assert.ok(stopReason.includes("Stuck"), `stop reason should mention 'Stuck', got: ${stopReason}`);
+  assert.ok(stopReason.includes("execute-task"), "stop reason should include unitType");
+  assert.ok(stopReason.includes("M001/S01/T01"), "stop reason should include unitId");
+});
+
+test("stuck counter: resets when deriveState returns a different unit", async () => {
+  _resetPendingResolve();
+
+  const ctx = makeMockCtx();
+  ctx.ui.setStatus = () => {};
+  ctx.ui.notify = () => {};
+  const pi = makeMockPi();
+  const s = makeLoopSession();
+
+  let deriveCallCount = 0;
+  let stopCalled = false;
+
+  const deps = makeMockDeps({
+    deriveState: async () => {
+      deriveCallCount++;
+      deps.callLog.push("deriveState");
+      return {
+        phase: "executing",
+        activeMilestone: { id: "M001", title: "Test", status: "active" },
+        activeSlice: { id: "S01", title: "Slice 1" },
+        activeTask: { id: deriveCallCount <= 3 ? "T01" : "T02" },
+        registry: [{ id: "M001", status: "active" }],
+        blockers: [],
+      } as any;
+    },
+    resolveDispatch: async () => {
+      deps.callLog.push("resolveDispatch");
+      // Return dispatch matching the task from deriveState
+      const taskId = deriveCallCount <= 3 ? "T01" : "T02";
+      return {
+        action: "dispatch" as const,
+        unitType: "execute-task",
+        unitId: `M001/S01/${taskId}`,
+        prompt: "do the thing",
+      };
+    },
+    stopAuto: async (_ctx?: any, _pi?: any, reason?: string) => {
+      deps.callLog.push("stopAuto");
+      stopCalled = true;
+      s.active = false;
+    },
+    postUnitPostVerification: async () => {
+      deps.callLog.push("postUnitPostVerification");
+      // After 4th iteration (unit changed on iter 4), exit
+      if (deriveCallCount >= 4) {
+        s.active = false;
+      }
+      return "continue" as const;
+    },
+  });
+
+  const loopPromise = autoLoop(ctx, pi, s, deps);
+
+  // Resolve agent_end for iterations 1-4
+  for (let i = 0; i < 4; i++) {
+    await new Promise(r => setTimeout(r, 30));
+    resolveAgentEnd(makeEvent());
+  }
+
+  await loopPromise;
+
+  // The counter should have reset when T02 was derived — no stuck stop
+  assert.ok(!stopCalled, "stopAuto should NOT have been called — counter reset on unit change");
+  assert.ok(deriveCallCount >= 4, `deriveState should have been called at least 4 times (got ${deriveCallCount})`);
+});
+
+test("stuck counter: does not increment during verification retry", async () => {
+  _resetPendingResolve();
+
+  const ctx = makeMockCtx();
+  ctx.ui.setStatus = () => {};
+  ctx.ui.notify = () => {};
+  const pi = makeMockPi();
+  const s = makeLoopSession();
+
+  let verifyCallCount = 0;
+  let stopReason = "";
+
+  const deps = makeMockDeps({
+    deriveState: async () => ({
+      phase: "executing",
+      activeMilestone: { id: "M001", title: "Test", status: "active" },
+      activeSlice: { id: "S01", title: "Slice 1" },
+      activeTask: { id: "T01" },
+      registry: [{ id: "M001", status: "active" }],
+      blockers: [],
+    } as any),
+    resolveDispatch: async () => ({
+      action: "dispatch" as const,
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      prompt: "do the thing",
+    }),
+    runPostUnitVerification: async () => {
+      verifyCallCount++;
+      deps.callLog.push("runPostUnitVerification");
+      if (verifyCallCount <= 3) {
+        // Set pendingVerificationRetry — should prevent stuck counter increment
+        s.pendingVerificationRetry = {
+          unitId: "M001/S01/T01",
+          failureContext: "test failed",
+          attempt: verifyCallCount,
+        };
+        return "retry" as const;
+      }
+      // After 3 retries, exit gracefully
+      s.active = false;
+      return "continue" as const;
+    },
+    stopAuto: async (_ctx?: any, _pi?: any, reason?: string) => {
+      deps.callLog.push("stopAuto");
+      stopReason = reason ?? "";
+      s.active = false;
+    },
+  });
+
+  const loopPromise = autoLoop(ctx, pi, s, deps);
+
+  // Resolve agent_end for 4 iterations (1 initial + 3 retries)
+  for (let i = 0; i < 4; i++) {
+    await new Promise(r => setTimeout(r, 30));
+    resolveAgentEnd(makeEvent());
+  }
+
+  await loopPromise;
+
+  // Even though same unit was derived 4 times, verification retries should
+  // not count, so stuck counter should not have fired
+  assert.ok(!stopReason.includes("Stuck"), `stuck counter should not fire during verification retries, got: ${stopReason}`);
+  assert.equal(verifyCallCount, 4, "verification should have been called 4 times (1 initial + 3 retries)");
+});
+
+test("stuck counter: logs debug output with stuck-detected phase", () => {
+  // Structural test: verify the auto-loop.ts source contains both
+  // stuck-detected and stuck-counter-reset debug log phases
+  const src = readFileSync(
+    resolve(import.meta.dirname, "..", "auto-loop.ts"),
+    "utf-8",
+  );
+  assert.ok(
+    src.includes('"stuck-detected"'),
+    "auto-loop.ts must log phase: 'stuck-detected' when stuck counter fires",
+  );
+  assert.ok(
+    src.includes('"stuck-counter-reset"'),
+    "auto-loop.ts must log phase: 'stuck-counter-reset' when counter resets on new unit",
+  );
+  assert.ok(
+    src.includes("sameUnitCount"),
+    "auto-loop.ts must track sameUnitCount for stuck detection",
   );
 });

@@ -15,13 +15,20 @@ function makeTempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), `${prefix}-`));
 }
 
-test("handleUndo without --force only warns and leaves completed units intact", async () => {
+test("handleUndo without --force only warns when activity logs exist", async () => {
   const base = makeTempDir("gsd-undo-confirm");
   try {
-    mkdirSync(join(base, ".gsd"), { recursive: true });
+    const activityDir = join(base, ".gsd", "activity");
+    mkdirSync(activityDir, { recursive: true });
     writeFileSync(
-      join(base, ".gsd", "completed-units.json"),
-      JSON.stringify(["execute-task/M001/S01/T01"]),
+      join(activityDir, "2026-03-15-execute-task-M001-S01-T01.jsonl"),
+      `${JSON.stringify({
+        message: {
+          content: [
+            { type: "tool_result", content: "[main abc1234] some commit" },
+          ],
+        },
+      })}\n`,
       "utf-8",
     );
 
@@ -39,10 +46,6 @@ test("handleUndo without --force only warns and leaves completed units intact", 
     assert.equal(notifications.length, 1);
     assert.equal(notifications[0]?.level, "warning");
     assert.match(notifications[0]?.message ?? "", /Run \/gsd undo --force to confirm\./);
-    assert.deepEqual(
-      JSON.parse(readFileSync(join(base, ".gsd", "completed-units.json"), "utf-8")),
-      ["execute-task/M001/S01/T01"],
-    );
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
