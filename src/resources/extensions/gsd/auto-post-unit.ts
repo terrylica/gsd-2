@@ -11,7 +11,7 @@
  * Extracted from handleAgentEnd() in auto.ts.
  */
 
-import type { ExtensionContext, ExtensionCommandContext, ExtensionAPI } from "@gsd/pi-coding-agent";
+import type { ExtensionContext, ExtensionAPI } from "@gsd/pi-coding-agent";
 import { deriveState } from "./state.js";
 import { loadFile, parseSummary, resolveAllOverrides } from "./files.js";
 import { loadPrompt } from "./prompt-loader.js";
@@ -19,7 +19,6 @@ import {
   resolveSliceFile,
   resolveTaskFile,
   resolveMilestoneFile,
-  gsdRoot,
 } from "./paths.js";
 import { invalidateAllCaches } from "./cache.js";
 import { closeoutUnit, type CloseoutOptions } from "./auto-unit-closeout.js";
@@ -31,7 +30,6 @@ import {
   verifyExpectedArtifact,
 } from "./auto-recovery.js";
 import { writeUnitRuntimeRecord, clearUnitRuntimeRecord } from "./unit-runtime.js";
-import { resolveAutoSupervisorConfig, loadEffectiveGSDPreferences } from "./preferences.js";
 import { runGSDDoctor, rebuildState, summarizeDoctorIssues } from "./doctor.js";
 import { recordHealthSnapshot, checkHealEscalation } from "./doctor-proactive.js";
 import { syncStateToProjectRoot } from "./auto-worktree-sync.js";
@@ -40,14 +38,11 @@ import { isDbAvailable } from "./gsd-db.js";
 import { consumeSignal } from "./session-status-io.js";
 import {
   checkPostUnitHooks,
-  getActiveHook,
-  resetHookState,
   isRetryPending,
   consumeRetryTrigger,
   persistHookState,
 } from "./post-unit-hooks.js";
-import { hasPendingCaptures, loadPendingCaptures, countPendingCaptures } from "./captures.js";
-import { writeLock } from "./crash-recovery.js";
+import { hasPendingCaptures, loadPendingCaptures } from "./captures.js";
 import { debugLog } from "./debug-logger.js";
 import type { AutoSession } from "./auto/session.js";
 import type { WidgetStateAccessors, AutoDashboardData } from "./auto-dashboard.js";
@@ -297,13 +292,15 @@ export async function postUnitPreVerification(pctx: PostUnitContext): Promise<"d
  * Post-verification processing: DB dual-write, post-unit hooks, triage
  * capture dispatch, quick-task dispatch.
  *
+ * Sidecar work (hooks, triage, quick-tasks) is enqueued on `s.sidecarQueue`
+ * for the main loop to drain via `runUnit()`.
+ *
  * Returns:
- * - "dispatched" — a hook/triage/quick-task was dispatched (sendMessage sent)
- * - "continue" — proceed to normal dispatchNextUnit
+ * - "continue" — proceed to sidecar drain / normal dispatch
  * - "step-wizard" — step mode, show wizard instead
  * - "stopped" — stopAuto was called
  */
-export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"dispatched" | "continue" | "step-wizard" | "stopped"> {
+export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"continue" | "step-wizard" | "stopped"> {
   const { s, ctx, pi, buildSnapshotOpts, lockBase, stopAuto, pauseAuto, updateProgressWidget } = pctx;
 
   // ── DB dual-write ──
@@ -320,77 +317,28 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
   if (s.currentUnit && !s.stepMode) {
     const hookUnit = checkPostUnitHooks(s.currentUnit.type, s.currentUnit.id, s.basePath);
     if (hookUnit) {
-      const hookStartedAt = Date.now();
       if (s.currentUnit) {
         await closeoutUnit(ctx, s.basePath, s.currentUnit.type, s.currentUnit.id, s.currentUnit.startedAt, buildSnapshotOpts(s.currentUnit.type, s.currentUnit.id));
       }
-      s.currentUnit = { type: hookUnit.unitType, id: hookUnit.unitId, startedAt: hookStartedAt };
-      writeUnitRuntimeRecord(s.basePath, hookUnit.unitType, hookUnit.unitId, hookStartedAt, {
-        phase: "dispatched",
-        wrapupWarningSent: false,
-        timeoutAt: null,
-        lastProgressAt: hookStartedAt,
-        progressCount: 0,
-        lastProgressKind: "dispatch",
-      });
-
-      const state = await deriveState(s.basePath);
-      updateProgressWidget(ctx, hookUnit.unitType, hookUnit.unitId, state);
-      const hookState = getActiveHook();
-      ctx.ui.notify(
-        `Running post-unit hook: ${hookUnit.hookName} (cycle ${hookState?.cycle ?? 1})`,
-        "info",
-      );
-
-      // Switch model if the hook specifies one
-      if (hookUnit.model) {
-        const availableModels = ctx.modelRegistry.getAvailable();
-        const match = availableModels.find(m =>
-          m.id === hookUnit.model || `${m.provider}/${m.id}` === hookUnit.model,
-        );
-        if (match) {
-          try {
-            await pi.setModel(match);
-          } catch { /* non-fatal */ }
-        }
-      }
-
-      const result = await s.cmdCtx!.newSession();
-      if (result.cancelled) {
-        resetHookState();
-        await stopAuto(ctx, pi, "Hook session cancelled");
-        return "stopped";
-      }
-      const sessionFile = ctx.sessionManager.getSessionFile();
-      writeLock(lockBase(), hookUnit.unitType, hookUnit.unitId, s.completedUnits.length, sessionFile);
       persistHookState(s.basePath);
 
-      // Start supervision timers for hook units
-      const supervisor = resolveAutoSupervisorConfig();
-      const hookHardTimeoutMs = (supervisor.hard_timeout_minutes ?? 30) * 60 * 1000;
-      s.unitTimeoutHandle = setTimeout(async () => {
-        s.unitTimeoutHandle = null;
-        if (!s.active) return;
-        if (s.currentUnit) {
-          writeUnitRuntimeRecord(s.basePath, hookUnit.unitType, hookUnit.unitId, s.currentUnit.startedAt, {
-            phase: "timeout",
-            timeoutAt: Date.now(),
-          });
-        }
-        ctx.ui.notify(
-          `Hook ${hookUnit.hookName} exceeded ${supervisor.hard_timeout_minutes ?? 30}min timeout. Pausing auto-mode.`,
-          "warning",
-        );
-        resetHookState();
-        await pauseAuto(ctx, pi);
-      }, hookHardTimeoutMs);
+      s.sidecarQueue.push({
+        kind: "hook",
+        unitType: hookUnit.unitType,
+        unitId: hookUnit.unitId,
+        prompt: hookUnit.prompt,
+        model: hookUnit.model,
+      });
 
-      if (!s.active) return "stopped";
-      pi.sendMessage(
-        { customType: "gsd-auto", content: hookUnit.prompt, display: s.verbose },
-        { triggerTurn: true },
-      );
-      return "dispatched";
+      debugLog("postUnitPostVerification", {
+        phase: "sidecar-enqueue",
+        kind: "hook",
+        unitType: hookUnit.unitType,
+        unitId: hookUnit.unitId,
+        hookName: hookUnit.hookName,
+      });
+
+      return "continue";
     }
 
     // Check if a hook requested a retry of the trigger unit
@@ -440,55 +388,31 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
               roadmapContext: roadmapContext || "(no active roadmap)",
             });
 
+            if (s.currentUnit) {
+              await closeoutUnit(ctx, s.basePath, s.currentUnit.type, s.currentUnit.id, s.currentUnit.startedAt);
+            }
+
+            const triageUnitId = `${mid}/${sid}/triage`;
+            s.sidecarQueue.push({
+              kind: "triage",
+              unitType: "triage-captures",
+              unitId: triageUnitId,
+              prompt,
+            });
+
+            debugLog("postUnitPostVerification", {
+              phase: "sidecar-enqueue",
+              kind: "triage",
+              unitId: triageUnitId,
+              pendingCount: pending.length,
+            });
+
             ctx.ui.notify(
               `Triaging ${pending.length} pending capture${pending.length === 1 ? "" : "s"}...`,
               "info",
             );
 
-            if (s.currentUnit) {
-              await closeoutUnit(ctx, s.basePath, s.currentUnit.type, s.currentUnit.id, s.currentUnit.startedAt);
-            }
-
-            const triageUnitType = "triage-captures";
-            const triageUnitId = `${mid}/${sid}/triage`;
-            const triageStartedAt = Date.now();
-            s.currentUnit = { type: triageUnitType, id: triageUnitId, startedAt: triageStartedAt };
-            writeUnitRuntimeRecord(s.basePath, triageUnitType, triageUnitId, triageStartedAt, {
-              phase: "dispatched",
-              wrapupWarningSent: false,
-              timeoutAt: null,
-              lastProgressAt: triageStartedAt,
-              progressCount: 0,
-              lastProgressKind: "dispatch",
-            });
-            updateProgressWidget(ctx, triageUnitType, triageUnitId, state);
-
-            const result = await s.cmdCtx!.newSession();
-            if (result.cancelled) {
-              await stopAuto(ctx, pi);
-              return "stopped";
-            }
-            const sessionFile = ctx.sessionManager.getSessionFile();
-            writeLock(lockBase(), triageUnitType, triageUnitId, s.completedUnits.length, sessionFile);
-
-            const supervisor = resolveAutoSupervisorConfig();
-            const triageTimeoutMs = (supervisor.hard_timeout_minutes ?? 30) * 60 * 1000;
-            s.unitTimeoutHandle = setTimeout(async () => {
-              s.unitTimeoutHandle = null;
-              if (!s.active) return;
-              ctx.ui.notify(
-                `Triage unit exceeded timeout. Pausing auto-mode.`,
-                "warning",
-              );
-              await pauseAuto(ctx, pi);
-            }, triageTimeoutMs);
-
-            if (!s.active) return "stopped";
-            pi.sendMessage(
-              { customType: "gsd-auto", content: prompt, display: s.verbose },
-              { triggerTurn: true },
-            );
-            return "dispatched";
+            return "continue";
           }
         }
       }
@@ -510,58 +434,34 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
       const { markCaptureExecuted } = await import("./captures.js");
       const prompt = buildQuickTaskPrompt(capture);
 
+      if (s.currentUnit) {
+        await closeoutUnit(ctx, s.basePath, s.currentUnit.type, s.currentUnit.id, s.currentUnit.startedAt);
+      }
+
+      markCaptureExecuted(s.basePath, capture.id);
+
+      const qtUnitId = `${s.currentMilestoneId}/${capture.id}`;
+      s.sidecarQueue.push({
+        kind: "quick-task",
+        unitType: "quick-task",
+        unitId: qtUnitId,
+        prompt,
+        captureId: capture.id,
+      });
+
+      debugLog("postUnitPostVerification", {
+        phase: "sidecar-enqueue",
+        kind: "quick-task",
+        unitId: qtUnitId,
+        captureId: capture.id,
+      });
+
       ctx.ui.notify(
         `Executing quick-task: ${capture.id} — "${capture.text}"`,
         "info",
       );
 
-      if (s.currentUnit) {
-        await closeoutUnit(ctx, s.basePath, s.currentUnit.type, s.currentUnit.id, s.currentUnit.startedAt);
-      }
-
-      const qtUnitType = "quick-task";
-      const qtUnitId = `${s.currentMilestoneId}/${capture.id}`;
-      const qtStartedAt = Date.now();
-      s.currentUnit = { type: qtUnitType, id: qtUnitId, startedAt: qtStartedAt };
-      writeUnitRuntimeRecord(s.basePath, qtUnitType, qtUnitId, qtStartedAt, {
-        phase: "dispatched",
-        wrapupWarningSent: false,
-        timeoutAt: null,
-        lastProgressAt: qtStartedAt,
-        progressCount: 0,
-        lastProgressKind: "dispatch",
-      });
-      const state = await deriveState(s.basePath);
-      updateProgressWidget(ctx, qtUnitType, qtUnitId, state);
-
-      const result = await s.cmdCtx!.newSession();
-      if (result.cancelled) {
-        await stopAuto(ctx, pi);
-        return "stopped";
-      }
-      const sessionFile = ctx.sessionManager.getSessionFile();
-      writeLock(lockBase(), qtUnitType, qtUnitId, s.completedUnits.length, sessionFile);
-
-      markCaptureExecuted(s.basePath, capture.id);
-
-      const supervisor = resolveAutoSupervisorConfig();
-      const qtTimeoutMs = (supervisor.hard_timeout_minutes ?? 30) * 60 * 1000;
-      s.unitTimeoutHandle = setTimeout(async () => {
-        s.unitTimeoutHandle = null;
-        if (!s.active) return;
-        ctx.ui.notify(
-          `Quick-task ${capture.id} exceeded timeout. Pausing auto-mode.`,
-          "warning",
-        );
-        await pauseAuto(ctx, pi);
-      }, qtTimeoutMs);
-
-      if (!s.active) return "stopped";
-      pi.sendMessage(
-        { customType: "gsd-auto", content: prompt, display: s.verbose },
-        { triggerTurn: true },
-      );
-      return "dispatched";
+      return "continue";
     } catch {
       // Non-fatal — proceed to normal dispatch
     }

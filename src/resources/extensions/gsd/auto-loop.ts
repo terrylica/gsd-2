@@ -36,21 +36,11 @@ export interface AgentEndEvent {
 }
 
 /**
- * Describes deferred work discovered during a unit that should be
- * queued for the sidecar (hooks, triage, quick-tasks).
- */
-export interface SidecarWork {
-  kind: "hook" | "triage" | "quick-task";
-  payload: unknown;
-}
-
-/**
  * Result of a single unit execution (one iteration of the loop).
  */
 export interface UnitResult {
   status: "completed" | "cancelled" | "error";
   event?: AgentEndEvent;
-  sidecarWork?: SidecarWork[];
 }
 
 // ─── Module-level promise state ──────────────────────────────────────────────
@@ -261,7 +251,7 @@ export interface LoopDeps {
   // Post-unit processing
   postUnitPreVerification: (pctx: PostUnitContext) => Promise<"dispatched" | "continue">;
   runPostUnitVerification: (vctx: VerificationContext, pauseAuto: (ctx?: ExtensionContext, pi?: ExtensionAPI) => Promise<void>) => Promise<VerificationResult>;
-  postUnitPostVerification: (pctx: PostUnitContext) => Promise<"dispatched" | "continue" | "step-wizard" | "stopped">;
+  postUnitPostVerification: (pctx: PostUnitContext) => Promise<"continue" | "step-wizard" | "stopped">;
 
   // Session manager
   getSessionFile: (ctx: ExtensionContext) => string;
@@ -1021,54 +1011,84 @@ export async function autoLoop(
       break;
     }
 
-    if (postResult === "dispatched") {
-      // An inline unit (hook/triage/quick-task) was dispatched via pi.sendMessage
-      // inside postUnitPostVerification. We must await its completion before continuing.
-      debugLog("autoLoop", { phase: "await-inline-dispatch", iteration });
+    // ── Sidecar drain: dispatch enqueued hooks/triage/quick-tasks ──
+    let sidecarBroke = false;
+    while (s.sidecarQueue.length > 0 && s.active) {
+      const item = s.sidecarQueue.shift()!;
+      debugLog("autoLoop", { phase: "sidecar-dequeue", kind: item.kind, unitType: item.unitType, unitId: item.unitId });
 
-      let inlineResult: "dispatched" | "continue" | "step-wizard" | "stopped" = postResult;
-      while (inlineResult === "dispatched") {
-        // Create a new promise for the inline unit's agent_end
-        const inlinePromise = new Promise<UnitResult>((resolve) => {
-          pendingResolve = resolve;
-        });
-        const inlineUnitResult = await inlinePromise;
-        debugLog("autoLoop", {
-          phase: "inline-unit-complete",
-          iteration,
-          status: inlineUnitResult.status,
-        });
+      // Set up as current unit
+      const sidecarStartedAt = Date.now();
+      s.currentUnit = { type: item.unitType, id: item.unitId, startedAt: sidecarStartedAt };
+      deps.writeUnitRuntimeRecord(s.basePath, item.unitType, item.unitId, sidecarStartedAt, {
+        phase: "dispatched",
+        wrapupWarningSent: false,
+        timeoutAt: null,
+        lastProgressAt: sidecarStartedAt,
+        progressCount: 0,
+        lastProgressKind: "dispatch",
+      });
 
-        // Clear timeout for the inline unit
-        deps.clearUnitTimeout();
+      // Model selection (handles hook model override)
+      await deps.selectAndApplyModel(ctx, pi, item.unitType, item.unitId, s.basePath, prefs, s.verbose, s.autoModeStartModel);
 
-        // Run pre-verification for the inline unit
-        const inlinePreResult = await deps.postUnitPreVerification(postUnitCtx);
-        if (inlinePreResult === "dispatched") {
-          // Pre-verification caused stop/pause
-          debugLog("autoLoop", { phase: "exit", reason: "inline-pre-verification-dispatched" });
-          break;
-        }
+      // Supervision
+      deps.clearUnitTimeout();
+      deps.startUnitSupervision({
+        s,
+        ctx,
+        pi,
+        unitType: item.unitType,
+        unitId: item.unitId,
+        prefs,
+        buildSnapshotOpts: () => deps.buildSnapshotOpts(item.unitType, item.unitId),
+        buildRecoveryContext: () => ({}),
+        pauseAuto: deps.pauseAuto,
+      });
 
-        // Run post-verification for the inline unit
-        inlineResult = await deps.postUnitPostVerification(postUnitCtx);
-        if (inlineResult === "stopped") {
-          debugLog("autoLoop", { phase: "exit", reason: "inline-stopped" });
-          break;
-        }
-        if (inlineResult === "step-wizard") {
-          debugLog("autoLoop", { phase: "exit", reason: "inline-step-wizard" });
-          break;
-        }
-        // If "dispatched", loop again to await the next inline unit
-        // If "continue", fall through to the outer loop's next iteration
-      }
+      // Write lock
+      const sidecarSessionFile = deps.getSessionFile(ctx);
+      deps.writeLock(deps.lockBase(), item.unitType, item.unitId, s.completedUnits.length, sidecarSessionFile);
 
-      if (inlineResult === "stopped" || inlineResult === "step-wizard") {
+      // Execute via standard runUnit
+      const sidecarResult = await runUnit(ctx, pi, s, item.unitType, item.unitId, item.prompt, prefs);
+      deps.clearUnitTimeout();
+
+      if (sidecarResult.status === "cancelled") {
+        ctx.ui.notify(
+          `Sidecar unit ${item.unitType} ${item.unitId} session cancelled. Stopping.`,
+          "warning",
+        );
+        await deps.stopAuto(ctx, pi, "Sidecar session creation failed");
+        sidecarBroke = true;
         break;
       }
-      // "continue" from inline chain — fall through to next outer loop iteration
+
+      // Run pre-verification for the sidecar unit
+      const sidecarPreResult = await deps.postUnitPreVerification(postUnitCtx);
+      if (sidecarPreResult === "dispatched") {
+        // Pre-verification caused stop/pause
+        debugLog("autoLoop", { phase: "exit", reason: "sidecar-pre-verification-stop" });
+        sidecarBroke = true;
+        break;
+      }
+
+      // Post-verification (may enqueue more sidecar items)
+      const sidecarPostResult = await deps.postUnitPostVerification(postUnitCtx);
+      if (sidecarPostResult === "stopped") {
+        debugLog("autoLoop", { phase: "exit", reason: "sidecar-stopped" });
+        sidecarBroke = true;
+        break;
+      }
+      if (sidecarPostResult === "step-wizard") {
+        debugLog("autoLoop", { phase: "exit", reason: "sidecar-step-wizard" });
+        sidecarBroke = true;
+        break;
+      }
+      // "continue" — loop checks sidecarQueue again
     }
+
+    if (sidecarBroke) break;
 
     debugLog("autoLoop", { phase: "iteration-complete", iteration });
   }

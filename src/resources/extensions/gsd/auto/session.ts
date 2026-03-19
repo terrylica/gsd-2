@@ -52,6 +52,22 @@ export interface PendingVerificationRetry {
   attempt: number;
 }
 
+/**
+ * A typed item enqueued by postUnitPostVerification for the main loop to
+ * drain via the standard runUnit path. Replaces inline dispatch
+ * (pi.sendMessage / s.cmdCtx.newSession()) for hooks, triage, and quick-tasks.
+ */
+export interface SidecarItem {
+  kind: "hook" | "triage" | "quick-task";
+  unitType: string;
+  unitId: string;
+  prompt: string;
+  /** Model override for hook units (e.g. "anthropic/claude-3-5-sonnet"). */
+  model?: string;
+  /** Capture ID for quick-task items (already marked executed at enqueue time). */
+  captureId?: string;
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const MAX_UNIT_DISPATCHES = 3;
@@ -112,6 +128,9 @@ export class AutoSession {
   handlingAgentEnd = false;
   pendingAgentEndRetry = false;
   dispatching = false;
+
+  // ── Sidecar queue ─────────────────────────────────────────────────────
+  sidecarQueue: SidecarItem[] = [];
 
   // ── Metrics ──────────────────────────────────────────────────────────────
   autoStartTime = 0;
@@ -199,6 +218,7 @@ export class AutoSession {
     this.lastPromptCharCount = undefined;
     this.lastBaselineCharCount = undefined;
     this.pendingQuickTasks = [];
+    this.sidecarQueue = [];
 
     // Signal handler
     this.sigtermHandler = null;

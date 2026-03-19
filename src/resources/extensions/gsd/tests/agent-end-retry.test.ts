@@ -121,10 +121,14 @@ test("resolveAgentEnd logs warning on orphan/double resolution", () => {
 
 // ── The loop handles inline dispatches that previously needed reentrancy guard ──
 
-test("autoLoop handles inline dispatch via while loop (replaces reentrancy guard)", () => {
+test("autoLoop drains sidecar queue instead of inline dispatch (replaces reentrancy guard)", () => {
   const source = getAutoLoopTsSource();
   assert.ok(
-    source.includes("await-inline-dispatch") || source.includes("inline-unit-complete"),
-    "autoLoop must handle inline dispatches (hook/triage/quick-task agent_end events) via its while loop",
+    source.includes("sidecar-dequeue"),
+    "autoLoop must drain sidecar queue for hooks/triage/quick-tasks via the main loop",
+  );
+  assert.ok(
+    source.includes("s.sidecarQueue"),
+    "autoLoop must reference s.sidecarQueue for dequeue logic",
   );
 });

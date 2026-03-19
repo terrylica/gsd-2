@@ -339,6 +339,7 @@ function makeLoopSession(overrides?: Partial<Record<string, unknown>>) {
     pendingVerificationRetry: null,
     pendingCrashRecovery: null,
     pendingQuickTasks: [],
+    sidecarQueue: [],
     dispatching: false,
     handlingAgentEnd: false,
     pendingAgentEndRetry: false,
@@ -624,7 +625,7 @@ test("autoLoop handles dispatch skip action by continuing", async (t) => {
   assert.ok(deriveCalls.length >= 2, "deriveState should be called at least twice (one per iteration)");
 });
 
-test("autoLoop handles inline dispatch from postUnitPostVerification", async (t) => {
+test("autoLoop drains sidecar queue after postUnitPostVerification enqueues items", async (t) => {
   _resetPendingResolve();
 
   const ctx = makeMockCtx();
@@ -639,10 +640,16 @@ test("autoLoop handles inline dispatch from postUnitPostVerification", async (t)
       postVerCallCount++;
       deps.callLog.push("postUnitPostVerification");
       if (postVerCallCount === 1) {
-        // First call (main unit): inline dispatch happened
-        return "dispatched" as const;
+        // First call (main unit): enqueue a sidecar item
+        s.sidecarQueue.push({
+          kind: "hook" as const,
+          unitType: "hook/review",
+          unitId: "M001/S01/T01/review",
+          prompt: "review the code",
+        });
+        return "continue" as const;
       }
-      // Second call (inline unit completed): done
+      // Second call (sidecar unit completed): done
       s.active = false;
       return "continue" as const;
     },
@@ -654,14 +661,14 @@ test("autoLoop handles inline dispatch from postUnitPostVerification", async (t)
   await new Promise(r => setTimeout(r, 50));
   resolveAgentEnd(makeEvent()); // resolve main unit
 
-  // Wait for the inline dispatch's promise to be created
+  // Wait for the sidecar unit's runUnit to be awaiting
   await new Promise(r => setTimeout(r, 50));
-  resolveAgentEnd(makeEvent()); // resolve inline unit
+  resolveAgentEnd(makeEvent()); // resolve sidecar unit
 
   await loopPromise;
 
-  // postUnitPostVerification should have been called twice
-  assert.equal(postVerCallCount, 2, "postUnitPostVerification should be called twice (main + inline)");
+  // postUnitPostVerification should have been called twice (main + sidecar)
+  assert.equal(postVerCallCount, 2, "postUnitPostVerification should be called twice (main + sidecar)");
 });
 
 test("autoLoop exits when no active milestone found", async (t) => {

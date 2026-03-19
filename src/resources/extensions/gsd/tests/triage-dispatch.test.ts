@@ -108,14 +108,18 @@ test("dispatch: triage check guards against quick-task triggering triage", () =>
   );
 });
 
-test("dispatch: triage dispatch uses return-value pattern", () => {
+test("dispatch: triage dispatch uses sidecar enqueue pattern", () => {
   const triageBlock = postUnitSrc.slice(
     postUnitSrc.indexOf("// ── Triage check"),
     postUnitSrc.indexOf("// ── Quick-task dispatch"),
   );
   assert.ok(
-    triageBlock.includes('return "dispatched"'),
-    "triage dispatch should return 'dispatched' after sending message",
+    triageBlock.includes('s.sidecarQueue.push('),
+    "triage dispatch should enqueue a SidecarItem on s.sidecarQueue",
+  );
+  assert.ok(
+    triageBlock.includes('return "continue"'),
+    "triage dispatch should return 'continue' after enqueuing",
   );
 });
 
@@ -309,14 +313,18 @@ test("dispatch: quick-task dispatch marks capture as executed", () => {
   );
 });
 
-test("dispatch: quick-task dispatch uses return-value pattern", () => {
+test("dispatch: quick-task dispatch uses sidecar enqueue pattern", () => {
   const quickTaskSection = postUnitSrc.slice(
     postUnitSrc.indexOf("// ── Quick-task dispatch"),
     postUnitSrc.indexOf("if (s.stepMode)"),
   );
   assert.ok(
-    quickTaskSection.includes('return "dispatched"'),
-    "quick-task dispatch should return 'dispatched' after sending message",
+    quickTaskSection.includes('s.sidecarQueue.push('),
+    "quick-task dispatch should enqueue a SidecarItem on s.sidecarQueue",
+  );
+  assert.ok(
+    quickTaskSection.includes('return "continue"'),
+    "quick-task dispatch should return 'continue' after enqueuing",
   );
 });
 
