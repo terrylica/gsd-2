@@ -21,9 +21,7 @@ export interface ProcessEvent {
 		| "recovered"
 		| "exited"
 		| "crashed"
-		| "output"
 		| "port_open"
-		| "pattern_match"
 		| "port_timeout";
 	timestamp: number;
 	detail: string;
