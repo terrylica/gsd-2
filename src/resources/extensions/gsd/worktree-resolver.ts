@@ -86,6 +86,15 @@ export class WorktreeResolver {
     this.deps.invalidateAllCaches();
   }
 
+  // ── Validation ──────────────────────────────────────────────────────────
+
+  /** Validate milestoneId to prevent path traversal. */
+  private validateMilestoneId(milestoneId: string): void {
+    if (/[\/\\]|\.\./.test(milestoneId)) {
+      throw new Error(`Invalid milestoneId: ${milestoneId} — contains path separators or traversal`);
+    }
+  }
+
   // ── Enter Milestone ────────────────────────────────────────────────────
 
   /**
@@ -99,6 +108,7 @@ export class WorktreeResolver {
    * On failure: notifies a warning and does NOT update `s.basePath`.
    */
   enterMilestone(milestoneId: string, ctx: NotifyCtx): void {
+    this.validateMilestoneId(milestoneId);
     if (!this.deps.shouldUseWorktreeIsolation()) {
       debugLog("WorktreeResolver", { action: "enterMilestone", milestoneId, skipped: true, reason: "isolation-disabled" });
       return;
@@ -142,6 +152,7 @@ export class WorktreeResolver {
    * Resets `s.basePath` to `s.originalBasePath` and rebuilds GitService.
    */
   exitMilestone(milestoneId: string, ctx: NotifyCtx, opts?: { preserveBranch?: boolean }): void {
+    this.validateMilestoneId(milestoneId);
     if (!this.deps.isInAutoWorktree(this.s.basePath)) {
       debugLog("WorktreeResolver", { action: "exitMilestone", milestoneId, skipped: true, reason: "not-in-worktree" });
       return;
@@ -181,6 +192,7 @@ export class WorktreeResolver {
    * `s.originalBasePath` and `process.chdir(s.originalBasePath)`.
    */
   mergeAndExit(milestoneId: string, ctx: NotifyCtx): void {
+    this.validateMilestoneId(milestoneId);
     const mode = this.deps.getIsolationMode();
     debugLog("WorktreeResolver", { action: "mergeAndExit", milestoneId, mode, basePath: this.s.basePath });
 

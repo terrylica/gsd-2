@@ -34,7 +34,7 @@ import { getActiveAutoWorktreeContext } from "./auto-worktree.js";
 import { saveFile, formatContinue, loadFile, parseContinue, parseSummary, loadActiveOverrides, formatOverridesSection } from "./files.js";
 import { loadPrompt } from "./prompt-loader.js";
 import { deriveState } from "./state.js";
-import { isAutoActive, isAutoPaused, handleAgentEnd, pauseAuto, getAutoDashboardData, getAutoModeStartModel, markToolStart, markToolEnd } from "./auto.js";
+import { isAutoActive, isAutoPaused, pauseAuto, getAutoDashboardData, getAutoModeStartModel, markToolStart, markToolEnd } from "./auto.js";
 import { resolveAgentEnd } from "./auto-loop.js";
 import { saveActivityLog } from "./activity-log.js";
 import { checkAutoStartAfterDiscuss, getDiscussionMilestoneId, findMilestoneIds, nextMilestoneId } from "./guided-flow.js";
@@ -548,6 +548,9 @@ export default function (pi: ExtensionAPI) {
 
   // ── session_start: render branded GSD header + load tool keys + remote status ──
   pi.on("session_start", async (_event, ctx) => {
+    // Clear per-session state that must not leak across sessions (e.g. RPC mode)
+    depthVerificationDone = false;
+
     // Theme access throws in RPC mode (no TUI) — header is decorative, skip it
     try {
       const theme = ctx.ui.theme;

@@ -143,6 +143,11 @@ export async function runUnit(
   // ── Drain queued events from error-recovery retries ──
   // If an agent_end arrived between iterations (e.g. from a model fallback
   // sendMessage retry), consume it immediately instead of creating a new promise.
+  // Cap queue to 3 entries to prevent unbounded growth from stale events.
+  if (s.pendingAgentEndQueue.length > 3) {
+    debugLog("runUnit", { phase: "queue-overflow", dropped: s.pendingAgentEndQueue.length - 1, unitType, unitId });
+    s.pendingAgentEndQueue = [s.pendingAgentEndQueue[s.pendingAgentEndQueue.length - 1]!];
+  }
   if (s.pendingAgentEndQueue.length > 0) {
     const queued = s.pendingAgentEndQueue.shift()!;
     debugLog("runUnit", { phase: "drained-queued-event", unitType, unitId, queueRemaining: s.pendingAgentEndQueue.length });
@@ -325,6 +330,8 @@ export async function autoLoop(
   let lastDerivedUnit = "";
   let sameUnitCount = 0;
 
+  let consecutiveErrors = 0;
+
   while (s.active) {
     iteration++;
     debugLog("autoLoop", { phase: "loop-top", iteration });
@@ -339,6 +346,8 @@ export async function autoLoop(
       debugLog("autoLoop", { phase: "exit", reason: "no-cmdCtx" });
       break;
     }
+
+    try { // ── Blanket try/catch: one bad iteration must not kill the session
 
     // ── Phase 1: Pre-dispatch ───────────────────────────────────────────
 
@@ -674,11 +683,25 @@ export async function autoLoop(
     let prompt = dispatchResult.prompt;
     const pauseAfterUatDispatch = dispatchResult.pauseAfterDispatch ?? false;
 
-    // ── Same-unit stuck counter ──
+    // ── Same-unit stuck counter with graduated recovery ──
     const derivedKey = `${unitType}/${unitId}`;
     if (derivedKey === lastDerivedUnit && !s.pendingVerificationRetry) {
       sameUnitCount++;
-      if (sameUnitCount >= 5) {
+      debugLog("autoLoop", { phase: "stuck-check", unitType, unitId, sameUnitCount });
+
+      if (sameUnitCount === 3) {
+        // Level 1: try verifying the artifact — maybe it was written but not detected
+        const artifactExists = deps.verifyExpectedArtifact(unitType, unitId, s.basePath);
+        if (artifactExists) {
+          debugLog("autoLoop", { phase: "stuck-recovery", level: 1, action: "artifact-found" });
+          ctx.ui.notify(`Stuck recovery: artifact for ${unitType} ${unitId} found on disk. Invalidating caches.`, "info");
+          deps.invalidateAllCaches();
+          continue;
+        }
+        ctx.ui.notify(`Stuck on ${unitType} ${unitId} (attempt ${sameUnitCount}). Invalidating caches and retrying.`, "warning");
+        deps.invalidateAllCaches();
+      } else if (sameUnitCount === 5) {
+        // Level 2: hard stop — genuinely stuck
         debugLog("autoLoop", { phase: "stuck-detected", unitType, unitId, sameUnitCount });
         await deps.stopAuto(ctx, pi, `Stuck: ${unitType} ${unitId} derived ${sameUnitCount} consecutive times without progress`);
         ctx.ui.notify(`Stuck on ${unitType} ${unitId} — deriveState returns the same unit after ${sameUnitCount} attempts. The expected artifact was not written.`, "error");
@@ -1005,6 +1028,21 @@ export async function autoLoop(
         break;
       }
 
+      // Verification gate for non-hook sidecar units (triage, quick-tasks)
+      // Hook units are lightweight and don't need verification.
+      if (item.kind !== "hook") {
+        const sidecarVerification = await deps.runPostUnitVerification(
+          { s, ctx, pi },
+          deps.pauseAuto,
+        );
+        if (sidecarVerification === "pause") {
+          debugLog("autoLoop", { phase: "exit", reason: "sidecar-verification-pause" });
+          sidecarBroke = true;
+          break;
+        }
+        // "retry" for sidecars — skip retry, just continue (sidecar retries are not worth the complexity)
+      }
+
       // Post-verification (may enqueue more sidecar items)
       const sidecarPostResult = await deps.postUnitPostVerification(postUnitCtx);
       if (sidecarPostResult === "stopped") {
@@ -1022,7 +1060,29 @@ export async function autoLoop(
 
     if (sidecarBroke) break;
 
+    consecutiveErrors = 0; // Iteration completed successfully
     debugLog("autoLoop", { phase: "iteration-complete", iteration });
+
+    } catch (loopErr) {
+      // ── Blanket catch: absorb unexpected exceptions, apply graduated recovery ──
+      consecutiveErrors++;
+      const msg = loopErr instanceof Error ? loopErr.message : String(loopErr);
+      debugLog("autoLoop", { phase: "iteration-error", iteration, consecutiveErrors, error: msg });
+
+      if (consecutiveErrors >= 3) {
+        // 3+ consecutive: hard stop — something is fundamentally broken
+        ctx.ui.notify(`Auto-mode stopped: ${consecutiveErrors} consecutive iteration failures. Last: ${msg}`, "error");
+        await deps.stopAuto(ctx, pi, `${consecutiveErrors} consecutive iteration failures`);
+        break;
+      } else if (consecutiveErrors === 2) {
+        // 2nd consecutive: try invalidating caches + re-deriving state
+        ctx.ui.notify(`Iteration error (attempt ${consecutiveErrors}): ${msg}. Invalidating caches and retrying.`, "warning");
+        deps.invalidateAllCaches();
+      } else {
+        // 1st error: log and retry — transient failures happen
+        ctx.ui.notify(`Iteration error: ${msg}. Retrying.`, "warning");
+      }
+    }
   }
 
   _activeSession = null;
