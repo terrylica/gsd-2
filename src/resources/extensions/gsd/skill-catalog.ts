@@ -297,8 +297,13 @@ export const SKILL_CATALOG: SkillPack[] = [
 // ─── Greenfield Tech Stack Choices ────────────────────────────────────────────
 
 /**
- * Choices shown to users when no tech stack can be auto-detected
- * (greenfield repos or empty directories).
+ * Tech stack → pack mappings for programmatic use.
+ *
+ * NOT shown directly to users during init (greenfield installs essentials
+ * only and defers stack-specific skills).  These mappings are available for:
+ *   1. The LLM to install skills after establishing a design
+ *   2. The `/gsd skills` command (explicit user request)
+ *   3. Re-running brownfield detection after project files are created
  */
 export const GREENFIELD_STACKS: Array<{
   id: string;
@@ -513,7 +518,11 @@ export function isPackInstalled(pack: SkillPack): boolean {
  *   Auto-detects tech stack → shows matched packs → installs accepted ones.
  *
  * Greenfield (no files detected):
- *   Asks user what tech stack they're using → maps to packs → installs.
+ *   Installs essential packs only (find-skills, skill-creator, etc.).
+ *   Stack-specific skills are deferred — once the LLM establishes a design
+ *   and creates project files (package.json, firebase.json, etc.), brownfield
+ *   detection will pick them up on the next `gsd init` or via auto-mode
+ *   skill discovery.
  *
  * Returns the list of installed pack labels.
  */
@@ -590,37 +599,45 @@ export async function runSkillInstallStep(
       }
     }
   } else {
-    // ── Greenfield: ask user what they're building ──────────────────────────
-    const stackChoice = await showNextAction(ctx, {
-      title: "GSD — Project Skills",
+    // ── Greenfield: install essentials only ─────────────────────────────────
+    // Don't ask the user what tech stack they're building — they may not know
+    // yet, especially non-technical users. Install essential packs (discovery,
+    // authoring, browser, docs) and let stack-specific skills auto-detect later
+    // once the LLM establishes the design and creates project files.
+    const essentials = SKILL_CATALOG.filter((p) => p.matchAlways && !isPackInstalled(p));
+    if (essentials.length === 0) return installed;
+
+    const totalSkills = essentials.reduce((n, p) => n + p.skills.length, 0);
+    const choice = await showNextAction(ctx, {
+      title: "GSD — Install Essential Skills",
       summary: [
-        "What are you building? GSD will install relevant agent skills.",
-        "Skills are installed globally via skills.sh and shared across agents.",
+        "GSD will install essential agent skills (skill discovery, authoring,",
+        "browser automation, document handling).",
+        "",
+        "Stack-specific skills (React, Swift, Python, etc.) will be recommended",
+        "automatically once your project files are in place.",
       ],
-      actions: GREENFIELD_STACKS.map((s) => ({
-        id: s.id,
-        label: s.label,
-        description: s.description,
-      })),
+      actions: [
+        {
+          id: "install",
+          label: "Install essentials",
+          description: `Install ${totalSkills} essential skills via skills.sh`,
+          recommended: true,
+        },
+        {
+          id: "skip",
+          label: "Skip",
+          description: "Install skills later with npx skills add",
+        },
+      ],
       notYetMessage: "Run /gsd init when ready.",
     });
 
-    if (stackChoice === "not_yet" || stackChoice === "other") return installed;
-
-    const stack = GREENFIELD_STACKS.find((s) => s.id === stackChoice);
-    if (!stack) return installed;
-
-    const packsToInstall = SKILL_CATALOG.filter((p) =>
-      stack.packs.includes(p.label),
-    ).filter((p) => !isPackInstalled(p));
-
-    const labels = await installPacksBatched(packsToInstall, (label) => {
-      ctx.ui.notify(`Installing ${label} skills...`, "info");
-    });
-    installed.push(...labels);
-    const failed = packsToInstall.filter((p) => !installed.includes(p.label));
-    for (const pack of failed) {
-      ctx.ui.notify(`Failed to install ${pack.label} — try manually: npx skills add ${pack.repo}`, "info");
+    if (choice === "install") {
+      const labels = await installPacksBatched(essentials, (label) => {
+        ctx.ui.notify(`Installing ${label} skills...`, "info");
+      });
+      installed.push(...labels);
     }
   }
 
