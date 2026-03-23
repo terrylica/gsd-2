@@ -67,7 +67,7 @@ This milestone is complete only when all are true:
 - [x] **S05: Warm/cold callers + flag files + pre-M002 migration** `risk:medium` `depends:[S03,S04]`
   > After this: doctor, visualizer, github-sync, workspace-index, dashboard-overlay, guided-flow, reactive-graph, auto-recovery use DB queries. REPLAN/ASSESSMENT/CONTINUE/CONTEXT-DRAFT/REPLAN-TRIGGER tracked in DB. migrateHierarchyToDb() populates v8 columns. gsd recover upgraded.
 
-- [ ] **S06: Parser deprecation + cleanup** `risk:low` `depends:[S05]`
+- [x] **S06: Parser deprecation + cleanup** `risk:low` `depends:[S05]`
   > After this: parseRoadmapSlices() removed from hot paths (~271 lines). parsePlan() task parsing removed (~120 lines). parseRoadmap() slice extraction removed (~85 lines). Parsers kept only in md-importer for migration. Zero parseRoadmap/parsePlan calls in dispatch loop. Test suite passes with parsers removed from hot paths.
 
 ## Boundary Map
