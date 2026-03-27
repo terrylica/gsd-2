@@ -9,11 +9,15 @@
 import {
   Client,
   GatewayIntentBits,
+  REST,
   type Interaction,
+  type Guild,
 } from 'discord.js';
 import type { DaemonConfig } from './types.js';
 import type { Logger } from './logger.js';
 import type { SessionManager } from './session-manager.js';
+import { ChannelManager } from './channel-manager.js';
+import { buildCommands, registerGuildCommands, formatSessionStatus } from './commands.js';
 
 // ---------------------------------------------------------------------------
 // Pure helpers — exported for testability
@@ -62,6 +66,7 @@ export interface DiscordBotOptions {
 export class DiscordBot {
   private client: Client | null = null;
   private destroyed = false;
+  private channelManager: ChannelManager | null = null;
 
   private readonly config: NonNullable<DaemonConfig['discord']>;
   private readonly logger: Logger;
@@ -91,6 +96,22 @@ export class DiscordBot {
       this.logger.info('bot ready', {
         username: readyClient.user.tag,
         guilds: guildNames,
+      });
+
+      // Register slash commands for the configured guild
+      const rest = new REST({ version: '10' }).setToken(this.config.token);
+      const commands = buildCommands();
+      registerGuildCommands(
+        rest,
+        readyClient.user.id,
+        this.config.guild_id,
+        commands,
+        this.logger,
+      ).catch((err) => {
+        // Should not reach here — registerGuildCommands catches internally
+        this.logger.warn('unexpected command registration error', {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
     });
 
@@ -129,6 +150,28 @@ export class DiscordBot {
   }
 
   // ---------------------------------------------------------------------------
+  // Public accessors
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Lazily create a ChannelManager from the configured guild.
+   * Returns null if the client isn't ready or the guild isn't found.
+   */
+  getChannelManager(): ChannelManager | null {
+    if (this.channelManager) return this.channelManager;
+    if (!this.client?.isReady()) return null;
+
+    const guild = this.client.guilds.cache.get(this.config.guild_id);
+    if (!guild) {
+      this.logger.warn('guild not found for channel manager', { guildId: this.config.guild_id });
+      return null;
+    }
+
+    this.channelManager = new ChannelManager({ guild, logger: this.logger });
+    return this.channelManager;
+  }
+
+  // ---------------------------------------------------------------------------
   // Private: interaction handling
   // ---------------------------------------------------------------------------
 
@@ -138,11 +181,44 @@ export class DiscordBot {
       return;
     }
 
-    // Authorized — delegate to command handler (stub for T03 slash commands)
-    // For now, just log the interaction type for observability
-    this.logger.debug('interaction received', {
-      type: interaction.type,
-      userId: interaction.user.id,
-    });
+    // Only handle chat input (slash) commands
+    if (!interaction.isChatInputCommand()) {
+      this.logger.debug('non-command interaction', {
+        type: interaction.type,
+        userId: interaction.user.id,
+      });
+      return;
+    }
+
+    const { commandName } = interaction;
+    this.logger.info('command handled', { commandName, userId: interaction.user.id });
+
+    switch (commandName) {
+      case 'gsd-status': {
+        const sessions = this.sessionManager.getAllSessions();
+        const content = formatSessionStatus(sessions);
+        interaction.reply({ content, ephemeral: true }).catch((err) => {
+          this.logger.warn('gsd-status reply failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        break;
+      }
+      case 'gsd-start':
+      case 'gsd-stop':
+        interaction.reply({ content: 'Coming soon — use #gsd-control', ephemeral: true }).catch((err) => {
+          this.logger.warn(`${commandName} reply failed`, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        break;
+      default:
+        interaction.reply({ content: 'Unknown command', ephemeral: true }).catch((err) => {
+          this.logger.warn('unknown command reply failed', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+        break;
+    }
   }
 }

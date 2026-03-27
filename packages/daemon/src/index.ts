@@ -19,3 +19,6 @@ export { scanForProjects } from './project-scanner.js';
 export { SessionManager } from './session-manager.js';
 export { DiscordBot, isAuthorized, validateDiscordConfig } from './discord-bot.js';
 export type { DiscordBotOptions } from './discord-bot.js';
+export { ChannelManager, sanitizeChannelName } from './channel-manager.js';
+export type { ChannelManagerOptions } from './channel-manager.js';
+export { buildCommands, formatSessionStatus, registerGuildCommands } from './commands.js';

@@ -7,9 +7,10 @@ import { randomUUID } from 'node:crypto';
 import { ChannelType } from 'discord.js';
 import { isAuthorized, validateDiscordConfig } from './discord-bot.js';
 import { sanitizeChannelName, ChannelManager } from './channel-manager.js';
+import { buildCommands, formatSessionStatus } from './commands.js';
 import { Daemon } from './daemon.js';
 import { Logger } from './logger.js';
-import type { DaemonConfig, LogEntry } from './types.js';
+import type { DaemonConfig, LogEntry, ManagedSession } from './types.js';
 
 // ---------- helpers ----------
 
@@ -431,5 +432,143 @@ describe('ChannelManager', () => {
 
     const cat = await mgr.resolveCategory();
     assert.equal(cat.name, 'Custom Category');
+  });
+});
+
+// ---------- buildCommands ----------
+
+describe('buildCommands', () => {
+  it('returns array with correct command names', () => {
+    const commands = buildCommands();
+    assert.equal(commands.length, 3);
+    const names = commands.map((c) => c.name);
+    assert.ok(names.includes('gsd-status'), 'should include gsd-status');
+    assert.ok(names.includes('gsd-start'), 'should include gsd-start');
+    assert.ok(names.includes('gsd-stop'), 'should include gsd-stop');
+  });
+
+  it('each command has a description', () => {
+    const commands = buildCommands();
+    for (const cmd of commands) {
+      assert.ok(cmd.description, `command ${cmd.name} should have a description`);
+      assert.ok(cmd.description.length > 0, `command ${cmd.name} description should be non-empty`);
+    }
+  });
+});
+
+// ---------- formatSessionStatus ----------
+
+describe('formatSessionStatus', () => {
+  function mockSession(overrides: Partial<ManagedSession> = {}): ManagedSession {
+    return {
+      sessionId: 'sess-1',
+      projectDir: '/home/user/project',
+      projectName: 'project',
+      status: 'running',
+      client: {} as any,
+      events: [],
+      pendingBlocker: null,
+      cost: { totalCost: 0.1234, tokens: { input: 100, output: 50, cacheRead: 0, cacheWrite: 0 } },
+      startTime: Date.now() - 120_000, // 2 minutes ago
+      ...overrides,
+    };
+  }
+
+  it('returns "No active sessions." for empty array', () => {
+    assert.equal(formatSessionStatus([]), 'No active sessions.');
+  });
+
+  it('formats single session with project name and status', () => {
+    const result = formatSessionStatus([mockSession()]);
+    assert.ok(result.includes('project'), 'should contain project name');
+    assert.ok(result.includes('running'), 'should contain status');
+    assert.ok(result.includes('$'), 'should contain cost');
+  });
+
+  it('formats multiple sessions on separate lines', () => {
+    const sessions = [
+      mockSession({ projectName: 'alpha', status: 'running' }),
+      mockSession({ projectName: 'beta', status: 'blocked' }),
+    ];
+    const result = formatSessionStatus(sessions);
+    assert.ok(result.includes('alpha'), 'should contain first project');
+    assert.ok(result.includes('beta'), 'should contain second project');
+    const lines = result.split('\n');
+    assert.equal(lines.length, 2, 'should have one line per session');
+  });
+
+  it('formats 5 sessions correctly', () => {
+    const sessions = Array.from({ length: 5 }, (_, i) =>
+      mockSession({ projectName: `proj-${i}`, status: i % 2 === 0 ? 'running' : 'completed' }),
+    );
+    const result = formatSessionStatus(sessions);
+    const lines = result.split('\n');
+    assert.equal(lines.length, 5);
+    for (let i = 0; i < 5; i++) {
+      assert.ok(lines[i].includes(`proj-${i}`));
+    }
+  });
+});
+
+// ---------- Command dispatch (mock interaction) ----------
+
+describe('command dispatch', () => {
+  // Minimal mock of a ChatInputCommandInteraction
+  function mockInteraction(commandName: string, userId: string = 'owner-1') {
+    let replied = false;
+    let replyContent = '';
+
+    return {
+      user: { id: userId },
+      type: 2, // InteractionType.ApplicationCommand
+      isChatInputCommand: () => true,
+      commandName,
+      reply: async (opts: { content: string; ephemeral?: boolean }) => {
+        replied = true;
+        replyContent = opts.content;
+      },
+      _getReplied: () => replied,
+      _getReplyContent: () => replyContent,
+    };
+  }
+
+  // Minimal mock of a non-command interaction
+  function mockNonCommandInteraction(userId: string = 'owner-1') {
+    let replied = false;
+    return {
+      user: { id: userId },
+      type: 3, // InteractionType.MessageComponent
+      isChatInputCommand: () => false,
+      _getReplied: () => replied,
+    };
+  }
+
+  // We can't easily test through DiscordBot.handleInteraction since it's private.
+  // Instead, test the pure functions that the handler calls, and test auth guard
+  // behavior via the mock interaction flow.
+  // The command routing logic is tested indirectly through integration of the
+  // pure helpers (buildCommands, formatSessionStatus, isAuthorized).
+
+  it('gsd-status with no sessions produces empty message', () => {
+    // Tests the formatSessionStatus path that /gsd-status calls
+    const result = formatSessionStatus([]);
+    assert.equal(result, 'No active sessions.');
+  });
+
+  it('unknown command name is not in buildCommands list', () => {
+    const commands = buildCommands();
+    const names = commands.map((c) => c.name);
+    assert.ok(!names.includes('gsd-unknown'), 'unknown should not be in command list');
+  });
+
+  it('auth guard rejects non-owner on interaction', () => {
+    // Simulates the first check in handleInteraction
+    const authorized = isAuthorized('intruder-999', 'owner-1');
+    assert.equal(authorized, false);
+  });
+
+  it('auth guard accepts owner on interaction', () => {
+    const authorized = isAuthorized('owner-1', 'owner-1');
+    assert.equal(authorized, true);
   });
 });
