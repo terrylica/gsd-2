@@ -13,10 +13,17 @@ import { getDiscussionMilestoneId } from "../guided-flow.js";
 import { loadToolApiKeys } from "../commands-config.js";
 import { loadFile, saveFile, formatContinue } from "../files.js";
 import { deriveState } from "../state.js";
-import { getAutoDashboardData, isAutoActive, isAutoPaused, markToolEnd, markToolStart } from "../auto.js";
+import { getAutoDashboardData, isAutoActive, isAutoPaused, markToolEnd, markToolStart, recordToolInvocationError } from "../auto.js";
 import { isParallelActive, shutdownParallel } from "../parallel-orchestrator.js";
 import { checkToolCallLoop, resetToolCallLoopGuard } from "./tool-call-loop-guard.js";
 import { saveActivityLog } from "../activity-log.js";
+import { resetAskUserQuestionsCache } from "../../ask-user-questions.js";
+import { recordToolCall as safetyRecordToolCall, recordToolResult as safetyRecordToolResult } from "../safety/evidence-collector.js";
+import { classifyCommand } from "../safety/destructive-guard.js";
+import { logWarning as safetyLogWarning } from "../workflow-logger.js";
+import { installNotifyInterceptor } from "./notify-interceptor.js";
+import { initNotificationStore } from "../notification-store.js";
+import { initNotificationWidget } from "../notification-widget.js";
 
 // Skip the welcome screen on the very first session_start — cli.ts already
 // printed it before the TUI launched. Only re-print on /clear (subsequent sessions).
@@ -29,8 +36,12 @@ async function syncServiceTierStatus(ctx: ExtensionContext): Promise<void> {
 
 export function registerHooks(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
+    initNotificationStore(process.cwd());
+    installNotifyInterceptor(ctx);
+    initNotificationWidget(ctx);
     resetWriteGateState();
     resetToolCallLoopGuard();
+    resetAskUserQuestionsCache();
     await syncServiceTierStatus(ctx);
 
     // Apply show_token_cost preference (#1515)
@@ -65,8 +76,11 @@ export function registerHooks(pi: ExtensionAPI): void {
   });
 
   pi.on("session_switch", async (_event, ctx) => {
+    initNotificationStore(process.cwd());
+    installNotifyInterceptor(ctx);
     resetWriteGateState();
     resetToolCallLoopGuard();
+    resetAskUserQuestionsCache();
     clearDiscussionFlowState();
     await syncServiceTierStatus(ctx);
     loadToolApiKeys();
@@ -78,6 +92,7 @@ export function registerHooks(pi: ExtensionAPI): void {
 
   pi.on("agent_end", async (event, ctx: ExtensionContext) => {
     resetToolCallLoopGuard();
+    resetAskUserQuestionsCache();
     await handleAgentEnd(pi, event, ctx);
   });
 
@@ -199,6 +214,26 @@ export function registerHooks(pi: ExtensionAPI): void {
     if (result.block) return result;
   });
 
+  // ── Safety harness: evidence collection + destructive command warnings ──
+  pi.on("tool_call", async (event, ctx) => {
+    if (!isAutoActive()) return;
+    safetyRecordToolCall(event.toolName, event.input as Record<string, unknown>);
+
+    // Destructive command classification (warn only, never block)
+    if (isToolCallEventType("bash", event)) {
+      const classification = classifyCommand(event.input.command);
+      if (classification.destructive) {
+        safetyLogWarning("safety", `destructive command: ${classification.labels.join(", ")}`, {
+          command: String(event.input.command).slice(0, 200),
+        });
+        ctx.ui.notify(
+          `Destructive command detected: ${classification.labels.join(", ")}`,
+          "warning",
+        );
+      }
+    }
+  });
+
   pi.on("tool_result", async (event) => {
     if (event.toolName !== "ask_user_questions") return;
     const milestoneId = getDiscussionMilestoneId();
@@ -256,6 +291,18 @@ export function registerHooks(pi: ExtensionAPI): void {
 
   pi.on("tool_execution_end", async (event) => {
     markToolEnd(event.toolCallId);
+    // #2883: Capture tool invocation errors (malformed/truncated JSON arguments)
+    // so postUnitPreVerification can break the retry loop instead of re-dispatching.
+    if (event.isError && event.toolName.startsWith("gsd_")) {
+      const errorText = typeof event.result === "string"
+        ? event.result
+        : (typeof event.result?.content?.[0]?.text === "string" ? event.result.content[0].text : String(event.result));
+      recordToolInvocationError(event.toolName, errorText);
+    }
+    // Safety harness: record tool execution results for evidence cross-referencing
+    if (isAutoActive()) {
+      safetyRecordToolResult(event.toolCallId, event.toolName, event.result, event.isError);
+    }
   });
 
   pi.on("model_select", async (_event, ctx) => {
@@ -263,14 +310,71 @@ export function registerHooks(pi: ExtensionAPI): void {
   });
 
   pi.on("before_provider_request", async (event) => {
-    const modelId = event.model?.id;
-    if (!modelId) return;
-    const { getEffectiveServiceTier, supportsServiceTier } = await import("../service-tier.js");
-    const tier = getEffectiveServiceTier();
-    if (!tier || !supportsServiceTier(modelId)) return;
     const payload = event.payload as Record<string, unknown> | null;
     if (!payload || typeof payload !== "object") return;
+
+    // ── Observation Masking ─────────────────────────────────────────────
+    // Replace old tool results with placeholders to reduce context bloat.
+    // Only active during auto-mode when context_management.observation_masking is enabled.
+    if (isAutoActive()) {
+      try {
+        const { loadEffectiveGSDPreferences } = await import("../preferences.js");
+        const prefs = loadEffectiveGSDPreferences();
+        const cmConfig = prefs?.preferences.context_management;
+
+        // Observation masking: replace old tool results with placeholders
+        if (cmConfig?.observation_masking !== false) {
+          const keepTurns = cmConfig?.observation_mask_turns ?? 8;
+          const { createObservationMask } = await import("../context-masker.js");
+          const mask = createObservationMask(keepTurns);
+          const messages = payload.messages;
+          if (Array.isArray(messages)) {
+            payload.messages = mask(messages);
+          }
+        }
+
+        // Tool result truncation: cap individual tool result content length.
+        // In pi-ai format, toolResult messages have role: "toolResult" and content: TextContent[].
+        // Creates new objects to avoid mutating shared conversation state.
+        const maxChars = cmConfig?.tool_result_max_chars ?? 800;
+        const msgs = payload.messages;
+        if (Array.isArray(msgs)) {
+          payload.messages = msgs.map((msg: Record<string, unknown>) => {
+            // Match toolResult messages (role: "toolResult", content is array of content blocks)
+            if (msg?.role === "toolResult" && Array.isArray(msg.content)) {
+              const blocks = msg.content as Array<Record<string, unknown>>;
+              const totalLen = blocks.reduce((sum: number, b) => sum + (typeof b.text === "string" ? b.text.length : 0), 0);
+              if (totalLen > maxChars) {
+                const truncated = blocks.map(b => {
+                  if (typeof b.text === "string" && b.text.length > maxChars) {
+                    return { ...b, text: b.text.slice(0, maxChars) + "\n…[truncated]" };
+                  }
+                  return b;
+                });
+                return { ...msg, content: truncated };
+              }
+            }
+            return msg;
+          });
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    // ── Service Tier ────────────────────────────────────────────────────
+    const modelId = event.model?.id;
+    if (!modelId) return payload;
+    const { getEffectiveServiceTier, supportsServiceTier } = await import("../service-tier.js");
+    const tier = getEffectiveServiceTier();
+    if (!tier || !supportsServiceTier(modelId)) return payload;
     payload.service_tier = tier;
     return payload;
+  });
+
+  // Capability-aware model routing hook (ADR-004)
+  // Extensions can override model selection by returning { modelId: "..." }
+  // Return undefined to let the built-in capability scoring proceed.
+  pi.on("before_model_select", async (_event) => {
+    // Default: no override — let capability scoring handle selection
+    return undefined;
   });
 }

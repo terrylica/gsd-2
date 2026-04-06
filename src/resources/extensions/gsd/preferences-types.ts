@@ -21,6 +21,13 @@ import type {
   GateEvaluationConfig,
 } from "./types.js";
 import type { DynamicRoutingConfig } from "./model-router.js";
+
+export interface ContextManagementConfig {
+  observation_masking?: boolean;          // default: true
+  observation_mask_turns?: number;        // default: 8, range: 1-50
+  compaction_threshold_percent?: number;  // default: 0.70, range: 0.5-0.95
+  tool_result_max_chars?: number;         // default: 800, range: 200-10000
+}
 import type { GitHubSyncConfig } from "../github-sync/types.js";
 
 // ─── Workflow Modes ──────────────────────────────────────────────────────────
@@ -94,7 +101,15 @@ export const KNOWN_PREFERENCE_KEYS = new Set<string>([
   "forensics_dedup",
   "show_token_cost",
   "stale_commit_threshold_minutes",
+  "context_management",
   "experimental",
+  "codebase",
+  "slice_parallel",
+  "safety_harness",
+  "enhanced_verification",
+  "enhanced_verification_pre",
+  "enhanced_verification_post",
+  "enhanced_verification_strict",
 ]);
 
 /** Canonical list of all dispatch unit types. */
@@ -203,6 +218,16 @@ export interface ExperimentalPreferences {
   rtk?: boolean;
 }
 
+/** Configuration for the codebase map generator (/gsd codebase). */
+export interface CodebaseMapPreferences {
+  /** Additional directory/file patterns to exclude (e.g. ["docs/", "fixtures/"]). Merged with built-in defaults. */
+  exclude_patterns?: string[];
+  /** Max files to include in the map. Default: 500. */
+  max_files?: number;
+  /** Files-per-directory threshold before collapsing to a summary line. Default: 20. */
+  collapse_threshold?: number;
+}
+
 export interface GSDPreferences {
   version?: number;
   mode?: WorkflowMode;
@@ -227,6 +252,7 @@ export interface GSDPreferences {
   post_unit_hooks?: PostUnitHookConfig[];
   pre_dispatch_hooks?: PreDispatchHookConfig[];
   dynamic_routing?: DynamicRoutingConfig;
+  context_management?: ContextManagementConfig;
   token_profile?: TokenProfile;
   phases?: PhaseSkipPreferences;
   auto_visualize?: boolean;
@@ -266,6 +292,46 @@ export interface GSDPreferences {
    * See the preferences reference for details on each feature.
    */
   experimental?: ExperimentalPreferences;
+  /** Configuration for the codebase map generator (/gsd codebase). */
+  codebase?: CodebaseMapPreferences;
+  /** Slice-level parallelism within a milestone. Disabled by default. */
+  slice_parallel?: { enabled?: boolean; max_workers?: number };
+  /** LLM safety harness configuration. Monitors, validates, and constrains LLM behavior during auto-mode. Enabled by default with warn-and-continue policy. */
+  safety_harness?: {
+    enabled?: boolean;
+    evidence_collection?: boolean;
+    file_change_validation?: boolean;
+    evidence_cross_reference?: boolean;
+    destructive_command_warnings?: boolean;
+    content_validation?: boolean;
+    checkpoints?: boolean;
+    auto_rollback?: boolean;
+    timeout_scale_cap?: number;
+  };
+
+  // ─── Enhanced Verification ──────────────────────────────────────────────────
+  /**
+   * Enable enhanced verification (both pre-execution and post-execution checks).
+   * Default: true (opt-out, not opt-in). Set false to disable all enhanced verification.
+   */
+  enhanced_verification?: boolean;
+  /**
+   * Enable pre-execution checks (package existence, file references, etc.).
+   * Only applies when enhanced_verification is true.
+   * Default: true.
+   */
+  enhanced_verification_pre?: boolean;
+  /**
+   * Enable post-execution checks (runtime error detection, audit warnings, etc.).
+   * Only applies when enhanced_verification is true.
+   * Default: true.
+   */
+  enhanced_verification_post?: boolean;
+  /**
+   * Strict mode: treat any pre-execution check failure as blocking.
+   * Default: false (warnings only for non-critical failures).
+   */
+  enhanced_verification_strict?: boolean;
 }
 
 export interface LoadedGSDPreferences {
