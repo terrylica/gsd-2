@@ -189,9 +189,9 @@ function createFailingTasks(): void {
     planning: {
       description: "This task references a non-existent file",
       estimate: "1h",
-      files: ["nonexistent-file-that-does-not-exist.ts"],
+      files: [],
       verify: "npm test",
-      inputs: [],
+      inputs: ["nonexistent-file-that-does-not-exist.ts"],
       expectedOutput: [],
       observabilityImpact: "",
     },

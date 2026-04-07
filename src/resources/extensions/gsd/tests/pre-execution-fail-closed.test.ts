@@ -225,9 +225,9 @@ describe("Pre-execution fail-closed behavior", () => {
       planning: {
         description: "References missing file",
         estimate: "1h",
-        files: ["nonexistent-file.ts"],
+        files: [],
         verify: "npm test",
-        inputs: [],
+        inputs: ["nonexistent-file.ts"],
         expectedOutput: [],
         observabilityImpact: "",
       },
