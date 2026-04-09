@@ -104,7 +104,7 @@ test("transport compatibility fails cleanly when MCP server is unavailable", () 
   assert.match(error ?? "", /workflow MCP server is not configured or discoverable/);
 });
 
-test("transport compatibility fails cleanly when unit requires unsupported tools", () => {
+test("transport compatibility now allows auto execute-task over workflow MCP surface", () => {
   const error = getWorkflowTransportSupportError(
     "claude-code",
     ["gsd_complete_task"],
@@ -118,8 +118,7 @@ test("transport compatibility fails cleanly when unit requires unsupported tools
     },
   );
 
-  assert.match(error ?? "", /requires gsd_complete_task/);
-  assert.match(error ?? "", /currently exposes only/);
+  assert.equal(error, null);
 });
 
 test("transport compatibility ignores API-backed providers", () => {
@@ -154,6 +153,24 @@ test("transport compatibility now allows plan-slice over workflow MCP surface", 
   );
 
   assert.equal(error, null);
+});
+
+test("transport compatibility still blocks units whose MCP tools are not exposed", () => {
+  const error = getWorkflowTransportSupportError(
+    "claude-code",
+    ["gsd_complete_slice"],
+    {
+      projectRoot: "/tmp/project",
+      env: { GSD_WORKFLOW_MCP_COMMAND: "node" },
+      surface: "auto-mode",
+      unitType: "complete-slice",
+      authMode: "externalCli",
+      baseUrl: "local://claude-code",
+    },
+  );
+
+  assert.match(error ?? "", /requires gsd_complete_slice/);
+  assert.match(error ?? "", /currently exposes only/);
 });
 
 test("guided-flow source enforces workflow compatibility preflight", () => {

@@ -42,14 +42,14 @@ function makeMockServer() {
 }
 
 describe("workflow MCP tools", () => {
-  it("registers the five workflow tools", () => {
+  it("registers the six workflow tools", () => {
     const server = makeMockServer();
     registerWorkflowTools(server as any);
 
-    assert.equal(server.tools.length, 5);
+    assert.equal(server.tools.length, 6);
     assert.deepEqual(
       server.tools.map((t) => t.name),
-      ["gsd_plan_milestone", "gsd_plan_slice", "gsd_summary_save", "gsd_task_complete", "gsd_milestone_status"],
+      ["gsd_plan_milestone", "gsd_plan_slice", "gsd_summary_save", "gsd_task_complete", "gsd_complete_task", "gsd_milestone_status"],
     );
   });
 
@@ -120,6 +120,40 @@ describe("workflow MCP tools", () => {
       assert.equal(parsed.milestoneId, "M001");
       assert.equal(parsed.sliceCount, 1);
       assert.equal(parsed.slices[0].id, "S01");
+    } finally {
+      cleanup(base);
+    }
+  });
+
+  it("gsd_complete_task alias delegates to gsd_task_complete behavior", async () => {
+    const base = makeTmpBase();
+    try {
+      mkdirSync(join(base, ".gsd", "milestones", "M002", "slices", "S02"), { recursive: true });
+      writeFileSync(
+        join(base, ".gsd", "milestones", "M002", "slices", "S02", "S02-PLAN.md"),
+        "# S02\n\n- [ ] **T02: Demo** `est:5m`\n",
+      );
+
+      const server = makeMockServer();
+      registerWorkflowTools(server as any);
+      const aliasTool = server.tools.find((t) => t.name === "gsd_complete_task");
+      assert.ok(aliasTool, "task completion alias should be registered");
+
+      const result = await aliasTool!.handler({
+        projectDir: base,
+        taskId: "T02",
+        sliceId: "S02",
+        milestoneId: "M002",
+        oneLiner: "Completed task via alias",
+        narrative: "Did the work through alias",
+        verification: "npm test",
+      });
+
+      assert.match((result as any).content[0].text as string, /Completed task T02/);
+      assert.ok(
+        existsSync(join(base, ".gsd", "milestones", "M002", "slices", "S02", "tasks", "T02-SUMMARY.md")),
+        "alias should write task summary to disk",
+      );
     } finally {
       cleanup(base);
     }
