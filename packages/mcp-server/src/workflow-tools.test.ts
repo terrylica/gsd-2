@@ -974,3 +974,31 @@ describe("workflow MCP tools", () => {
     }
   });
 });
+
+describe("URL scheme regex — Windows drive letter safety", () => {
+  // This is the regex used in getWriteGateModuleCandidates() and
+  // getWorkflowExecutorModuleCandidates() to reject non-file URL schemes.
+  // It must NOT match single-letter Windows drive prefixes (C:, D:, etc.).
+  const urlSchemeRegex = /^[a-z]{2,}:/i;
+
+  it("rejects multi-letter URL schemes", () => {
+    assert.ok(urlSchemeRegex.test("http://example.com"), "http: should match");
+    assert.ok(urlSchemeRegex.test("https://example.com"), "https: should match");
+    assert.ok(urlSchemeRegex.test("ftp://files.example.com"), "ftp: should match");
+    assert.ok(urlSchemeRegex.test("file:///C:/Users"), "file: should match");
+    assert.ok(urlSchemeRegex.test("node:fs"), "node: should match");
+  });
+
+  it("allows single-letter Windows drive prefixes", () => {
+    assert.ok(!urlSchemeRegex.test("C:\\Users\\user\\project"), "C:\\ should not match");
+    assert.ok(!urlSchemeRegex.test("D:\\other\\path"), "D:\\ should not match");
+    assert.ok(!urlSchemeRegex.test("c:\\lowercase\\drive"), "c:\\ should not match");
+    assert.ok(!urlSchemeRegex.test("E:/forward/slash/path"), "E:/ should not match");
+  });
+
+  it("allows bare filesystem paths", () => {
+    assert.ok(!urlSchemeRegex.test("/usr/local/lib/module.js"), "unix absolute path should not match");
+    assert.ok(!urlSchemeRegex.test("./relative/path.js"), "relative path should not match");
+    assert.ok(!urlSchemeRegex.test("../parent/path.js"), "parent relative path should not match");
+  });
+});

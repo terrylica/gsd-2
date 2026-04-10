@@ -318,7 +318,7 @@ function getWriteGateModuleCandidates(): string[] {
   const candidates: string[] = [];
   const explicitModule = process.env.GSD_WORKFLOW_WRITE_GATE_MODULE?.trim();
   if (explicitModule) {
-    if (/^[a-z]+:/i.test(explicitModule) && !explicitModule.startsWith("file:")) {
+    if (/^[a-z]{2,}:/i.test(explicitModule) && !explicitModule.startsWith("file:")) {
       throw new Error("GSD_WORKFLOW_WRITE_GATE_MODULE only supports file: URLs or filesystem paths.");
     }
     candidates.push(explicitModule.startsWith("file:") ? explicitModule : toFileUrl(explicitModule));
@@ -340,7 +340,7 @@ function getWorkflowExecutorModuleCandidates(env: NodeJS.ProcessEnv = process.en
   const candidates: string[] = [];
   const explicitModule = env.GSD_WORKFLOW_EXECUTORS_MODULE?.trim();
   if (explicitModule) {
-    if (/^[a-z]+:/i.test(explicitModule) && !explicitModule.startsWith("file:")) {
+    if (/^[a-z]{2,}:/i.test(explicitModule) && !explicitModule.startsWith("file:")) {
       throw new Error("GSD_WORKFLOW_EXECUTORS_MODULE only supports file: URLs or filesystem paths.");
     }
     candidates.push(explicitModule.startsWith("file:") ? explicitModule : toFileUrl(explicitModule));
