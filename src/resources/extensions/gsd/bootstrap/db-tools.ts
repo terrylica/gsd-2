@@ -788,7 +788,11 @@ export function registerDbTools(pi: ExtensionAPI): void {
       if (result.error) {
         return {
           content: [{ type: "text" as const, text: `Error: ${result.error}` }],
-          details: { operation: "skip_slice", error: result.errorCode ?? "skip_failed" } as any,
+          details: {
+            operation: "skip_slice",
+            error: result.error,
+            errorCode: result.errorCode ?? "skip_failed",
+          } as any,
         };
       }
 

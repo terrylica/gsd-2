@@ -107,6 +107,15 @@ describe("handleSkipSlice cascades skip to tasks (#4375)", () => {
     assert.equal(result.errorCode, "already_complete");
   });
 
+  test("refuses to skip a slice in the legacy 'done' status", () => {
+    updateSliceStatus("M001", "S03", "done");
+
+    const result = handleSkipSlice({ milestoneId: "M001", sliceId: "S03" });
+    assert.ok(result.error, "expected error when slice is already done");
+    assert.match(result.error!, /already complete/i);
+    assert.equal(result.errorCode, "already_complete");
+  });
+
   test("returns error for unknown slice", () => {
     const result = handleSkipSlice({ milestoneId: "M001", sliceId: "S99" });
     assert.ok(result.error);

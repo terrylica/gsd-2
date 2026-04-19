@@ -13,6 +13,7 @@
 import {
   getSlice,
   getSliceTasks,
+  isDbAvailable,
   transaction,
   updateSliceStatus,
   updateTaskStatus,
@@ -80,6 +81,14 @@ export function handleSkipSlice(params: SkipSliceParams): SkipSliceResult {
     wasAlreadySkipped: false,
     reason: params.reason,
   };
+
+  // Fail loudly on a closed DB so a `null` from getSlice() inside the
+  // transaction unambiguously means "slice not found", never "DB unavailable".
+  // The MCP wrapper in bootstrap/db-tools.ts runs ensureDbOpen() before calling
+  // this helper; this guard protects direct callers (tests, future code).
+  if (!isDbAvailable()) {
+    throw new Error("handleSkipSlice: GSD database is not available");
+  }
 
   // ── Guards + DB writes inside a single transaction (prevents TOCTOU) ────
   let guardError: string | null = null;
