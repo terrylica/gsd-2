@@ -817,27 +817,58 @@ const projectDirParam = z
   .optional()
   .describe("Optional. Omit this field — the server defaults to its current working directory, which is already the correct project or worktree root.");
 
+const nonEmptyString = (field: string) =>
+  z.string().trim().min(1, `${field} must be a non-empty string`);
+
+// Matches the executor's `isNonEmptyString` (trim + length>0) so Zod rejects
+// empty/whitespace fields at parse time. Without this, MCP callers pass "" for
+// the heavy planning fields, Zod accepts it, and the executor rejects one
+// field per call — forcing the agent into a retry loop to discover every gap.
+const planMilestoneSliceSchema = z.object({
+  sliceId: nonEmptyString("sliceId"),
+  title: nonEmptyString("title"),
+  risk: nonEmptyString("risk"),
+  depends: z.array(z.string()),
+  demo: nonEmptyString("demo"),
+  goal: nonEmptyString("goal"),
+  // ADR-011: heavy planning fields are optional for sketch slices; required for full slices.
+  successCriteria: z.string().optional(),
+  proofLevel: z.string().optional(),
+  integrationClosure: z.string().optional(),
+  observabilityImpact: z.string().optional(),
+  // ADR-011 sketch-then-refine fields.
+  isSketch: z.boolean().optional().describe("ADR-011: true marks this slice as a sketch awaiting refine-slice expansion"),
+  sketchScope: z.string().optional().describe("ADR-011: 2-3 sentence scope boundary, required when isSketch=true"),
+}).superRefine((slice, ctx) => {
+  if (slice.isSketch === true) {
+    if (typeof slice.sketchScope !== "string" || slice.sketchScope.trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sketchScope"],
+        message: "sketchScope must be a non-empty string when isSketch is true",
+      });
+    }
+    return;
+  }
+  const required = ["successCriteria", "proofLevel", "integrationClosure", "observabilityImpact"] as const;
+  for (const field of required) {
+    const value = slice[field];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: `${field} must be a non-empty string`,
+      });
+    }
+  }
+});
+
 const planMilestoneParams = {
   projectDir: projectDirParam,
-  milestoneId: z.string().describe("Milestone ID (e.g. M001)"),
-  title: z.string().describe("Milestone title"),
-  vision: z.string().describe("Milestone vision"),
-  slices: z.array(z.object({
-    sliceId: z.string(),
-    title: z.string(),
-    risk: z.string(),
-    depends: z.array(z.string()),
-    demo: z.string(),
-    goal: z.string(),
-    // ADR-011: heavy planning fields are optional for sketch slices; required for full slices.
-    successCriteria: z.string().optional(),
-    proofLevel: z.string().optional(),
-    integrationClosure: z.string().optional(),
-    observabilityImpact: z.string().optional(),
-    // ADR-011 sketch-then-refine fields.
-    isSketch: z.boolean().optional().describe("ADR-011: true marks this slice as a sketch awaiting refine-slice expansion"),
-    sketchScope: z.string().optional().describe("ADR-011: 2-3 sentence scope boundary, required when isSketch=true"),
-  })).describe("Planned slices for the milestone"),
+  milestoneId: nonEmptyString("milestoneId").describe("Milestone ID (e.g. M001)"),
+  title: nonEmptyString("title").describe("Milestone title"),
+  vision: nonEmptyString("vision").describe("Milestone vision"),
+  slices: z.array(planMilestoneSliceSchema).describe("Planned slices for the milestone"),
   status: z.string().optional().describe("Milestone status"),
   dependsOn: z.array(z.string()).optional().describe("Milestone dependencies"),
   successCriteria: z.array(z.string()).optional().describe("Top-level success criteria bullets"),
