@@ -18,7 +18,11 @@ interface SecretPattern {
 const PATTERNS: readonly SecretPattern[] = [
 	{ kind: "anthropic", regex: /sk-ant-[A-Za-z0-9_-]{20,}/g },
 	{ kind: "llamacloud", regex: /llx-[A-Za-z0-9_-]{20,}/g },
-	{ kind: "openai", regex: /sk-[A-Za-z0-9]{20,}/g },
+	// Covers all three official OpenAI key shapes: legacy `sk-…`, project `sk-proj-…`,
+	// and admin `sk-admin-…`. Hyphens and underscores appear inside real project keys
+	// so the remainder class must allow them. `sk-ant-` is matched earlier by the
+	// anthropic pattern and already replaced by the time this runs.
+	{ kind: "openai", regex: /sk-(?:proj-|admin-)?[A-Za-z0-9_-]{20,}/g },
 	{ kind: "aws-access-key", regex: /\b(?:AKIA|ASIA|AROA)[0-9A-Z]{16}\b/g },
 	{ kind: "github-token", regex: /\bgh[pousr]_[A-Za-z0-9]{30,}\b/g },
 	{ kind: "slack-token", regex: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },

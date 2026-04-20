@@ -16,9 +16,19 @@ describe("redactSecrets", () => {
 		assert.equal(out, "key=[REDACTED:anthropic]");
 	});
 
-	it("redacts OpenAI sk- keys", () => {
+	it("redacts legacy OpenAI sk- keys", () => {
 		const out = redactSecrets("OPENAI_API_KEY=sk-abcDEF1234567890abcDEF12");
 		assert.equal(out, "OPENAI_API_KEY=[REDACTED:openai]");
+	});
+
+	it("redacts OpenAI project sk-proj- keys with hyphens/underscores in body", () => {
+		const out = redactSecrets("OPENAI_API_KEY=sk-proj-AbCd_1234-EfGh_5678-IjKl_9012");
+		assert.equal(out, "OPENAI_API_KEY=[REDACTED:openai]");
+	});
+
+	it("redacts OpenAI admin sk-admin- keys", () => {
+		const out = redactSecrets("OPENAI_ADMIN_KEY=sk-admin-AbCd1234EfGh5678IjKl9012");
+		assert.equal(out, "OPENAI_ADMIN_KEY=[REDACTED:openai]");
 	});
 
 	it("redacts LlamaCloud llx- keys", () => {
