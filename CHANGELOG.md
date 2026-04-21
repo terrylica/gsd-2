@@ -6,6 +6,130 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.77.0] - 2026-04-21
+
+### Added
+- **ci**: dynamic system-specific verification checklists in pr-risk-check
+- **gsd-exec**: add clean-root preflight gate + auto-stash to milestone completion (#4604)
+- **prefs**: expose all KNOWN_PREFERENCE_KEYS through /gsd prefs wizard
+- **gsd**: default context_mode to ON (opt-out via enabled:false)
+- **gsd**: add gsd_exec_search, gsd_resume, and compaction snapshot (slice 2)
+- **gsd**: add gsd_exec sandboxed tool-output execution (context-mode slice 1)
+- **tui**: render skill invocations in purple chat-frame style
+- add Layer 0 shell hooks + new Layer 2 events
+- **skills**: add 9 gap-closing skills for GSD workflow coverage
+- **gsd**: cutover to memories table as single source of truth (ADR-013 step 6)
+- **gsd**: backfill decisions table into memories (ADR-013 step 5)
+- **gsd**: memory-store auto-injection parity (ADR-013 step 4)
+- **skills**: bundle 6 planning/design skills and surface hidden ones
+- **mcp**: expose memory tools to external clients (ADR-013 step 3)
+- **gsd**: add structured_fields column to memories table (ADR-013 step 2)
+- **gsd**: wire new memory tools across agents and extract-learnings (Option A' dual-write)
+
+### Fixed
+- **gsd-db**: writeBlockerPlaceholder DB update for plan-milestone + saveStuckState in standard path (#4634)
+- **gsd**: add .mcp.json to ensureGitignore baseline
+- **worktree-resolver**: re-throw all errors, not just MergeConflictError (#4633)
+- **run-unit**: discard late-resolving newSession() after timeout to prevent root cwd tool runtime (#4632)
+- **auto-resume**: use existing milestone worktree as dispatch context during crash recovery (#4628)
+- **gsd-db**: prevent milestone status downgrade in reconcileWorktreeDb (#4372) (#4625)
+- **mcp-server**: gsd_cancel falls back to milestone/process lookup for sessions without sessionId (#4618)
+- **worktree**: prevent double-nested artifact paths when constructing paths inside worktree context (#4635)
+- **gsd-db**: stamp SCHEMA_VERSION=21 inside v21 migration block (#4627)
+- **gsd-db**: move memories.scope index creation inside v18 migration guard (#4630)
+- **auto-start**: await showSmartEntry dispatch before checking milestone context in bootstrapAutoSession (#4631)
+- **register-hooks**: pass toolName from tool_execution_start event to markToolStart (#4626)
+- **gsd-exec**: derive artifact paths from meta file location, not JSON content (#4619)
+- **pre-execution-checks**: strip backtick/quote annotation from input/output values before path check (#4623)
+- **dispatcher**: guard SUMMARY.md write with existence check on re-dispatch (#4598) (#4622)
+- **ci**: wrap agent prompt as numbered list in GitHub PR summary
+- **gsd**: add doctor heal suggestion to plan gate failed error
+- **pi-coding-agent**: apply redaction before file entry serialization in _rewriteFile() (#4617)
+- **welcome-screen**: truncate Active row text to prevent terminal overflow
+- **gsd**: handle worktree context fallback and sanitize paused session paths
+- **gsd**: resolve three safety harness false-positive sources (#4576)
+- **gsd-exec**: inject pre-exec gate failure context into re-dispatched plan-slice prompt (#4603)
+- **pi-ai**: ensure tool function names non-empty for MiniMax (#4538) (#4602)
+- **mcp**: add 10-minute timeout to ask_user_questions and secure_env_collect elicitation (#4597)
+- **db**: repair invalid quality_gates DDL and add artifact-retry journal event (#4583)
+- **skills**: quote descriptions containing colon-space in YAML frontmatter (#4595)
+- **auto-worktree**: reorder shelter-before-stash and drop stash pathspec (#4600)
+- **safety**: add file_change_allowlist to suppress false-positive unexpected-change warnings (#4596)
+- **gsd**: parallel-research timeout no longer causes infinite dispatch loop (#4570)
+- **skills**: quote SKILL.md description values containing ': '
+- **auto**: pre-check provider request-readiness before unit dispatch (#4578)
+- **gsd**: exempt completed-task outputs from ordering checks (#4071) (#4572)
+- **pi-ai**: cap tool count at 128 for Groq provider (fixes #4376) (#4575)
+- **gsd**: use cl100k_base encoding and provider-aware fallback in token counter (#4569)
+- **gsd**: clear HARD BLOCK when write-gate state file is deleted (#4343) (#4577)
+- **gsd-extension**: default permission mode to acceptEdits to prevent silent tool denial (#4383) (#4584)
+- **gsd-extension**: wire tryRemoteQuestions into MCP ask_user_questions handler (#4585)
+- **model-routing**: remove 32k cap for custom models and allow capabilities.supportsXhigh in models.json (#4587)
+- **tests**: mark context_mode as exposed-outside-wizard
+- **gsd**: update #3628 regression test anchor for multiple triggerTurn sites
+- **health-widget**: guard requestRender after widget disposal
+- **auto**: keep footer identical between normal and auto mode
+- **model-routing**: probe claude.exe on Windows and guard OAuth routing for externalCli providers
+- **gsd**: recover silent 'ready' signals and empty-intent turns in discuss flow
+- **pre-execution-checks**: require import keyword before from-clause to prevent prose false positives (#4561)
+- **error-classifier**: classify stream idle timeout and context overflow as transient (#4559)
+- **key-manager**: add claude-code as first-class LLM provider in PROVIDER_REGISTRY
+- **gsd-exec**: address adversarial review findings
+- **gsd**: preserve slice parallel preferences
+- **gsd**: strip stray backticks from annotated inputs
+- **gsd-exec**: fix five code-review findings
+- **workflow-logger**: add context-mode to LogComponent union
+- **pi-agent-core**: cover sk-proj- and sk-admin- OpenAI key shapes
+- **db**: guard idx_memories_scope on legacy schema (#4545)
+- **gsd**: migrate legacy db before bootstrap indexes
+- **pi-agent-core**: redact known secret shapes before persisting session log
+- **gsd**: classify extra usage errors as rate limits
+- **gsd**: load preferences from auto-start base path
+- **mcp**: address CodeRabbit round-2 review on #4477 — 3 findings + regression test
+- **db**: address review findings — closeDatabase resets unconditionally; add getDbStatus tests
+- **db**: surface structured error on SQLite open failure; add open-time provider fallback
+- **file-change-validator**: handle repos with single commit (no HEAD~1)
+- **resource-loader**: sync bundled skills to ~/.agents/skills/ on launch
+- **init-wizard**: create initial commit after git init (#4530)
+- **models**: discover openai-compatible custom providers and parse think tags
+- **gsd**: classify complete-slice as standard for routing
+- **gsd**: preserve session model/thinking in auto mode
+- **mcp**: address review feedback on #4477 — 4 bugs from Jeremy + CodeRabbit
+- **mcp**: address CodeRabbit nitpicks on #4477
+- **mcp**: rename details to structuredContent across MCP handlers
+- **gsd**: classify complete-slice as standard for routing
+- **gsd**: preserve session model/thinking in auto mode
+- **gsd**: prefer valid user-local templates dir in prompt loader
+- **install**: link @gsd-build/mcp-server workspace package
+- **search**: narrow native web_search injection to providers that accept it
+- **gsd**: preserve transient session-start reason
+- blocklist account-unsupported models across auto restarts (#4513)
+- **gsd**: pin explicit phase models
+- **gsd**: pause transient session-start failures
+- **pi-ai**: honor bearer auth for custom providers
+- **ci**: address review findings and cross-platform hook tests
+- **ci**: export hook event types and wire emitExtensionEvent in GSD wrapper
+- **gsd**: return blocked instead of validating-milestone on stuck needs-remediation (#4506)
+- **gsd**: bump remaining schema-version assertions to 21 after main merge
+- **gsd**: second-round inline review fixes for ADR-013 migration
+- **gsd**: honor models.json keys in provider doctor
+- **gsd**: peer-review fixes for ADR-013 migration + CI failures
+- **skills**: address PR 4505 inline review findings
+- **claude-code**: preserve win32 claude.cmd selector in readiness check
+- **claude-code**: fallback to claude shim when claude.cmd spawn fails on Windows
+- **gsd**: detect Claude CLI on Windows PATH for provider doctor (#4503)
+- **gsd**: migrate legacy db before bootstrap indexes
+- **gsd**: require terminal milestone for doctor cleanup
+- serialize saveDecisionToDb with async mutex to prevent file race condition
+- prevent race condition in parallel decision saves
+
+### Changed
+- **skills**: rename 4 skills to match GSD naming conventions
+- consolidate OAuth provider tests into individual files and remove legacy test suite
+- use regex patterns in .secretscanignore for OAuth credentials
+- allowlist public Google OAuth credentials in secret scanner
+- remove base64 obfuscation from Google OAuth credentials
+
 ## [2.76.0] - 2026-04-19
 
 ### Added
@@ -3397,7 +3521,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - License updated to MIT
 
-[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.76.0...HEAD
+[Unreleased]: https://github.com/gsd-build/gsd-2/compare/v2.77.0...HEAD
+[2.77.0]: https://github.com/gsd-build/gsd-2/compare/v2.76.0...v2.77.0
 [2.76.0]: https://github.com/gsd-build/gsd-2/compare/v2.75.0...v2.76.0
 [2.75.0]: https://github.com/gsd-build/gsd-2/compare/v2.74.0...v2.75.0
 [2.74.0]: https://github.com/gsd-build/gsd-2/compare/v2.73.1...v2.74.0
