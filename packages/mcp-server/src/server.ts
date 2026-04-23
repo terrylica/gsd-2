@@ -13,6 +13,7 @@
 
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
 import { z } from 'zod';
 import type { SessionManager } from './session-manager.js';
 import { isRemoteConfigured, tryRemoteQuestions } from './remote-questions.js';
@@ -44,6 +45,27 @@ const ELICIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
  *
  * @param timeoutMs - override for testing; defaults to ELICIT_TIMEOUT_MS
  */
+/**
+ * Default child-process runner used by secure_env_collect to push secrets
+ * into `vercel env add` / `npx convex env set`. Previously `applySecrets`
+ * was called without an `execFn`, so vercel/convex destinations silently
+ * dropped every collected key. This restores the write path.
+ */
+function defaultExecFn(
+  cmd: string,
+  args: string[],
+): Promise<{ code: number; stderr: string }> {
+  return new Promise((res) => {
+    const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.on('error', (err) => res({ code: 1, stderr: err.message }));
+    child.on('close', (code) => res({ code: code ?? 1, stderr }));
+  });
+}
+
 export async function withElicitTimeout<T>(
   promise: Promise<T>,
   label: string,
@@ -737,6 +759,7 @@ export async function createMcpServer(sessionManager: SessionManager): Promise<{
         const { applied, errors } = await applySecrets(provided, resolvedDestination, {
           envFilePath: resolvedEnvPath,
           environment,
+          execFn: defaultExecFn,
         });
 
         // (7) Build result — NEVER include secret values
