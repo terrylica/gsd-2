@@ -33,7 +33,8 @@ import { parseRoadmap } from "./parsers-legacy.js";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { logWarning, logError } from "./workflow-logger.js";
 import { join } from "node:path";
-import { hasImplementationArtifacts, classifyMilestoneSummaryContent } from "./auto-recovery.js";
+import { hasImplementationArtifacts } from "./auto-recovery.js";
+import { classifyMilestoneSummaryContent } from "./milestone-summary-classifier.js";
 import {
   buildDiscussMilestonePrompt,
   buildResearchMilestonePrompt,
@@ -905,7 +906,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
 
       const existingSummary = resolveMilestoneFile(basePath, mid, "SUMMARY");
       let summaryOutcome: "success" | "failure" | "unknown" = "unknown";
-      if (existingSummary && isDbAvailable()) {
+      if (existingSummary) {
         const summaryContent = await loadFile(existingSummary);
         if (summaryContent) {
           summaryOutcome = classifyMilestoneSummaryContent(summaryContent);
@@ -999,11 +1000,15 @@ export const DISPATCH_RULES: DispatchRule[] = [
       // - success summary: reconcile DB and skip re-dispatch
       // - failure summary: pause/fail-closed
       // - unknown summary: pause/fail-closed
-      if (existingSummary && isDbAvailable()) {
-        const milestone = getMilestone(mid);
-        const status = milestone?.status ?? "missing";
+      if (existingSummary) {
+        const milestone = isDbAvailable() ? getMilestone(mid) : null;
+        const status = milestone?.status ?? (isDbAvailable() ? "missing" : "unavailable");
 
         if (summaryOutcome === "success") {
+          if (!isDbAvailable()) {
+            logWarning("dispatch", `Milestone ${mid} SUMMARY indicates completion while DB is unavailable — skipping duplicate complete-milestone dispatch`);
+            return { action: "skip" };
+          }
           try {
             updateMilestoneStatus(mid, "complete", new Date().toISOString());
             logWarning("dispatch", `Milestone ${mid} SUMMARY indicates completion while DB status was "${status}" — reconciled DB to complete (#4658)`);
