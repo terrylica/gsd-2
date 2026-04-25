@@ -377,7 +377,8 @@ test("resolveProfileDefaults: empty availableModelIds falls back to canonical An
   const { resolveProfileDefaults } = await import("../preferences-models.js");
   const defaults = resolveProfileDefaults("balanced", []);
   // Documented fallback only — when registry is unavailable at bootstrap.
-  assert.ok(defaults.models?.planning?.startsWith("claude-"));
+  const planningModel = defaults.models?.planning;
+  assert.ok(typeof planningModel === "string" && planningModel.startsWith("claude-"));
 });
 
 test("resolveProfileDefaults: burn-max omits models so user choice is preserved", async () => {

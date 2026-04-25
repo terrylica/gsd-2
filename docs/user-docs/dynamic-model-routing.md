@@ -18,9 +18,9 @@ The key rule: **downgrade-only semantics**. The user's configured model is alway
 
 | Tier | Typical Work | Default Model Level |
 |------|-------------|-------------------|
-| **Light** | Slice completion, UAT, hooks | Haiku-class |
-| **Standard** | Research, planning, execution, milestone completion | Sonnet-class |
-| **Heavy** | Replanning, roadmap reassessment, complex execution | Opus-class |
+| **Light** | Slice completion, UAT, hooks | Cheapest capable light-tier model |
+| **Standard** | Research, planning, execution, milestone completion | Balanced standard-tier model |
+| **Heavy** | Replanning, roadmap reassessment, complex execution | Highest capability tier model |
 
 ## Enabling
 
@@ -72,7 +72,9 @@ Override which model is used for each tier. When omitted, the router uses a buil
 
 - **Light:** `claude-haiku-4-5`, `gpt-4o-mini`, `gemini-2.0-flash`
 - **Standard:** `claude-sonnet-4-6`, `gpt-4o`, `gemini-2.5-pro`
-- **Heavy:** `claude-opus-4-6`, `gpt-4.5-preview`, `gemini-2.5-pro`
+- **Heavy:** `claude-opus-4-6`, `gpt-5.4`, `o3`
+
+Token profiles use the same tier mapping. `budget`, `balanced`, and `quality` declare per-phase tier intentions, then GSD resolves those tiers against the models currently available from your configured providers. This means a profile can resolve to OpenAI, Gemini, Anthropic, or another provider-specific model instead of hardcoding Claude-family defaults.
 
 ### `escalate_on_failure`
 
