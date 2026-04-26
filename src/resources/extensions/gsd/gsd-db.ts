@@ -1405,6 +1405,16 @@ export function checkpointDatabase(): void {
 
 let _txDepth = 0;
 
+/**
+ * Whether the current call is running inside an active SQLite transaction.
+ * Statement-time recovery paths (e.g. VACUUM retry on a malformed memory
+ * store) MUST gate on this — SQLite refuses VACUUM inside a transaction
+ * and would mask the original error with a secondary "cannot VACUUM" throw.
+ */
+export function isInTransaction(): boolean {
+  return _txDepth > 0;
+}
+
 export function transaction<T>(fn: () => T): T {
   if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
 
@@ -1419,8 +1429,8 @@ export function transaction<T>(fn: () => T): T {
     }
   }
 
-  _txDepth++;
   currentDb.exec("BEGIN");
+  _txDepth++;
   try {
     const result = fn();
     currentDb.exec("COMMIT");
@@ -1452,8 +1462,8 @@ export function readTransaction<T>(fn: () => T): T {
     }
   }
 
-  _txDepth++;
   currentDb.exec("BEGIN DEFERRED");
+  _txDepth++;
   try {
     const result = fn();
     currentDb.exec("COMMIT");
