@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { compareSemver } from './update-check.js'
 import { discoverExtensionEntryPaths } from './extension-discovery.js'
 import { loadRegistry, readManifestFromEntryPath, isExtensionEnabled, ensureRegistryEntries } from './extension-registry.js'
+import { resolveBundledResourcesDirFromPackageRoot } from './bundled-resource-path.js'
 
 type PiCodingAgentModule = typeof import('@gsd/pi-coding-agent')
 
@@ -25,14 +26,7 @@ function loadPiCodingAgentModule(): Promise<PiCodingAgentModule> {
 // dist/resources/ is populated by the build step (`npm run copy-resources`) and
 // reflects the built state, not the currently checked-out branch.
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const distResources = join(packageRoot, 'dist', 'resources')
-const srcResources = join(packageRoot, 'src', 'resources')
-// Use dist/resources only if it has the full expected structure.
-// A partial build (tsc without copy-resources) creates dist/resources/extensions/
-// but not agents/ or skills/, causing initResources to sync from an incomplete source.
-const resourcesDir = (existsSync(distResources) && existsSync(join(distResources, 'agents')))
-  ? distResources
-  : srcResources
+const resourcesDir = resolveBundledResourcesDirFromPackageRoot(packageRoot)
 const bundledExtensionsDir = join(resourcesDir, 'extensions')
 const resourceVersionManifestName = 'managed-resources.json'
 const resourceFingerprintFileName = '.managed-resources-content-hash'
