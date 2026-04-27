@@ -1,0 +1,178 @@
+import test, { after } from "node:test";
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const previousGsdHome = process.env.GSD_HOME;
+process.env.GSD_HOME = process.env.GSD_HOME_TEST_OVERRIDE
+  ?? join(tmpdir(), `gsd-test-home-${process.pid}-${Date.now()}`);
+
+after(() => {
+  if (previousGsdHome === undefined) {
+    delete process.env.GSD_HOME;
+  } else {
+    process.env.GSD_HOME = previousGsdHome;
+  }
+});
+
+const { dispatchDirectPhase } = await import("../auto-direct-dispatch.ts");
+const {
+  buildDiscussMilestonePrompt,
+  buildParallelResearchSlicesPrompt,
+  buildRewriteDocsPrompt,
+} = await import("../auto-prompts.ts");
+const { invalidateStateCache } = await import("../state.ts");
+const { resolveAgentEnd, runUnit, _resetPendingResolve } = await import("../auto-loop.js");
+
+function writeMilestone(base: string, mid = "M001", title = "Worktree Path Injection"): void {
+  const milestoneDir = join(base, ".gsd", "milestones", mid);
+  mkdirSync(milestoneDir, { recursive: true });
+  writeFileSync(
+    join(milestoneDir, `${mid}-CONTEXT.md`),
+    `# ${mid}: ${title}\n\nContext.\n`,
+    "utf-8",
+  );
+  writeFileSync(
+    join(milestoneDir, `${mid}-ROADMAP.md`),
+    [
+      `# ${mid}: ${title}`,
+      "",
+      "## Slices",
+      "",
+      "- [ ] **S01: First slice** `risk:low` `depends:[]`",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+function makeLiveMilestoneWorktree(base: string, mid = "M001"): string {
+  const worktreeRoot = join(base, ".gsd", "worktrees", mid);
+  mkdirSync(worktreeRoot, { recursive: true });
+  writeFileSync(
+    join(worktreeRoot, ".git"),
+    `gitdir: ${join(base, ".git", "worktrees", mid)}\n`,
+    "utf-8",
+  );
+  writeMilestone(worktreeRoot, mid);
+  return worktreeRoot;
+}
+
+async function waitFor(condition: () => boolean, label: string): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  assert.fail(`Timed out waiting for ${label}`);
+}
+
+test("runUnit changes cwd to basePath before creating a new session", async (t) => {
+  _resetPendingResolve();
+
+  const originalCwd = process.cwd();
+  const base = mkdtempSync(join(tmpdir(), "gsd-rununit-base-"));
+  const drifted = mkdtempSync(join(tmpdir(), "gsd-rununit-drift-"));
+  t.after(() => {
+    process.chdir(originalCwd);
+    rmSync(base, { recursive: true, force: true });
+    rmSync(drifted, { recursive: true, force: true });
+  });
+
+  process.chdir(drifted);
+
+  let cwdAtNewSession: string | undefined;
+  const session = {
+    active: true,
+    basePath: base,
+    verbose: false,
+    cmdCtx: {
+      newSession: () => {
+        cwdAtNewSession = process.cwd();
+        return Promise.resolve({ cancelled: false });
+      },
+    },
+  } as any;
+  const pi = {
+    calls: [] as unknown[],
+    sendMessage(...args: unknown[]) {
+      this.calls.push(args);
+    },
+  } as any;
+  const ctx = { ui: { notify: () => {} }, model: { id: "test-model" } } as any;
+
+  const resultPromise = runUnit(ctx, pi, session, "task", "T01", "prompt");
+  await waitFor(() => pi.calls.length === 1, "runUnit dispatch");
+  resolveAgentEnd({ messages: [{ role: "assistant" }] });
+
+  const result = await resultPromise;
+  assert.equal(result.status, "completed");
+  assert.equal(cwdAtNewSession, base);
+});
+
+test("direct dispatch redirects to the canonical milestone worktree before newSession", async (t) => {
+  invalidateStateCache();
+
+  const originalCwd = process.cwd();
+  const base = mkdtempSync(join(tmpdir(), "gsd-direct-base-"));
+  const drifted = mkdtempSync(join(tmpdir(), "gsd-direct-drift-"));
+  writeMilestone(base);
+  const worktreeRoot = makeLiveMilestoneWorktree(base);
+
+  t.after(() => {
+    process.chdir(originalCwd);
+    rmSync(base, { recursive: true, force: true });
+    rmSync(drifted, { recursive: true, force: true });
+    invalidateStateCache();
+  });
+
+  process.chdir(drifted);
+
+  let cwdAtNewSession: string | undefined;
+  let sentPrompt: string | undefined;
+  const ctx = {
+    ui: { notify: () => {} },
+    newSession: async () => {
+      cwdAtNewSession = process.cwd();
+      return { cancelled: false };
+    },
+  } as any;
+  const pi = {
+    sendMessage(message: { content: string }) {
+      sentPrompt = message.content;
+    },
+  } as any;
+
+  await dispatchDirectPhase(ctx, pi, "research-milestone", base);
+
+  assert.equal(cwdAtNewSession, worktreeRoot);
+  assert.ok(sentPrompt?.includes(worktreeRoot), "prompt should name the canonical worktree root");
+});
+
+test("worktree-aware prompt builders include the explicit working directory", async (t) => {
+  const base = mkdtempSync(join(tmpdir(), "gsd-prompt-base-"));
+  writeMilestone(base);
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+
+  const prompts = await Promise.all([
+    buildDiscussMilestonePrompt("M001", "Worktree Path Injection", base),
+    buildParallelResearchSlicesPrompt(
+      "M001",
+      "Worktree Path Injection",
+      [{ id: "S01", title: "First slice" }],
+      base,
+    ),
+    buildRewriteDocsPrompt(
+      "M001",
+      "Worktree Path Injection",
+      null,
+      base,
+      [{ change: "Refresh docs", timestamp: "2026-04-27T00:00:00.000Z", appliedAt: "test" }] as any,
+    ),
+  ]);
+
+  for (const prompt of prompts) {
+    assert.match(prompt, /working directory/i);
+    assert.ok(prompt.includes(base), "prompt should include the provided working directory");
+  }
+});
