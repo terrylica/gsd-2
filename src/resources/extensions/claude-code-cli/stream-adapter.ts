@@ -1091,6 +1091,20 @@ export function createClaudeCodeCanUseToolHandler(
 							destination: "localSettings",
 						}];
 					}
+				} else if (!perms || (Array.isArray(perms) && perms.length === 0)) {
+					// Non-Bash tool with no SDK-supplied suggestions. Without a
+					// fallback rule the SDK would return `behavior: "allow"`
+					// with no `updatedPermissions`, so "Always Allow" silently
+					// fails to persist for tools whose input varies per call
+					// (e.g. AskUserQuestion with different `questions` payloads).
+					// A bare `{ toolName }` rule matches any input.
+					perms = [{
+						type: "addRules",
+						rules: [{ toolName }],
+						behavior: "allow",
+						destination: "localSettings",
+					}];
+					notifyLabel = toolName;
 				}
 				// Notify with the resolved pattern (label already previewed it)
 				if (notifyLabel) {
