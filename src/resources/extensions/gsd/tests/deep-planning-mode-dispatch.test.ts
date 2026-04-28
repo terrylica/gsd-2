@@ -450,9 +450,10 @@ test("Deep mode: research-project stops while in-flight marker exists", async (t
   writeFileSync(join(base, ".gsd", "runtime", "research-project-inflight"), "{}\n");
   const prefs = { planning_depth: "deep" } as GSDPreferences;
   const result = await rule(RESEARCH_PROJECT_RULE_NAME).match(makeCtx(base, prefs));
-  assert.ok(result && result.action === "stop", "in-flight marker must block downstream dispatch");
-  if (result.action === "stop") {
-    assert.strictEqual(result.level, "info");
+  assert.ok(result !== null, "in-flight marker must produce a result");
+  assert.strictEqual(result?.action, "stop", "in-flight marker must block dispatch with a stop action");
+  assert.strictEqual((result as { action: string; level: string }).level, "info", "in-flight stop must use info level");
+  if (result?.action === "stop") {
     assert.match(result.reason, /research-project-inflight/);
   }
 });
