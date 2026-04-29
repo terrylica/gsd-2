@@ -349,6 +349,38 @@ describe('applySecrets', () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it('passes remote destination secrets on stdin instead of process arguments', async () => {
+    const tmp = makeTempDir('apply-remote-stdin');
+    const calls: Array<{ cmd: string; args: string[]; opts?: { stdin?: string } }> = [];
+    try {
+      const { applied, errors } = await applySecrets(
+        [{ key: 'REMOTE_SECRET', value: 'super-secret-value' }],
+        'vercel',
+        {
+          envFilePath: join(tmp, '.env'),
+          environment: 'preview',
+          execFn: async (cmd, args, opts) => {
+            calls.push({ cmd, args, opts });
+            return { code: 0, stderr: '' };
+          },
+        },
+      );
+
+      assert.deepStrictEqual(applied, ['REMOTE_SECRET']);
+      assert.deepStrictEqual(errors, []);
+      assert.deepStrictEqual(calls, [
+        {
+          cmd: 'vercel',
+          args: ['env', 'add', 'REMOTE_SECRET', 'preview'],
+          opts: { stdin: 'super-secret-value' },
+        },
+      ]);
+      assert.ok(!calls[0].args.some((arg) => arg.includes('super-secret-value')));
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

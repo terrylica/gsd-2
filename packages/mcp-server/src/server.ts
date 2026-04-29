@@ -64,15 +64,24 @@ const ELICIT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 function defaultExecFn(
   cmd: string,
   args: string[],
+  opts?: { stdin?: string },
 ): Promise<{ code: number; stderr: string }> {
   return new Promise((res) => {
-    // stdin: ignore — avoids hanging if the child ever prompts interactively.
+    // stdin: pipe only when a caller explicitly supplies input; otherwise
+    // ignore it to avoid hanging if the child ever prompts interactively.
     // stdout: ignore — consumer only cares about stderr + exit code, and an
     //   un-drained pipe deadlocks once the kernel buffer (~64KB) fills.
     // stderr: pipe — captured below for error surfacing.
-    const child = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(cmd, args, { stdio: [opts?.stdin === undefined ? 'ignore' : 'pipe', 'ignore', 'pipe'] });
     let stderr = '';
-    child.stderr.on('data', (chunk) => {
+    child.stdin?.on('error', () => {
+      // Child exited before consuming stdin; close/error handling below will
+      // surface the real process result.
+    });
+    if (opts?.stdin !== undefined) {
+      child.stdin?.end(opts.stdin, 'utf8');
+    }
+    child.stderr?.on('data', (chunk) => {
       stderr += chunk.toString('utf8');
     });
     child.on('error', (err) => res({ code: 1, stderr: err.message }));

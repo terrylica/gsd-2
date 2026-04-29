@@ -211,6 +211,10 @@ interface ApplyResult {
   errors: string[];
 }
 
+interface ExecOptions {
+  stdin?: string;
+}
+
 /**
  * Apply collected secrets to the target destination.
  * Dotenv writes are handled directly; vercel/convex shell out via execFn.
@@ -221,7 +225,7 @@ export async function applySecrets(
   opts: {
     envFilePath: string;
     environment?: string;
-    execFn?: (cmd: string, args: string[]) => Promise<{ code: number; stderr: string }>;
+    execFn?: (cmd: string, args: string[], opts?: ExecOptions) => Promise<{ code: number; stderr: string }>;
   },
 ): Promise<ApplyResult> {
   const applied: string[] = [];
@@ -266,13 +270,10 @@ export async function applySecrets(
         errors.push(`${key}: refusing to set MCP server runtime variable via secure_env_collect`);
         continue;
       }
-      // Pass the secret on stdin for both vercel and convex so the value is
-      // never visible in process arguments (ps / /proc/<pid>/cmdline).
-      const cmd = destination === "vercel"
-        ? `printf %s ${shellEscapeSingle(value)} | vercel env add ${key} ${env}`
-        : `printf %s ${shellEscapeSingle(value)} | npx convex env set ${key}`;
       try {
-        const result = await opts.execFn("sh", ["-c", cmd]);
+        const result = destination === "vercel"
+          ? await opts.execFn("vercel", ["env", "add", key, env], { stdin: value })
+          : await opts.execFn("npx", ["convex", "env", "set", key], { stdin: value });
         if (result.code !== 0) {
           errors.push(`${key}: ${result.stderr.slice(0, 200)}`);
         } else {
