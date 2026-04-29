@@ -138,11 +138,14 @@ export function startUnitSupervision(sctx: SupervisionContext): void {
     ? Math.min(MAX_TIMEOUT_SCALE, Math.max(1, estimateMinutes / 10))
     : 1;
 
-  const { softTimeoutMs, idleTimeoutMs, hardTimeoutMs } = resolveUnitSupervisionTimeouts(
+  const supervisionTimeouts = resolveUnitSupervisionTimeouts(
     unitType,
     supervisor,
     timeoutScale,
   );
+  const softTimeoutMs = supervisionTimeouts.softTimeoutMs;
+  const idleTimeoutMs = supervisionTimeouts.idleTimeoutMs;
+  const hardTimeoutMs = supervisionTimeouts.hardTimeoutMs;
 
   // ── 1. Soft timeout warning ──
   s.wrapupWarningHandle = setTimeout(() => {

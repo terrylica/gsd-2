@@ -971,7 +971,7 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
       }
 
       // When artifact verification fails for a unit type that has a known expected
-      // artifact, return "retry" so the caller re-dispatches with failure context
+      // artifact, ask the caller to retry so it re-dispatches with failure context
       // instead of blindly re-dispatching the same unit (#1571).
       // Retries are capped at MAX_ARTIFACT_VERIFICATION_RETRIES to prevent
       // unbounded loops (#2007).
