@@ -168,7 +168,7 @@ describe("workflow MCP tools", () => {
     }
   });
 
-  it("gsd_summary_save rejects milestone-scoped artifacts without milestone_id at schema parse", async () => {
+  it("gsd_summary_save rejects milestone-scoped artifacts without milestone_id", async () => {
     const base = makeTmpBase();
     try {
       const server = makeMockServer();
@@ -176,12 +176,15 @@ describe("workflow MCP tools", () => {
       const tool = server.tools.find((t) => t.name === "gsd_summary_save");
       assert.ok(tool, "summary tool should be registered");
 
-      await assert.rejects(
-        () => tool!.handler({
-          projectDir: base,
-          artifact_type: "SUMMARY",
-          content: "# Summary\n",
-        }),
+      const result = await tool!.handler({
+        projectDir: base,
+        artifact_type: "SUMMARY",
+        content: "# Summary\n",
+      });
+
+      const text = (result as any).content?.[0]?.text as string;
+      assert.match(
+        text,
         /milestone_id is required for milestone-scoped artifact types/,
       );
     } finally {
