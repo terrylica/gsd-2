@@ -329,6 +329,31 @@ interface AskUserQuestionsElicitRequest {
   };
 }
 
+/**
+ * Structured payload mirrored to the MCP `structuredContent` field on
+ * `ask_user_questions` results. Mirrors the `LocalResultDetails` shape that
+ * src/resources/extensions/ask-user-questions.ts already produces, so the
+ * GSD discussion-gate hook in register-hooks.ts can treat the MCP path
+ * identically to the in-process extension path. Without this, the bridge
+ * surfaces `details = undefined` and the gate hook's
+ * `if (details?.cancelled || !details?.response)` branch HARD-BLOCKs every
+ * user answer, including successful confirmations. See #5267.
+ */
+interface AskUserQuestionsRoundResultAnswer {
+  selected: string | string[];
+  notes: string;
+}
+
+interface AskUserQuestionsRoundResult {
+  answers: Record<string, AskUserQuestionsRoundResultAnswer>;
+}
+
+interface AskUserQuestionsStructuredContent {
+  questions: AskUserQuestion[];
+  response: AskUserQuestionsRoundResult | null;
+  cancelled: boolean;
+}
+
 const OTHER_OPTION_LABEL = 'None of the above';
 
 function normalizeAskUserQuestionsNote(value: AskUserQuestionsContentValue | undefined): string {
@@ -434,6 +459,38 @@ export function formatAskUserQuestionsElicitResult(
   return JSON.stringify({ answers });
 }
 
+/**
+ * Normalize an MCP elicitation form result into the `RoundResult` shape the
+ * GSD discussion-gate hook reads from `tool_result` `details.response`. The
+ * elicitation `content` map carries `{ [id]: label, [id]__note?: string }`;
+ * the hook expects `{ answers: { [id]: { selected, notes } } }`. Mirrored into
+ * `structuredContent` by `askUserQuestionsHandler`. See #5267.
+ */
+export function buildAskUserQuestionsRoundResult(
+  questions: AskUserQuestion[],
+  result: AskUserQuestionsElicitResult,
+): AskUserQuestionsRoundResult {
+  const answers: Record<string, AskUserQuestionsRoundResultAnswer> = {};
+  const content = result.content ?? {};
+
+  for (const question of questions) {
+    if (question.allowMultiple) {
+      const list = normalizeAskUserQuestionsAnswers(content[question.id], true);
+      answers[question.id] = { selected: list, notes: '' };
+      continue;
+    }
+
+    const list = normalizeAskUserQuestionsAnswers(content[question.id], false);
+    const selected = list[0] ?? '';
+    const notes = selected === OTHER_OPTION_LABEL
+      ? normalizeAskUserQuestionsNote(content[`${question.id}__note`])
+      : '';
+    answers[question.id] = { selected, notes };
+  }
+
+  return { answers };
+}
+
 interface AskUserQuestionsHandlerDeps {
   elicitInput(params: AskUserQuestionsElicitRequest): Promise<AskUserQuestionsElicitResult>;
   isRemoteConfigured(): boolean;
@@ -478,7 +535,15 @@ export async function askUserQuestionsHandler(
         'ask_user_questions',
       );
       if (elicitation.action === 'accept' && elicitation.content) {
-        return textContent(formatAskUserQuestionsElicitResult(questions, elicitation));
+        const structured: AskUserQuestionsStructuredContent = {
+          questions,
+          response: buildAskUserQuestionsRoundResult(questions, elicitation),
+          cancelled: false,
+        };
+        return {
+          content: [{ type: 'text' as const, text: formatAskUserQuestionsElicitResult(questions, elicitation) }],
+          structuredContent: structured as unknown as Record<string, unknown>,
+        };
       }
     } catch (err) {
       if (!isLocalElicitFallbackError(err)) throw err;
@@ -511,7 +576,15 @@ export async function askUserQuestionsHandler(
 
     if (localElicitError) throw localElicitError;
 
-    return textContent('ask_user_questions was cancelled before receiving a response');
+    const cancelledStructured: AskUserQuestionsStructuredContent = {
+      questions,
+      response: null,
+      cancelled: true,
+    };
+    return {
+      content: [{ type: 'text' as const, text: 'ask_user_questions was cancelled before receiving a response' }],
+      structuredContent: cancelledStructured as unknown as Record<string, unknown>,
+    };
   } catch (err) {
     return errorContent(err instanceof Error ? err.message : String(err));
   }
@@ -527,8 +600,8 @@ export type ElicitInputFn = (params: {
 }) => Promise<{ action: 'accept' | 'cancel' | 'decline'; content?: Record<string, unknown> }>;
 
 type ToolContent =
-  | { content: Array<{ type: 'text'; text: string }> }
-  | { isError: true; content: Array<{ type: 'text'; text: string }> };
+  | { content: Array<{ type: 'text'; text: string }>; structuredContent?: Record<string, unknown> }
+  | { isError: true; content: Array<{ type: 'text'; text: string }>; structuredContent?: Record<string, unknown> };
 
 export async function secureEnvCollectHandler(
   args: Record<string, unknown>,
