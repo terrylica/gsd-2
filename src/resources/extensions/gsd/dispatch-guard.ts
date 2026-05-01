@@ -63,7 +63,7 @@ export function getPriorSliceCompletionBlocker(
       const summaryPath = resolveMilestoneFile(base, mid, "SUMMARY");
       let summaryContent: string | null = null;
       try { summaryContent = summaryPath ? readFileSync(summaryPath, "utf-8") : null; } catch { /* ignore */ }
-      if (!summaryContent || classifyMilestoneSummaryContent(summaryContent) !== "failure") {
+      if (summaryContent && classifyMilestoneSummaryContent(summaryContent) !== "failure") {
         continue;
       }
     }
