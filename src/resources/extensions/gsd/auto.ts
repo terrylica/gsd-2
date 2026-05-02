@@ -256,6 +256,7 @@ export type {
 } from "./auto/session.js";
 import { autoSession as s } from "./auto-runtime-state.js";
 import { gsdHome } from "./gsd-home.js";
+import { createWorkspace, scopeMilestone } from "./workspace.js";
 
 // ── ENCAPSULATION INVARIANT ─────────────────────────────────────────────────
 // ALL mutable auto-mode state lives in the AutoSession class (auto/session.ts).
@@ -322,6 +323,32 @@ function restoreMilestoneLockEnv(): void {
   s.previousMilestoneLockEnv = null;
   s.hadMilestoneLockEnv = false;
   s.milestoneLockEnvCaptured = false;
+}
+
+/**
+ * Rebuild s.scope from the current s.basePath / s.originalBasePath / s.currentMilestoneId.
+ *
+ * Pass the worktree path as rawPath when entering a worktree so createWorkspace
+ * can detect the worktree layout and set mode="worktree". When no worktree is
+ * active, rawPath should equal the project root.
+ *
+ * Clears s.scope when milestoneId is absent — scope is only meaningful when a
+ * milestone is active.
+ *
+ * TODO(C8): remove basePath/originalBasePath once all readers use s.scope.
+ */
+function rebuildScope(rawPath: string, milestoneId: string | null): void {
+  if (!milestoneId) {
+    s.scope = null;
+    return;
+  }
+  try {
+    const workspace = createWorkspace(rawPath);
+    s.scope = scopeMilestone(workspace, milestoneId);
+  } catch {
+    // Non-fatal — scope is additive. Existing readers still use basePath.
+    s.scope = null;
+  }
 }
 
 function normalizeSessionFilePath(raw: unknown): string | null {
@@ -1553,6 +1580,14 @@ export async function startAuto(
             s.autoStartTime = meta.autoStartTime || Date.now();
             s.sessionMilestoneLock = meta.milestoneLock ?? null;
             s.paused = true;
+            // Build scope from persisted state. Use worktreePath when present and
+            // still on disk so mode is detected correctly; fall back to project root.
+            {
+              const rawForScope = (meta.worktreePath && existsSync(meta.worktreePath))
+                ? meta.worktreePath
+                : (s.originalBasePath || base);
+              rebuildScope(rawForScope, s.currentMilestoneId);
+            }
             try { unlinkSync(pausedPath); } catch (e) {
               if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
                 logWarning("session", `pause file cleanup failed: ${e instanceof Error ? e.message : String(e)}`, { file: "auto.ts" });
@@ -1641,6 +1676,8 @@ export async function startAuto(
     if (resumeWorktreePath && existsSync(resumeWorktreePath)) {
       s.basePath = resumeWorktreePath;
     }
+    // Rebuild scope now that s.basePath reflects the actual worktree (or project root).
+    rebuildScope(s.basePath, s.currentMilestoneId);
     // Ensure the workflow-logger audit log is pinned to the project root
     // even when auto-mode is entered via a path that bypasses the
     // bootstrap/dynamic-tools ensureDbOpen() → setLogBasePath() chain
@@ -1669,6 +1706,8 @@ export async function startAuto(
       buildResolver().enterMilestone(s.currentMilestoneId, {
         notify: ctx.ui.notify.bind(ctx.ui),
       });
+      // s.basePath may have been updated to a worktree path by enterMilestone.
+      rebuildScope(s.basePath, s.currentMilestoneId);
     }
 
     registerSigtermHandler(lockBase());
@@ -1782,6 +1821,10 @@ export async function startAuto(
     freshStartAssessment,
   );
   if (!ready) return;
+
+  // Build scope after bootstrap has populated s.basePath / s.originalBasePath /
+  // s.currentMilestoneId (including worktree setup inside bootstrapAutoSession).
+  rebuildScope(s.basePath, s.currentMilestoneId);
 
   captureProjectRootEnv(s.originalBasePath || s.basePath);
   try {
