@@ -577,6 +577,7 @@ export function registerHooks(
         // (isExplicitApprovalResponse on the next before_agent_start clears
         // the gate when the user replies with an approval keyword), but the
         // structured re-ask is more deterministic and gives the user a clear UI.
+        resetToolCallLoopGuard();
         return {
           content: [{
             type: "text" as const,

@@ -304,26 +304,23 @@ test("register-hooks recovers from a cancelled depth question via re-asked ask_u
   }
   assert.equal(getPendingGate(), questionId, "cancelled response must leave gate pending");
 
-  // 3. A non-safe tool call (the same path that hung in the screenshot) must
-  //    be blocked while the gate is pending. This is what the agent would hit
-  //    if it followed the old "ask in plain chat" instruction and then tried
-  //    to proceed with planning.
-  let planBlock: any;
+  // 3. Recovery path: immediately re-call ask_user_questions with the same
+  //    gate id and identical input. This must not be blocked by the strict
+  //    duplicate-call loop guard, because the hard-block instruction above
+  //    tells the agent to do exactly this and not to interleave other tools.
+  const reaskBlocks: any[] = [];
   for (const handler of handlers.get("tool_call") ?? []) {
-    const result = await handler({
-      toolName: "mcp__gsd-workflow__gsd_plan_milestone",
-      input: { milestoneId: "M001" },
-    });
-    if (result?.block) planBlock = result;
+    const result = await handler({ toolName: "ask_user_questions", input: { questions } });
+    if (result?.block) reaskBlocks.push(result);
   }
-  assert.equal(planBlock?.block, true, "gsd_plan_milestone must remain blocked while gate is pending");
+  assert.equal(
+    reaskBlocks.length,
+    0,
+    "immediate identical re-ask must not be blocked by the tool-call loop guard",
+  );
 
-  // 4. Recovery path: re-call ask_user_questions with the same gate id and a
-  //    confirming response. This is the path the new instruction directs the
-  //    agent toward, and it must clear the gate.
-  for (const handler of handlers.get("tool_call") ?? []) {
-    await handler({ toolName: "ask_user_questions", input: { questions } });
-  }
+  // 4. The re-asked question receives a confirming response, which clears the
+  //    gate and unlocks the milestone context save.
   for (const handler of handlers.get("tool_result") ?? []) {
     await handler({
       toolName: "ask_user_questions",
