@@ -76,6 +76,7 @@ import {
   nativeMergeAbort,
 } from "./native-git-bridge.js";
 import { gsdHome } from "./gsd-home.js";
+import { type MilestoneScope } from "./workspace.js";
 
 const PROJECT_PREFERENCES_FILE = "PREFERENCES.md";
 const LEGACY_PROJECT_PREFERENCES_FILE = "preferences.md";
@@ -345,6 +346,35 @@ export const isSafeToAutoResolve = (filePath: string): boolean =>
  * gsd.db in the worktree so it rebuilds from fresh disk state (#853).
  * Non-fatal — sync failure should never block dispatch.
  */
+/**
+ * Scope-typed variant of syncProjectRootToWorktree.
+ *
+ * Takes an explicit (rootScope, worktreeScope) pair where rootScope is the
+ * project root and worktreeScope is the auto-worktree. Direction is encoded
+ * in argument order. Asserts both scopes belong to the same workspace identity
+ * to prevent silent mismatch bugs.
+ */
+export function syncProjectRootToWorktreeByScope(
+  rootScope: MilestoneScope,
+  worktreeScope: MilestoneScope,
+): void {
+  if (rootScope.workspace.identityKey !== worktreeScope.workspace.identityKey) {
+    throw new Error(
+      `syncProjectRootToWorktreeByScope: scope identity mismatch — ` +
+      `rootScope.identityKey="${rootScope.workspace.identityKey}" ` +
+      `worktreeScope.identityKey="${worktreeScope.workspace.identityKey}"`,
+    );
+  }
+  const projectRoot = rootScope.workspace.projectRoot;
+  const worktreePath_ = worktreeScope.workspace.worktreeRoot ?? worktreeScope.workspace.projectRoot;
+  const milestoneId = rootScope.milestoneId;
+  syncProjectRootToWorktree(projectRoot, worktreePath_, milestoneId);
+}
+
+/**
+ * @deprecated Use syncProjectRootToWorktreeByScope instead.
+ * TODO(C-future): remove once all callers migrated.
+ */
 export function syncProjectRootToWorktree(
   projectRoot: string,
   worktreePath_: string,
@@ -431,11 +461,37 @@ export function syncProjectRootToWorktree(
 }
 
 /**
+ * Scope-typed variant of syncStateToProjectRoot.
+ *
+ * Takes an explicit (worktreeScope, rootScope) pair. Direction is encoded in
+ * argument order (worktree → root). Asserts both scopes belong to the same
+ * workspace identity to prevent silent mismatch bugs.
+ */
+export function syncStateToProjectRootByScope(
+  worktreeScope: MilestoneScope,
+  rootScope: MilestoneScope,
+): void {
+  if (worktreeScope.workspace.identityKey !== rootScope.workspace.identityKey) {
+    throw new Error(
+      `syncStateToProjectRootByScope: scope identity mismatch — ` +
+      `worktreeScope.identityKey="${worktreeScope.workspace.identityKey}" ` +
+      `rootScope.identityKey="${rootScope.workspace.identityKey}"`,
+    );
+  }
+  const worktreePath_ = worktreeScope.workspace.worktreeRoot ?? worktreeScope.workspace.projectRoot;
+  const projectRoot = rootScope.workspace.projectRoot;
+  const milestoneId = worktreeScope.milestoneId;
+  syncStateToProjectRoot(worktreePath_, projectRoot, milestoneId);
+}
+
+/**
  * Sync worktree diagnostics from worktree to project root.
  * Only runs when inside an auto-worktree (worktreePath differs from projectRoot).
  * DB/project-root state remains authoritative; markdown projections are not
  * copied from the worktree back to the project root.
  * Non-fatal — sync failure should never block dispatch.
+ * @deprecated Use syncStateToProjectRootByScope instead.
+ * TODO(C-future): remove once all callers migrated.
  */
 export function syncStateToProjectRoot(
   worktreePath_: string,
@@ -626,6 +682,30 @@ export function cleanStaleRuntimeUnits(
 // ─── Worktree ↔ Main Repo Sync (#1311) ──────────────────────────────────────
 
 /**
+ * Scope-typed variant of syncGsdStateToWorktree.
+ *
+ * Takes an explicit (rootScope, worktreeScope) pair. Note: milestoneId is not
+ * used by syncGsdStateToWorktree — this variant only requires workspace
+ * identity. Asserts both scopes belong to the same workspace identity to
+ * prevent silent mismatch bugs.
+ */
+export function syncGsdStateToWorktreeByScope(
+  rootScope: MilestoneScope,
+  worktreeScope: MilestoneScope,
+): { synced: string[] } {
+  if (rootScope.workspace.identityKey !== worktreeScope.workspace.identityKey) {
+    throw new Error(
+      `syncGsdStateToWorktreeByScope: scope identity mismatch — ` +
+      `rootScope.identityKey="${rootScope.workspace.identityKey}" ` +
+      `worktreeScope.identityKey="${worktreeScope.workspace.identityKey}"`,
+    );
+  }
+  const mainBasePath = rootScope.workspace.projectRoot;
+  const worktreePath_ = worktreeScope.workspace.worktreeRoot ?? worktreeScope.workspace.projectRoot;
+  return syncGsdStateToWorktree(mainBasePath, worktreePath_);
+}
+
+/**
  * Sync .gsd/ state from the main repo into the worktree.
  *
  * When .gsd/ is a symlink to the external state directory, both the main
@@ -639,6 +719,8 @@ export function cleanStaleRuntimeUnits(
  * Only adds missing content — never overwrites existing files in the worktree.
  * Worktree files are compatibility projections; DB/project root remains
  * authoritative for runtime state.
+ * @deprecated Use syncGsdStateToWorktreeByScope instead.
+ * TODO(C-future): remove once all callers migrated.
  */
 export function syncGsdStateToWorktree(
   mainBasePath: string,
@@ -1041,6 +1123,34 @@ export function enterBranchModeForMilestone(
  * This is forward-only compatibility for legacy projection copies. The DB
  * remains authoritative; this never downgrades checked boxes in a local
  * worktree projection.
+ */
+/**
+ * Scope-typed variant of reconcilePlanCheckboxes.
+ *
+ * Takes an explicit (rootScope, worktreeScope) pair. milestoneId is taken
+ * from rootScope. Asserts both scopes belong to the same workspace identity
+ * to prevent silent mismatch bugs.
+ */
+export function reconcilePlanCheckboxesByScope(
+  rootScope: MilestoneScope,
+  worktreeScope: MilestoneScope,
+): void {
+  if (rootScope.workspace.identityKey !== worktreeScope.workspace.identityKey) {
+    throw new Error(
+      `reconcilePlanCheckboxesByScope: scope identity mismatch — ` +
+      `rootScope.identityKey="${rootScope.workspace.identityKey}" ` +
+      `worktreeScope.identityKey="${worktreeScope.workspace.identityKey}"`,
+    );
+  }
+  const projectRoot = rootScope.workspace.projectRoot;
+  const wtPath = worktreeScope.workspace.worktreeRoot ?? worktreeScope.workspace.projectRoot;
+  const milestoneId = rootScope.milestoneId;
+  reconcilePlanCheckboxes(projectRoot, wtPath, milestoneId);
+}
+
+/**
+ * @deprecated Use reconcilePlanCheckboxesByScope instead.
+ * TODO(C-future): remove once all callers migrated.
  */
 function reconcilePlanCheckboxes(
   projectRoot: string,
