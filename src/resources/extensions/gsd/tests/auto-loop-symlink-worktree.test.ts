@@ -97,28 +97,23 @@ test("deriveState: cache key is canonical when projectRootForReads is supplied",
 
   invalidateStateCache();
 
-  // First call: pass the project root as basePath. Cache key = projectRoot.
-  const stateA = await deriveState(fx.projectRoot);
+  const optsCanonical: DeriveStateOptions = { projectRootForReads: fx.projectRoot };
+
+  // First call: seed the cache through the worktree-path form.
+  const stateA = await deriveState(fx.worktreePath, optsCanonical);
   assert.equal(stateA.activeMilestone?.id, "M001");
   assert.equal(stateA.activeSlice?.id, "S01");
   assert.equal(stateA.phase, "planning");
 
-  // Second call: pass the worktree path as basePath, but supply
-  // projectRootForReads so the cache key derives to the same canonical root.
-  // BEFORE the cache-key fix, the previous call wrote `_stateCache.basePath =
-  // projectRoot` while this lookup also keyed by projectRoot → would already
-  // hit. The original buggy behavior was that DIFFERENT call orderings
-  // (canonical first then worktree without opts, or vice versa) produced
-  // mismatched lookup vs write keys. Cover both directions:
-  const optsCanonical: DeriveStateOptions = { projectRootForReads: fx.projectRoot };
-  const stateB = await deriveState(fx.worktreePath, optsCanonical);
+  // Second call: canonical project-root form must hit the same cache entry.
+  const stateB = await deriveState(fx.projectRoot);
   assert.equal(stateB, stateA, "second call with same canonical key must return the cached object");
 
-  // Third call: directly with project root, no opts. Must still hit cache
-  // because cacheKey resolves to projectRoot for both the prior write and
-  // this lookup.
-  const stateC = await deriveState(fx.projectRoot);
-  assert.equal(stateC, stateA, "third call (canonical, no opts) must also hit the same cache entry");
+  // Third call: worktree-path form with projectRootForReads must also hit the
+  // same cache entry, proving the cache key is symmetric across both call
+  // orders.
+  const stateC = await deriveState(fx.worktreePath, optsCanonical);
+  assert.equal(stateC, stateA, "third call with worktree path plus canonical reads must hit the same cache entry");
 
   // Mutation invalidates: insert a task, clear cache, re-derive — must
   // observe the new state via the canonical key path.

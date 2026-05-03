@@ -1477,16 +1477,17 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
       if (hasPendingCaptures(s.basePath)) {
         const pending = loadPendingCaptures(s.basePath);
         if (pending.length > 0) {
-          const state = await deriveState(s.canonicalProjectRoot);
+          const readRoot = s.canonicalProjectRoot;
+          const state = await deriveState(readRoot);
           const mid = state.activeMilestone?.id;
           const sid = state.activeSlice?.id;
 
           if (mid && sid) {
             let currentPlan = "";
             let roadmapContext = "";
-            const planFile = resolveSliceFile(s.basePath, mid, sid, "PLAN");
+            const planFile = resolveSliceFile(readRoot, mid, sid, "PLAN");
             if (planFile) currentPlan = (await loadFile(planFile)) ?? "";
-            const roadmapFile = resolveMilestoneFile(s.basePath, mid, "ROADMAP");
+            const roadmapFile = resolveMilestoneFile(readRoot, mid, "ROADMAP");
             if (roadmapFile) roadmapContext = (await loadFile(roadmapFile)) ?? "";
 
             const capturesList = pending.map(c =>
