@@ -1,17 +1,17 @@
 {
-  "name": "@gsd-build/rpc-client",
+  "name": "@gsd-build/contracts",
   "version": "2.79.0",
-  "description": "Standalone RPC client SDK for GSD",
+  "description": "Shared public contracts for GSD workspace boundaries",
   "license": "MIT",
   "gsd": {
     "linkable": true,
     "scope": "@gsd-build",
-    "name": "rpc-client"
+    "name": "contracts"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/gsd-build/gsd-2.git",
-    "directory": "packages/rpc-client"
+    "directory": "packages/contracts"
   },
   "publishConfig": {
     "access": "public"
@@ -31,10 +31,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test dist/rpc-client.test.js"
-  },
-  "dependencies": {
-    "@gsd-build/contracts": "^2.79.0"
+    "test": "node --test dist/rpc.test.js"
   },
   "engines": {
     "node": ">=22.0.0"

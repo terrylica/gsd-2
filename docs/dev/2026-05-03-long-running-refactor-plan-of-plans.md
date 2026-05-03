@@ -152,6 +152,14 @@ Baseline usage is documented in `docs/dev/refactor-baseline-runbook.md`.
 4. Move MCP, web bridge, and VS Code to the same contracts in small stacked PRs.
 5. Add golden JSONL fixtures shared across packages.
 
+**Implemented so far:**
+
+- Created `packages/contracts` as `@gsd-build/contracts`.
+- Added canonical RPC constants and DTOs for commands, responses, v2 events, session state, session stats, bash results, and extension UI request/response payloads.
+- Migrated runtime RPC and `@gsd-build/rpc-client` to re-export the shared RPC contracts.
+- Added Phase 1 fixture coverage with `src/tests/contracts-rpc-fixtures.test.ts`.
+- Updated the web parity contract test to assert retry state through the shared `RpcSessionState` type instead of reading RPC type source text.
+
 **Acceptance criteria:**
 
 - Runtime, rpc-client, MCP, web, and VS Code share the same contract types for golden fixtures.
