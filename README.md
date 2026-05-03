@@ -414,7 +414,7 @@ gsd
 /gsd queue      # queue the next milestone
 ```
 
-Both terminals read and write the same `.gsd/` files on disk. Your decisions in terminal 2 are picked up automatically at the next phase boundary — no need to stop auto mode.
+Both terminals coordinate through the same project-root GSD runtime on local disk. The SQLite database is authoritative, `.gsd/` markdown is refreshed from it, and your decisions in terminal 2 are picked up at the next phase boundary without stopping auto mode.
 
 ### Headless mode — CI and scripts
 
@@ -439,7 +439,7 @@ gsd headless dispatch plan
 
 Headless auto-responds to interactive prompts, detects completion, and exits with structured codes: `0` complete, `1` error/timeout, `2` blocked. Auto-restarts on crash with exponential backoff. Use `gsd headless query` for instant, machine-readable state inspection — returns phase, next dispatch preview, and parallel worker costs as a single JSON object without spawning an LLM session. Pair with [remote questions](./docs/user-docs/remote-questions.md) to route decisions to Slack or Discord when human input is needed.
 
-**Multi-session orchestration** — headless mode supports DB-backed coordination across multiple GSD workers. Worker registration, milestone leases, unit dispatch tracking, and command delivery live in `.gsd/gsd.db`, while `.gsd/parallel/` remains a local runtime area for per-milestone locks and isolation artifacts.
+**Multi-session orchestration** — headless mode supports DB-backed coordination across multiple GSD workers on the same machine. Worker registration, milestone leases, unit dispatch tracking, and command delivery live in `.gsd/gsd.db`, while `.gsd/parallel/` remains a local runtime area for per-milestone locks and isolation artifacts.
 
 ### First launch
 

@@ -80,6 +80,23 @@ export type RecordClaimResult =
   | { ok: true; dispatchId: number }
   | { ok: false; error: "already_active"; existingId: number; existingStatus: DispatchStatus; existingWorker: string };
 
+function isAlreadyActiveConstraintError(err: unknown): boolean {
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/\bFOREIGN KEY\b/i.test(msg)) {
+    return false;
+  }
+
+  if (code === "SQLITE_CONSTRAINT" || code === "SQLITE_CONSTRAINT_UNIQUE") {
+    return true;
+  }
+
+  return /\bUNIQUE\b|\bconstraint failed\b/i.test(msg);
+}
+
 /**
  * Insert a new dispatch row in `claimed` state. Atomic guard against
  * double-claim (B2): the partial unique index
@@ -142,10 +159,7 @@ export function recordDispatchClaim(input: RecordClaimInput): RecordClaimResult 
 
       return { ok: true, dispatchId: id };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isUniqueConflict = /UNIQUE/i.test(msg);
-      const isForeignKeyFailure = /FOREIGN KEY/i.test(msg);
-      if (!isUniqueConflict || isForeignKeyFailure) throw err;
+      if (!isAlreadyActiveConstraintError(err)) throw err;
 
       // Partial unique index rejected the INSERT — surface the existing
       // active dispatch so callers can decide what to do.
@@ -186,20 +200,27 @@ export function markCompleted(dispatchId: number, opts?: CompleteOpts): void {
   if (!isDbAvailable()) return;
   const now = new Date().toISOString();
   const db = _getAdapter()!;
+  let changes = 0;
   transaction(() => {
-    db.prepare(
+    const result = db.prepare(
       `UPDATE unit_dispatches
        SET status = 'completed', ended_at = :ended_at,
            exit_reason = :exit_reason,
            verification_evidence_id = :evidence_id
-       WHERE id = :id`,
+       WHERE id = :id
+         AND status IN ('claimed','running')`,
     ).run({
       ":id": dispatchId,
       ":ended_at": now,
       ":exit_reason": opts?.exitReason ?? null,
       ":evidence_id": opts?.verificationEvidenceId ?? null,
     });
+    changes =
+      typeof (result as { changes?: unknown }).changes === "number"
+        ? (result as { changes: number }).changes
+        : 0;
   });
+  if (changes < 1) return;
   insertAuditEvent({
     eventId: randomUUID(),
     traceId: dispatchId.toString(),
@@ -226,8 +247,9 @@ export function markFailed(dispatchId: number, opts: FailureOpts): void {
     ? new Date(now.getTime() + opts.retryAfterMs).toISOString()
     : null;
   const db = _getAdapter()!;
+  let changes = 0;
   transaction(() => {
-    db.prepare(
+    const result = db.prepare(
       `UPDATE unit_dispatches
        SET status = 'failed', ended_at = :ended_at,
            error_summary = :error_summary,
@@ -235,7 +257,8 @@ export function markFailed(dispatchId: number, opts: FailureOpts): void {
            last_error_at = :last_error_at,
            retry_after_ms = :retry_after_ms,
            next_run_at = :next_run_at
-       WHERE id = :id`,
+       WHERE id = :id
+         AND status IN ('claimed','running')`,
     ).run({
       ":id": dispatchId,
       ":ended_at": nowIso,
@@ -245,7 +268,12 @@ export function markFailed(dispatchId: number, opts: FailureOpts): void {
       ":retry_after_ms": opts.retryAfterMs ?? null,
       ":next_run_at": nextRunIso,
     });
+    changes =
+      typeof (result as { changes?: unknown }).changes === "number"
+        ? (result as { changes: number }).changes
+        : 0;
   });
+  if (changes < 1) return;
   insertAuditEvent({
     eventId: randomUUID(),
     traceId: dispatchId.toString(),
@@ -265,7 +293,7 @@ export function markStuck(dispatchId: number, reason: string): void {
     db.prepare(
       `UPDATE unit_dispatches
        SET status = 'stuck', ended_at = :ended_at, exit_reason = :reason
-       WHERE id = :id`,
+       WHERE id = :id AND status IN ('claimed','running')`,
     ).run({ ":id": dispatchId, ":ended_at": now, ":reason": reason });
   });
 }
@@ -318,6 +346,31 @@ export function getLatestForUnit(unitId: string): UnitDispatchRow | null {
     `SELECT * FROM unit_dispatches WHERE unit_id = :unit_id ORDER BY id DESC LIMIT 1`,
   ).get({ ":unit_id": unitId }) as UnitDispatchRow | undefined;
   return row ?? null;
+}
+
+/**
+ * Phase C — return the most recent unit_id values for a worker, oldest-first.
+ *
+ * Drop-in replacement for the persistence side of stuck-state.json's
+ * `recentUnits` field. The auto-loop uses this to seed loopState.recentUnits
+ * on session start so the stuck-detector window survives a session restart
+ * (#3704). Returned in oldest-first order to match the in-memory window
+ * shape that detect-stuck.ts expects.
+ */
+export function getRecentUnitKeysForWorker(
+  workerId: string,
+  limit = 20,
+): Array<{ key: string }> {
+  if (!isDbAvailable()) return [];
+  const db = _getAdapter()!;
+  const rows = db.prepare(
+    `SELECT unit_id FROM unit_dispatches
+     WHERE worker_id = :worker_id
+     ORDER BY started_at DESC, id DESC
+     LIMIT :limit`,
+  ).all({ ":worker_id": workerId, ":limit": limit }) as Array<{ unit_id: string }>;
+  // Reverse so callers consume oldest-first (sliding-window semantics).
+  return rows.reverse().map((r) => ({ key: r.unit_id }));
 }
 
 /**

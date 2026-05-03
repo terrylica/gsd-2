@@ -252,18 +252,15 @@ export class AutoSession {
   }
 
   /**
-   * Canonical project root for state-derivation reads.
+   * Canonical project root for state-derivation reads AND writer paths.
    *
    * Prefers the realpath-normalized projectRoot from the MilestoneScope
    * (introduced by PR #5236), falling back to resolveWorktreeProjectRoot
    * during early lifecycle / engine-bypass paths where scope may be null.
    *
-   * Always realpath-normalized so that callers using this as a cache key
-   * (e.g. deriveState's _stateCache) cannot drift across worktree↔project-root
-   * path-string variants for the same filesystem location.
-   *
-   * Reader-only: do NOT use for write paths or unit-execution context — see
-   * Phase C of the coordination plan for write-side migration.
+   * Always realpath-normalized so cache keys (e.g. deriveState's _stateCache)
+   * cannot drift across worktree↔project-root path-string variants for the
+   * same filesystem location.
    */
   get canonicalProjectRoot(): string {
     const root =
