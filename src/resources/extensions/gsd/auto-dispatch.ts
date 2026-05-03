@@ -1219,29 +1219,38 @@ export const DISPATCH_RULES: DispatchRule[] = [
             `Milestone validation was skipped via ${skipSource}.`,
           ].join("\n");
           writeFileSync(validationPath, content, "utf-8");
-          // DB-backed state derivation keys off assessments, not only the file
-          // projection. Persist the skipped validation there too so the next
-          // loop iteration advances to completing-milestone instead of
-          // re-entering validating-milestone.
-          if (isDbAvailable()) {
-            insertAssessment({
-              path: validationPath,
-              milestoneId: mid,
-              sliceId: null,
-              taskId: null,
-              status: "pass",
-              scope: "milestone-validation",
-              fullContent: content,
-            });
-            const gateSliceId = getMilestoneSlices(mid)[0]?.id;
-            if (gateSliceId) {
-              insertMilestoneValidationGates(
-                mid,
-                gateSliceId,
-                "pass",
-                new Date().toISOString(),
-              );
+          try {
+            // DB-backed state derivation keys off assessments, not only the file
+            // projection. Persist the skipped validation there too so the next
+            // loop iteration advances to completing-milestone instead of
+            // re-entering validating-milestone.
+            if (isDbAvailable()) {
+              insertAssessment({
+                path: validationPath,
+                milestoneId: mid,
+                sliceId: null,
+                taskId: null,
+                status: "pass",
+                scope: "milestone-validation",
+                fullContent: content,
+              });
+              const gateSliceId = getMilestoneSlices(mid)[0]?.id;
+              if (gateSliceId) {
+                insertMilestoneValidationGates(
+                  mid,
+                  gateSliceId,
+                  "pass",
+                  new Date().toISOString(),
+                );
+              }
             }
+          } catch (err) {
+            try {
+              unlinkSync(validationPath);
+            } catch {
+              // Preserve the original DB failure.
+            }
+            throw err;
           }
           invalidateAllCaches();
         }
