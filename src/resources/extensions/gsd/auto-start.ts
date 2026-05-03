@@ -663,9 +663,10 @@ export async function bootstrapAutoSession(
       hasSurvivorBranch = false;
     }
 
+    const effectivePrefs = loadEffectiveGSDPreferences(base)?.preferences;
     const deepProjectStagePending = !hasSurvivorBranch
       ? (await import("./auto-dispatch.js")).hasPendingDeepStage(
-          loadEffectiveGSDPreferences(base)?.preferences,
+          effectivePrefs,
           base,
         )
       : false;
@@ -714,7 +715,7 @@ export async function bootstrapAutoSession(
         const mid = state.activeMilestone!.id;
         const contextFile = resolveMilestoneFile(base, mid, "CONTEXT");
         const hasContext = !!(contextFile && (await loadFile(contextFile)));
-        if (!hasContext) {
+        if (!hasContext && effectivePrefs?.planning_depth !== "deep") {
           const { showSmartEntry } = await import("./guided-flow.js");
           await showSmartEntry(ctx, pi, base, { step: requestedStepMode });
 
