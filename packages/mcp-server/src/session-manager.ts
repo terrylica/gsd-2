@@ -391,7 +391,7 @@ function extractBlocker(event: SdkAgentEvent): PendingBlocker {
   const uiEvent = event as unknown as RpcExtensionUIRequest;
   return {
     id: String(uiEvent.id ?? ''),
-    method: String(uiEvent.method ?? ''),
+    method: uiEvent.method,
     message: String((uiEvent as Record<string, unknown>).title ?? (uiEvent as Record<string, unknown>).message ?? ''),
     event: uiEvent,
   };

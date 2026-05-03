@@ -268,4 +268,13 @@ export type RpcExtensionUIResponse =
 	| { type: "extension_ui_response"; id: string; confirmed: boolean }
 	| { type: "extension_ui_response"; id: string; cancelled: true };
 
+export type McpBlockerMethod = Extract<RpcExtensionUIRequest, { type: "extension_ui_request" }>["method"];
+
+export interface McpPendingBlocker {
+	id: string;
+	method: McpBlockerMethod;
+	message: string;
+	event: RpcExtensionUIRequest;
+}
+
 export type RpcCommandType = RpcCommand["type"];
