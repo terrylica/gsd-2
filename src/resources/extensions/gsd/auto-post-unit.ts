@@ -768,7 +768,7 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
     if (s.currentUnit.type === "triage-captures") {
       try {
         const { executeTriageResolutions } = await import("./triage-resolution.js");
-        const state = await deriveState(s.basePath);
+        const state = await deriveState(s.canonicalProjectRoot);
         const mid = state.activeMilestone?.id ?? "";
         const sid = state.activeSlice?.id ?? "";
 
@@ -1477,7 +1477,7 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
       if (hasPendingCaptures(s.basePath)) {
         const pending = loadPendingCaptures(s.basePath);
         if (pending.length > 0) {
-          const state = await deriveState(s.basePath);
+          const state = await deriveState(s.canonicalProjectRoot);
           const mid = state.activeMilestone?.id;
           const sid = state.activeSlice?.id;
 
@@ -1554,7 +1554,7 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
   // exits the loop, leaving the user with no hint to /clear and /gsd again.
   if (s.stepMode) {
     try {
-      const nextState = await deriveState(s.basePath);
+      const nextState = await deriveState(s.canonicalProjectRoot);
       ctx.ui.notify(buildStepCompleteMessage(nextState), "info");
     } catch (e) {
       debugLog("postUnit", { phase: "step-wizard-notify", error: String(e) });
