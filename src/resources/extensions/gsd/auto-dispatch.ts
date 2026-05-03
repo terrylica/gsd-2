@@ -1205,9 +1205,12 @@ export const DISPATCH_RULES: DispatchRule[] = [
           const skipSource = trivialVariant
             ? "trivial-scope pipeline variant (#4781)"
             : "`skip_milestone_validation` preference";
+          const skipValidationReason = trivialVariant ? "trivial-scope" : "preference";
           const content = [
             "---",
             "verdict: pass",
+            "skip_validation: true",
+            `skip_validation_reason: ${skipValidationReason}`,
             "remediation_round: 0",
             "---",
             "",
@@ -1230,13 +1233,15 @@ export const DISPATCH_RULES: DispatchRule[] = [
               scope: "milestone-validation",
               fullContent: content,
             });
-            const gateSliceId = getMilestoneSlices(mid)[0]?.id ?? "_milestone";
-            insertMilestoneValidationGates(
-              mid,
-              gateSliceId,
-              "pass",
-              new Date().toISOString(),
-            );
+            const gateSliceId = getMilestoneSlices(mid)[0]?.id;
+            if (gateSliceId) {
+              insertMilestoneValidationGates(
+                mid,
+                gateSliceId,
+                "pass",
+                new Date().toISOString(),
+              );
+            }
           }
           invalidateAllCaches();
         }
@@ -1323,7 +1328,9 @@ export const DISPATCH_RULES: DispatchRule[] = [
               if (validationContent) {
                 // Allow completion when validation was intentionally skipped by
                 // preference/budget profile (#3399, #3344).
+                const skippedByMarker = /^skip_validation:\s*true$/im.test(validationContent);
                 const skippedByPreference = /skip(?:ped)?[\s\-]+(?:by|per|due to)\s+(?:preference|budget|profile)/i.test(validationContent);
+                const skippedByTrivialVariant = /trivial-scope pipeline variant/i.test(validationContent);
 
                 // Accept either the structured template format (table with MET/N/A/SATISFIED)
                 // or prose evidence patterns the validation agent may emit.
@@ -1332,7 +1339,12 @@ export const DISPATCH_RULES: DispatchRule[] = [
                   (validationContent.includes("MET") || validationContent.includes("N/A") || validationContent.includes("SATISFIED"));
                 const proseMatch =
                   /[Oo]perational[\s\S]{0,500}?(?:✅|pass|verified|confirmed|met|complete|true|yes|addressed|covered|satisfied|partially|n\/a|not[\s-]+applicable)/i.test(validationContent);
-                const hasOperationalCheck = skippedByPreference || structuredMatch || proseMatch;
+                const hasOperationalCheck =
+                  skippedByMarker ||
+                  skippedByPreference ||
+                  skippedByTrivialVariant ||
+                  structuredMatch ||
+                  proseMatch;
                 if (!hasOperationalCheck) {
                   return {
                     action: "stop" as const,

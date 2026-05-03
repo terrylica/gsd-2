@@ -22,6 +22,11 @@ const autoDispatchSrc = readFileSync(
 );
 
 describe('skipped validation completion (#3698)', () => {
+  test('skip_validation marker detection exists', () => {
+    assert.match(autoDispatchSrc, /skip_validation:\\s\*true/,
+      'skip_validation frontmatter marker should be recognized in auto-dispatch.ts');
+  });
+
   test('skippedByPreference regex detection exists', () => {
     assert.match(autoDispatchSrc, /skippedByPreference/,
       'skippedByPreference variable should exist in auto-dispatch.ts');
@@ -33,7 +38,7 @@ describe('skipped validation completion (#3698)', () => {
   });
 
   test('skippedByPreference feeds into operational check', () => {
-    assert.match(autoDispatchSrc, /hasOperationalCheck\s*=\s*skippedByPreference/,
+    assert.match(autoDispatchSrc, /hasOperationalCheck\s*=\s*[\s\S]*skippedByPreference/,
       'skippedByPreference should be part of hasOperationalCheck');
   });
 });
