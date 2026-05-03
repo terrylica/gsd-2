@@ -122,9 +122,9 @@ test("Context Mode composer: standalone output starts with heading and includes 
   assert.ok(out.startsWith("## Context Mode"));
   assert.match(out, /execution lane/i);
   assert.match(out, /`gsd_exec`/);
-  assert.match(out, /noisy scans, builds, and tests/);
+  assert.match(out, /noisy commands/);
   assert.match(out, /`gsd_exec_search`/);
-  assert.match(out, /before repeating prior runs/);
+  assert.match(out, /before reruns/);
   assert.match(out, /`gsd_resume`/);
   assert.match(out, /after compaction or resume/);
 });
@@ -137,6 +137,7 @@ test("Context Mode composer: nested output is compact single sentence", () => {
   assert.match(out, /`gsd_exec`/);
   assert.match(out, /`gsd_exec_search`/);
   assert.match(out, /`gsd_resume`/);
+  assert.ok(out.length < 180, `nested guidance should stay compact, got ${out.length} chars`);
 });
 
 // ─── Integration: migrated buildReassessRoadmapPrompt ─────────────────────
