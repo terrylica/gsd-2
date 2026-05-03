@@ -158,7 +158,7 @@ export function createTurnObserver(options: CreateTurnObserverOptions): UokTurnO
         const merged: TurnResult = {
           ...result,
           version: CURRENT_UOK_CONTRACT_VERSION,
-          phaseResults: result.phaseResults.length > 0 ? result.phaseResults : [...phaseResults],
+          phaseResults: Array.isArray(result.phaseResults) && result.phaseResults.length > 0 ? result.phaseResults : [...phaseResults],
         };
         const validation = validateTurnResult(merged);
         if (!validation.ok) {

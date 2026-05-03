@@ -112,3 +112,52 @@ test("uok turn observer releases writer token when validation throws", (t) => {
   // Cleanup must run in finally — token released, no leaked state.
   assert.equal(hasActiveWriterToken(basePath, "turn-throw"), false);
 });
+
+test("uok turn observer falls back to cached phaseResults when result.phaseResults is missing", (t) => {
+  const basePath = mkdtempSync(join(tmpdir(), "gsd-uok-loop-writer-missing-"));
+  resetWriterTokensForTests();
+  t.after(() => {
+    resetWriterTokensForTests();
+    rmSync(basePath, { recursive: true, force: true });
+  });
+
+  const observer = createTurnObserver({
+    basePath,
+    gitAction: "status-only",
+    gitPush: false,
+    enableAudit: false,
+    enableGitops: false,
+  });
+
+  observer.onTurnStart({
+    basePath,
+    traceId: "trace-missing",
+    turnId: "turn-missing",
+    iteration: 1,
+    unitType: "execute-task",
+    unitId: "M001/S01/T01",
+    startedAt: new Date().toISOString(),
+  });
+
+  // Without the Array.isArray guard, accessing result.phaseResults.length on a
+  // payload where phaseResults is undefined would throw TypeError before
+  // validateTurnResult could surface a structured error. The guard must defer
+  // to the cached phaseResults fallback so the turn completes cleanly.
+  assert.doesNotThrow(() => {
+    observer.onTurnResult({
+      traceId: "trace-missing",
+      turnId: "turn-missing",
+      iteration: 1,
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      status: "completed",
+      failureClass: "none",
+      // @ts-expect-error intentionally missing for test
+      phaseResults: undefined,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    });
+  });
+
+  assert.equal(hasActiveWriterToken(basePath, "turn-missing"), false);
+});
