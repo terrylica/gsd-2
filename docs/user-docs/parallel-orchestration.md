@@ -1,8 +1,10 @@
 # Parallel Milestone Orchestration
 
-Run multiple milestones simultaneously in isolated git worktrees. Each milestone gets its own worker process, its own branch, and its own context window — while a coordinator tracks progress, enforces budgets, and keeps everything in sync.
+Run multiple milestones simultaneously in isolated git worktrees. Each milestone gets its own worker process, its own branch, and its own context window, while a coordinator tracks progress, enforces budgets, and keeps everything in sync through the shared project-root SQLite runtime.
 
 > **Status:** Behind `parallel.enabled: false` by default. Opt-in only — zero impact to existing users.
+>
+> **Single-host only:** Parallel workers must run on the same machine against a local project checkout. The coordination layer depends on SQLite WAL semantics on local disk and is not supported across machines or network-mounted filesystems.
 
 ## Quick Start
 
@@ -75,16 +77,19 @@ Each worker is a separate `gsd` process with complete isolation:
 | **Git branch** | `milestone/<MID>` — one branch per milestone |
 | **State derivation** | `GSD_MILESTONE_LOCK` env var — `deriveState()` only sees the assigned milestone |
 | **Context window** | Separate process — each worker has its own agent sessions |
-| **Metrics** | Each worktree has its own `.gsd/metrics.json` |
-| **Crash recovery** | Each worktree has its own `.gsd/auto.lock` |
+| **Metrics** | Project-root `.gsd/metrics.json` remains the durable ledger; worktree diagnostics may be mirrored back there |
+| **Crash recovery** | Coordination state stays anchored at the project root; per-worker locks and diagnostics are implementation details, not the source of truth |
 
 ### Coordination
 
-Workers and the coordinator communicate through file-based IPC:
+Workers and the coordinator coordinate through the project-root SQLite database in WAL mode:
 
-- **Session status files** (`.gsd/parallel/<MID>.status.json`) — workers write heartbeats, the coordinator reads them
-- **Signal files** (`.gsd/parallel/<MID>.signal.json`) — coordinator writes signals, workers consume them
-- **Atomic writes** — write-to-temp + rename prevents partial reads
+- **Worker registry** (`workers`) — heartbeats and liveness are written centrally
+- **Milestone leases** (`milestone_leases`) — only one worker may own a milestone at a time
+- **Dispatch ledger** (`unit_dispatches`) — duplicate unit claims are rejected atomically
+- **Cancellation + command queue** (`cancellation_requests`, `command_queue`) — pause/stop/resume handoff is persisted in shared runtime state
+
+This model assumes local-disk locking semantics. Do not place the project on NFS/SMB/FUSE-style mounts or try to share `.gsd/gsd.db*` across hosts.
 
 ## Eligibility Analysis
 
@@ -122,7 +127,7 @@ Before starting parallel execution, GSD checks which milestones can safely run c
   - `src/middleware.ts`
 ```
 
-File overlaps are warnings, not blockers. Both milestones work in separate worktrees, so they won't interfere at the filesystem level. Conflicts are detected and resolved during merge.
+File overlaps are warnings, not blockers. Both milestones work in separate worktrees, so they won't interfere at the filesystem level. Conflicts are still possible at merge time, and the coordination guarantees only apply when all workers share the same local SQLite/WAL runtime on one host.
 
 ## Configuration
 
