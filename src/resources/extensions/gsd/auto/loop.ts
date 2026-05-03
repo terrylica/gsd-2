@@ -58,7 +58,7 @@ import { normalizeRealPath } from "../paths.js";
 // Phase C migration: stuck-state.json deleted in favor of DB-backed
 // equivalents. recentUnits is rebuilt from unit_dispatches (Phase B
 // ledger) on session start; stuckRecoveryAttempts persists in runtime_kv
-// (worker scope, soft state per the runtime_kv invariant). Single-host
+// under a stable project scope (soft state per the runtime_kv invariant). Single-host
 // SQLite WAL only — multi-host would need a real coordinator.
 //
 // When no worker is registered (DB unavailable, fresh project), both
@@ -156,11 +156,9 @@ function saveCustomVerifyRetryCounts(s: AutoSession): void {
 
 /**
  * Phase B helper: open a unit_dispatches row in 'claimed' state and
- * immediately transition it to 'running'. Returns the dispatch_id on
- * success, or null when the ledger cannot be written (DB unavailable, no
- * worker registered, no active milestone lease, double-claim race) — null
- * means "fall through to existing single-worker semantics, no ledger
- * entry for this iteration".
+ * immediately transition it to 'running'. Returns a tri-state result so
+ * callers can distinguish between a degraded ledger write and an explicit
+ * already-active rejection from the partial unique index.
  *
  * Single-worker compatibility: this function is best-effort and never
  * throws. The auto-loop must continue to behave identically when the
@@ -181,10 +179,12 @@ function openDispatchClaim(
   const mid = iterData.mid;
   if (!mid) return { kind: "degraded" };
 
+  const recent = getRecentDispatchesForUnit(iterData.unitId, 1);
+  const attemptN = (recent[0]?.attempt_n ?? 0) + 1;
+
+  let claim: ReturnType<typeof recordDispatchClaim>;
   try {
-    const recent = getRecentDispatchesForUnit(iterData.unitId, 1);
-    const attemptN = (recent[0]?.attempt_n ?? 0) + 1;
-    const claim = recordDispatchClaim({
+    claim = recordDispatchClaim({
       traceId: flowId,
       turnId,
       workerId: s.workerId,
@@ -223,6 +223,7 @@ function openDispatchClaim(
     });
     return { kind: "degraded" };
   }
+
 }
 
 // ── Memory pressure monitoring (#3331) ──────────────────────────────────
@@ -466,6 +467,9 @@ export async function autoLoop(
       break;
     }
 
+    let dispatchId: number | null = null;
+    let dispatchSettled = false;
+
     try {
       // ── Blanket try/catch: one bad iteration must not kill the session
       const prefs = deps.loadEffectiveGSDPreferences()?.preferences;
@@ -531,7 +535,17 @@ export async function autoLoop(
           activeRunDir: s.activeRunDir,
         });
 
-        const engineState = await engine.deriveState(s.basePath);
+        const engineState = await engine.deriveState(s.canonicalProjectRoot);
+        debugLog("autoLoop", {
+          phase: "post-derive",
+          site: "custom-engine-derive",
+          basePath: s.basePath,
+          originalBasePath: s.originalBasePath,
+          scopeProjectRoot: s.scope?.workspace.projectRoot,
+          canonicalProjectRoot: s.canonicalProjectRoot,
+          derivedPhase: (engineState as { phase?: string }).phase,
+          isComplete: engineState.isComplete,
+        });
         if (engineState.isComplete) {
           await deps.stopAuto(ctx, pi, "Workflow complete");
           break;
@@ -550,7 +564,15 @@ export async function autoLoop(
 
         // dispatch.action === "dispatch"
         const step = dispatch.step!;
-        const gsdState = await deps.deriveState(s.basePath);
+        const gsdState = await deps.deriveState(s.canonicalProjectRoot);
+        debugLog("autoLoop", {
+          phase: "post-derive",
+          site: "custom-engine-gsd-state",
+          basePath: s.basePath,
+          canonicalProjectRoot: s.canonicalProjectRoot,
+          derivedPhase: gsdState.phase,
+          activeUnit: gsdState.activeTask?.id ?? gsdState.activeSlice?.id ?? gsdState.activeMilestone?.id,
+        });
 
         iterData = {
           unitType: step.unitType,
@@ -751,7 +773,15 @@ export async function autoLoop(
         observedUnitId = iterData.unitId;
       } else {
         // ── Sidecar path: use values from the sidecar item directly ──
-        const sidecarState = await deps.deriveState(s.basePath);
+        const sidecarState = await deps.deriveState(s.canonicalProjectRoot);
+        debugLog("autoLoop", {
+          phase: "post-derive",
+          site: "sidecar",
+          basePath: s.basePath,
+          canonicalProjectRoot: s.canonicalProjectRoot,
+          derivedPhase: sidecarState.phase,
+          activeUnit: sidecarState.activeTask?.id ?? sidecarState.activeSlice?.id ?? sidecarState.activeMilestone?.id,
+        });
         iterData = {
           unitType: sidecarItem.unitType,
           unitId: sidecarItem.unitId,
@@ -785,7 +815,7 @@ export async function autoLoop(
         finishTurn("skipped", "execution", dispatchClaim.reason);
         continue;
       }
-      const dispatchId = dispatchClaim.kind === "opened" ? dispatchClaim.dispatchId : null;
+      dispatchId = dispatchClaim.kind === "opened" ? dispatchClaim.dispatchId : null;
 
       let unitPhaseResult: Awaited<ReturnType<typeof runUnitPhaseViaContract>>;
       try {
@@ -819,7 +849,12 @@ export async function autoLoop(
       });
       if (unitPhaseResult.action === "break") {
         if (dispatchId !== null) {
-          try { markDispatchFailed(dispatchId, { errorSummary: "unit-break" }); } catch (err) { debugLog("autoLoop", { phase: "dispatch-ledger-write-failed", error: err instanceof Error ? err.message : String(err) }); }
+          try {
+            markDispatchFailed(dispatchId, { errorSummary: "unit-break" });
+            dispatchSettled = true;
+          } catch (err) {
+            debugLog("autoLoop", { phase: "dispatch-ledger-write-failed", error: err instanceof Error ? err.message : String(err) });
+          }
         }
         finishTurn("stopped", "execution", "unit-break");
         break;
@@ -852,21 +887,36 @@ export async function autoLoop(
           ? "git"
           : "closeout";
         if (dispatchId !== null) {
-          try { markDispatchFailed(dispatchId, { errorSummary: `finalize-break:${finalizeResult.reason ?? "unknown"}` }); } catch (err) { debugLog("autoLoop", { phase: "dispatch-ledger-write-failed", error: err instanceof Error ? err.message : String(err) }); }
+          try {
+            markDispatchFailed(dispatchId, { errorSummary: `finalize-break:${finalizeResult.reason ?? "unknown"}` });
+            dispatchSettled = true;
+          } catch (err) {
+            debugLog("autoLoop", { phase: "dispatch-ledger-write-failed", error: err instanceof Error ? err.message : String(err) });
+          }
         }
         finishTurn("stopped", finalizeFailureClass, "finalize-break");
         break;
       }
       if (finalizeResult.action === "continue") {
         if (dispatchId !== null) {
-          try { markDispatchFailed(dispatchId, { errorSummary: "finalize-retry" }); } catch (err) { debugLog("autoLoop", { phase: "dispatch-ledger-write-failed", error: err instanceof Error ? err.message : String(err) }); }
+          try {
+            markDispatchFailed(dispatchId, { errorSummary: "finalize-retry" });
+            dispatchSettled = true;
+          } catch (err) {
+            debugLog("autoLoop", { phase: "dispatch-ledger-write-failed", error: err instanceof Error ? err.message : String(err) });
+          }
         }
         finishTurn("retry");
         continue;
       }
 
       if (dispatchId !== null) {
-        try { markDispatchCompleted(dispatchId); } catch (err) { debugLog("autoLoop", { phase: "dispatch-ledger-write-failed", error: err instanceof Error ? err.message : String(err) }); }
+        try {
+          markDispatchCompleted(dispatchId);
+          dispatchSettled = true;
+        } catch (err) {
+          debugLog("autoLoop", { phase: "dispatch-ledger-write-failed", error: err instanceof Error ? err.message : String(err) });
+        }
       }
       consecutiveErrors = 0; // Iteration completed successfully
       consecutiveCooldowns = 0;
@@ -878,6 +928,17 @@ export async function autoLoop(
     } catch (loopErr) {
       // ── Blanket catch: absorb unexpected exceptions, apply graduated recovery ──
       const msg = loopErr instanceof Error ? loopErr.message : String(loopErr);
+      if (dispatchId !== null && !dispatchSettled) {
+        try {
+          markDispatchFailed(dispatchId, { errorSummary: `unhandled-error:${msg.slice(0, 200)}` });
+          dispatchSettled = true;
+        } catch (err) {
+          debugLog("autoLoop", {
+            phase: "dispatch-ledger-write-failed",
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
 
       // Always emit iteration-end on error so the journal records iteration
       // completion even on failure (#2344). Without this, errors in

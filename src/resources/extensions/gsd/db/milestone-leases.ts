@@ -38,6 +38,23 @@ export type ClaimResult =
   | { ok: true; token: number; expiresAt: string }
   | { ok: false; error: "held_by"; byWorker: string; expiresAt: string };
 
+function isDuplicateLeaseInsertError(err: unknown): boolean {
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/\bFOREIGN KEY\b/i.test(msg)) {
+    return false;
+  }
+
+  if (code === "SQLITE_CONSTRAINT" || code === "SQLITE_CONSTRAINT_PRIMARYKEY" || code === "SQLITE_CONSTRAINT_UNIQUE") {
+    return true;
+  }
+
+  return /\bUNIQUE\b|\bPRIMARY KEY\b|\bconstraint failed\b/i.test(msg);
+}
+
 function ttlExpiry(now: Date): string {
   return new Date(now.getTime() + LEASE_TTL_SECONDS * 1000).toISOString();
 }
@@ -50,9 +67,9 @@ function ttlExpiry(now: Date): string {
  * Fencing token is computed by SQL (`fencing_token + 1`), never supplied
  * by the client. Initial value is 1.
  *
- * datetime('now') uses the local monotonic clock — single-host SQLite WAL
- * only. Cross-host coordination would need a real coordinator; out of scope
- * for Phase B.
+ * datetime('now') uses local wall-clock time, so this remains single-host
+ * SQLite WAL coordination only. Cross-host coordination would need a real
+ * coordinator; out of scope for Phase B.
  */
 export function claimMilestoneLease(
   workerId: string,
@@ -90,8 +107,7 @@ export function claimMilestoneLease(
     } catch (err) {
       // SQLite raises a constraint error on duplicate PK — catch and fall
       // through to UPDATE. Any other error is a bug; rethrow.
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!/UNIQUE|PRIMARY KEY|constraint/i.test(msg)) throw err;
+      if (!isDuplicateLeaseInsertError(err)) throw err;
     }
 
     if (inserted) {
@@ -208,8 +224,8 @@ export function releaseMilestoneLease(
 ): boolean {
   if (!isDbAvailable()) return false;
   const db = _getAdapter()!;
-  const result = transaction(() => {
-    return db.prepare(
+  return transaction(() => {
+    const result = db.prepare(
       `UPDATE milestone_leases
        SET status = 'released'
        WHERE milestone_id = :milestone_id
@@ -221,22 +237,22 @@ export function releaseMilestoneLease(
       ":worker_id": workerId,
       ":token": fencingToken,
     });
+    const changes =
+      typeof (result as { changes?: unknown }).changes === "number"
+        ? (result as { changes: number }).changes
+        : 0;
+    if (changes === 1) {
+      insertAuditEvent({
+        eventId: randomUUID(),
+        traceId: workerId,
+        category: "orchestration",
+        type: "lease-released",
+        ts: new Date().toISOString(),
+        payload: { workerId, milestoneId, token: fencingToken },
+      });
+    }
+    return changes === 1;
   });
-  const changes =
-    typeof (result as { changes?: unknown }).changes === "number"
-      ? (result as { changes: number }).changes
-      : 0;
-  if (changes === 1) {
-    insertAuditEvent({
-      eventId: randomUUID(),
-      traceId: workerId,
-      category: "orchestration",
-      type: "lease-released",
-      ts: new Date().toISOString(),
-      payload: { workerId, milestoneId, token: fencingToken },
-    });
-  }
-  return changes === 1;
 }
 
 /**

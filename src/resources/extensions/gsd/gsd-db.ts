@@ -3458,6 +3458,9 @@ export function deleteMilestone(milestoneId: string): void {
       `DELETE FROM artifacts WHERE milestone_id = :mid`,
     ).run({ ":mid": milestoneId });
     currentDb!.prepare(
+      `DELETE FROM milestone_leases WHERE milestone_id = :mid`,
+    ).run({ ":mid": milestoneId });
+    currentDb!.prepare(
       `DELETE FROM milestones WHERE id = :mid`,
     ).run({ ":mid": milestoneId });
   });
@@ -3879,14 +3882,20 @@ export function deleteArtifactByPath(path: string): void {
 }
 
 /**
- * Drop all rows from tasks/slices/milestones in dependency order inside a
- * transaction. Used by `gsd recover` to rebuild engine state from markdown.
+ * Drop hierarchy rows in dependency order inside a transaction. Used by
+ * `gsd recover` to rebuild engine state from markdown.
  */
 export function clearEngineHierarchy(): void {
   if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
   transaction(() => {
+    currentDb!.exec("DELETE FROM verification_evidence");
+    currentDb!.exec("DELETE FROM quality_gates");
+    currentDb!.exec("DELETE FROM slice_dependencies");
+    currentDb!.exec("DELETE FROM assessments");
+    currentDb!.exec("DELETE FROM replan_history");
     currentDb!.exec("DELETE FROM tasks");
     currentDb!.exec("DELETE FROM slices");
+    currentDb!.exec("DELETE FROM milestone_leases");
     currentDb!.exec("DELETE FROM milestones");
   });
 }
@@ -4000,6 +4009,7 @@ export function restoreManifest(manifest: StateManifest): void {
     db.exec("DELETE FROM verification_evidence");
     db.exec("DELETE FROM tasks");
     db.exec("DELETE FROM slices");
+    db.exec("DELETE FROM milestone_leases");
     db.exec("DELETE FROM milestones");
     db.exec("DELETE FROM decisions WHERE 1=1");
 
@@ -4138,6 +4148,7 @@ export function bulkInsertLegacyHierarchy(payload: {
   transaction(() => {
     db.prepare(`DELETE FROM tasks WHERE milestone_id IN (${placeholders})`).run(...clearMilestoneIds);
     db.prepare(`DELETE FROM slices WHERE milestone_id IN (${placeholders})`).run(...clearMilestoneIds);
+    db.prepare(`DELETE FROM milestone_leases WHERE milestone_id IN (${placeholders})`).run(...clearMilestoneIds);
     db.prepare(`DELETE FROM milestones WHERE id IN (${placeholders})`).run(...clearMilestoneIds);
 
     const insertMilestone = db.prepare(

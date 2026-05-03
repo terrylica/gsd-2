@@ -222,3 +222,26 @@ test("terminal transitions do not overwrite an already terminal dispatch", (t) =
   assert.equal(row.exit_reason, "done");
   assert.equal(row.error_summary, null);
 });
+
+test("recordDispatchClaim rejects claims for missing leases before insert", (t) => {
+  const base = makeBase();
+  t.after(() => cleanup(base));
+  setup(base);
+
+  const claim = recordDispatchClaim({
+    traceId: "t-stale-lease",
+    workerId: "missing-worker",
+    milestoneLeaseToken: 1,
+    milestoneId: "M001",
+    unitType: "plan-slice",
+    unitId: "M001/S01",
+  });
+
+  assert.deepEqual(claim, {
+    ok: false,
+    error: "stale_lease",
+    milestoneId: "M001",
+    workerId: "missing-worker",
+    milestoneLeaseToken: 1,
+  });
+});

@@ -2,7 +2,7 @@
 //
 // stuck-state.json file IO has been deleted. The auto-loop now reconstructs
 // recentUnits from unit_dispatches (Phase B ledger) and persists
-// stuckRecoveryAttempts in runtime_kv (worker scope, soft state).
+// stuckRecoveryAttempts in runtime_kv (stable project scope, soft state).
 //
 // This test verifies the round-trip via the db modules directly: write
 // dispatch rows + a runtime_kv counter, then confirm the same data shape

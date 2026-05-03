@@ -28,6 +28,12 @@ The SQLite database is the runtime source of truth for milestones, slices, tasks
 
 In worktree mode, the project-root database and project-root `.gsd/` state remain authoritative. Worktree markdown projections are useful diagnostics, but they are not synced back as runtime state. If the database is unavailable, runtime state derivation refuses to silently rebuild from markdown. The legacy markdown derivation path is only enabled when `GSD_ALLOW_MARKDOWN_DERIVE_FALLBACK=1`, which exists for tests and explicit recovery scenarios.
 
+### Single-Host Runtime Constraint
+
+Phase C coordination is single-host only. Auto mode and parallel coordination rely on the project-root SQLite database running in WAL mode on local disk for worker heartbeats, milestone leases, dispatch claims, cancellation requests, and command handoff.
+
+That means multiple terminals or worker processes can safely coordinate against the same project on one machine, but sharing `.gsd/gsd.db*` across machines or over network filesystems is unsupported. If you need cross-host orchestration, use an external coordinator instead of trying to stretch the local SQLite/WAL runtime.
+
 ### Deep Planning Mode
 
 For projects that need more up-front discovery, enable deep planning mode in project preferences:
@@ -96,7 +102,7 @@ See [Git Strategy](./git-strategy.md) for details.
 
 ### Parallel Execution
 
-When your project has independent milestones, you can run them simultaneously. Each milestone gets its own worker process and worktree. See [Parallel Orchestration](./parallel-orchestration.md) for setup and usage.
+When your project has independent milestones, you can run them simultaneously. Each milestone gets its own worker process and worktree, and the shared project-root SQLite/WAL runtime coordinates worker heartbeats, milestone leases, dispatch ownership, retry windows, and control commands on the same machine. See [Parallel Orchestration](./parallel-orchestration.md) for setup and usage.
 
 ### Crash Recovery
 
