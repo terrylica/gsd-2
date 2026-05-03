@@ -61,6 +61,15 @@ test("plan-slice prompt: DB-backed tool names survive template substitution", ()
   assert.ok(result.includes("canonical write path"), "canonical write path language should survive substitution");
 });
 
+test("plan-slice prompt: compact planning gates survive template substitution", () => {
+  const result = loadPrompt("plan-slice", { ...BASE_VARS, commitInstruction: "Do not commit." });
+  assert.ok(result.includes("planning-dispatch"), "planning-dispatch policy should remain visible");
+  assert.ok(result.includes("Bias toward \"roadmap is fine.\""), "roadmap reassessment brake should remain visible");
+  assert.ok(result.includes("Self-audit before finishing"), "self-audit gate should remain visible");
+  assert.ok(result.includes("Quality gates: non-trivial slices/tasks include specific Q3-Q7 coverage where applicable."));
+  assert.ok(!result.includes("{{"));
+});
+
 test("plan-slice prompt: footer references gsd_plan_slice tool, not direct write", () => {
   const result = loadPrompt("plan-slice", { ...BASE_VARS, commitInstruction: "Do not commit." });
   assert.ok(
