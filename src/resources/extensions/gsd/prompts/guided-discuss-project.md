@@ -1,6 +1,6 @@
 **Working directory:** `{{workingDirectory}}`. All file reads, writes, and shell commands MUST operate relative to this directory. Do NOT `cd` to any other directory. For `.gsd` files in this prompt, use absolute paths rooted at `{{workingDirectory}}` instead of discovering them with `Glob`.
 
-Discuss the **project** as a whole: vision, users, anti-goals, constraints, and rough milestone sequence. Ask only about real gray areas, then write `.gsd/PROJECT.md` with the decisions using the **Project** template below. If a `GSD Skill Preferences` block is present in system context, use it to decide which skills to load and follow; do not relax artifact rules.
+Discuss the **project** as a whole: vision, users, anti-goals, constraints, and rough milestone sequence. Ask only about real gray areas, then write `.gsd/PROJECT.md` with the **Project** template below. If a `GSD Skill Preferences` block exists, use it to choose skills; artifact rules still apply.
 
 This runs once before milestone discussion. Later milestones, requirements, and roadmaps depend on it.
 
@@ -28,9 +28,9 @@ Wait for the response so follow-ups use their terminology.
 
 ### Classify project shape
 
-After the opening answer, classify project shape as **`simple`** or **`complex`**. Print exactly one verdict line: `Project shape: simple` or `Project shape: complex`, plus a one-line rationale.
+After the opening answer, classify project shape as **`simple`** or **`complex`**. Print exactly one verdict line, `Project shape: simple` or `Project shape: complex`, plus a one-line rationale.
 
-**`simple`** — most apply: single primary user/team, no integrations beyond common SDKs/libs, greenfield or self-contained, scope fits 1-2 clear sentences, no compliance/regulatory needs, <=5 distinct capabilities.
+**`simple`** — most apply: single primary user/team, no integrations beyond common SDKs/libs, greenfield/self-contained, scope fits 1-2 clear sentences, no compliance/regulatory needs, <=5 distinct capabilities.
 
 **`complex`** — any apply: roles/permissions, non-trivial brownfield codebase, auth/data integrations, compliance/security/regulated domain such as PII/payments/healthcare, >5 capabilities or unclear scope, cross-team/org work, novel domain needing validation.
 
@@ -40,21 +40,19 @@ Persist the verdict to PROJECT.md -> `## Project Shape`; downstream `discuss-req
 
 ### Before deeper rounds
 
-Do a lightweight investigation before deeper rounds:
+Before deeper rounds, investigate enough to avoid assumption-driven questions:
 - Scout the codebase with `rg`, `find`, or `scout`: greenfield/brownfield, language/framework signals.
 - Check prior `.planning/` or `.gsd/` artifacts for history.
 - Use `resolve_library` / `get_library_docs` for unfamiliar libraries the user mentions.
 
-**Web search budget:** typically 3–5 per turn. Prefer `resolve_library` / `get_library_docs` for library docs. Target 2–3 web searches in the investigation pass; distribute remaining searches across follow-up rounds.
-
-Do not go deep; investigate just enough to avoid assumption-driven questions.
+**Web search budget:** typically 3–5 per turn. Prefer `resolve_library` / `get_library_docs`. Use 2–3 searches in the first pass; save the rest for follow-ups. Do not go deep.
 
 ### Question rounds
 
-Ask **1–3 questions per round**. Target one focus at a time:
+Ask **1–3 questions per round**, one focus at a time:
 - **What**: concrete enough to describe to a stranger.
 - **Who**: primary/secondary users, internal/external.
-- **Core value**: the ONE thing that must work if everything else is cut.
+- **Core value**: the ONE thing that must work.
 - **Anti-goals**: explicit non-wants and disappointments.
 - **Constraints**: budget, timeline, tech, irreversible architecture.
 - **Existing context**: prior work, brownfield state, decisions already made.
@@ -63,10 +61,10 @@ Ask **1–3 questions per round**. Target one focus at a time:
 **Never fabricate or simulate user input.** Never generate fake transcript markers like `[User]`, `[Human]`, or `User:`. Ask one question round, then wait for the user's actual response before continuing.
 
 **Shape-dependent cadence:**
-- **`simple`**: favor 1-2 plain-text rounds. Use `ask_user_questions` only for concrete alternatives. Reach the depth checklist quickly.
-- **`complex`**: do full investigation, multiple rounds, and structured questions when meaningful alternatives exist.
+- **`simple`**: 1-2 plain-text rounds; use `ask_user_questions` only for concrete alternatives; reach the depth checklist quickly.
+- **`complex`**: full investigation, multiple rounds, structured questions when meaningful alternatives exist.
 
-**If `{{structuredQuestionsAvailable}}` is `true` and you use `ask_user_questions`:** ask 1-3 questions per call. Every question object MUST include a stable lowercase `id`. Keep option labels short (3-5 words). In **`complex`** mode, each multi-choice question MUST present **3 or 4 concrete, researched options** plus final **"Other — let me discuss"**; options must be grounded in investigation (codebase signals, library docs, prior `.gsd/` artifacts), not generic placeholders. In **`simple`** mode, 2 options is fine. Binary depth-check/wrap-up gates are exempt from the 3-or-4 rule. Wait for each tool result before the next round.
+**If `{{structuredQuestionsAvailable}}` is `true` and you use `ask_user_questions`:** ask 1-3 questions per call. Every question object MUST include a stable lowercase `id`. Keep labels short (3-5 words). In **`complex`** mode, multi-choice questions MUST offer **3 or 4 concrete, researched options** plus **"Other — let me discuss"**; options must come from investigation, not generic placeholders. In **`simple`** mode, 2 options is fine. Binary depth-check/wrap-up gates are exempt. Wait for each tool result before the next round.
 
 **If `{{structuredQuestionsAvailable}}` is `false`:** ask questions in plain text. Keep each round to 1–3 focused questions.
 
@@ -76,7 +74,7 @@ After each round, investigate only new unknowns, then ask the next round.
 
 After each round, decide whether PROJECT.md would be strong enough.
 
-- **Incremental persistence:** After every 2 question rounds, silently save `.gsd/PROJECT-DRAFT.md` using `gsd_summary_save` with `artifact_type: "PROJECT-DRAFT"` and no `milestone_id`. Crash protection. Do NOT mention this save to the user.
+- **Incremental persistence:** After every 2 question rounds, silently save `.gsd/PROJECT-DRAFT.md` via `gsd_summary_save` with `artifact_type: "PROJECT-DRAFT"` and no `milestone_id`. Do NOT mention this crash protection.
 - If not ready, continue to the next round.
 - Use a wrap-up prompt only when the depth checklist is satisfied or the user wants to stop.
 
@@ -84,13 +82,7 @@ After each round, decide whether PROJECT.md would be strong enough.
 
 ## Questioning philosophy
 
-**Start open, follow energy.** Dig where the user shows momentum.
-
-**Challenge vagueness.** When the user says "it should be smart" or "good UX", push for specifics.
-
-**Position-first framing.** Have opinions: "I'd lean toward X because Y — does that match your thinking?" beats neutral polling.
-
-**Negative constraints.** Ask what would disappoint them and what they explicitly don't want; these are sharper than positive wishes.
+Start open and follow energy. Challenge vague phrases like "smart" or "good UX" with specifics. Use position-first framing: "I'd lean toward X because Y — does that match your thinking?" Ask what would disappoint them and what they explicitly do not want.
 
 **Anti-patterns — never do these:**
 - Checklist walking through predetermined topics regardless of what the user said
@@ -113,7 +105,7 @@ Before the wrap-up gate, verify coverage:
 - [ ] Greenfield vs brownfield state
 - [ ] Rough milestone sequence (at least M001's intent)
 
-**Print a structured depth summary in chat first** using the user's terminology. Cover what you understood, what shaped it, and remaining uncertainty.
+**Print a structured depth summary in chat first** using the user's terminology: what you understood, what shaped it, and remaining uncertainty.
 
 **Then confirm:**
 
@@ -130,7 +122,7 @@ If they clarify, absorb the correction and re-verify.
 
 The depth verification is the only required confirmation gate. Do not add a second "ready to proceed?" gate after it.
 
-**CRITICAL — Confirmation gate:** Do not write final PROJECT.md until the user selects the "(Recommended)" option (structured path) or explicitly confirms (plain-text path). If the user declines, cancels, does not respond, or the tool fails, re-ask; never rationalize past the block.
+**CRITICAL — Confirmation gate:** Do not write final PROJECT.md until the user selects the "(Recommended)" option (structured path) or explicitly confirms (plain-text path). If the user declines, cancels, does not respond, or the tool fails, re-ask.
 
 ---
 
