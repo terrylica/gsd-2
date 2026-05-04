@@ -391,6 +391,35 @@ test("executeCompleteMilestone sanitizes raw params and writes milestone summary
   }
 });
 
+test("executeCompleteMilestone returns success for already-complete milestones", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+    seedMilestone("M003", "Milestone Three", "complete");
+    const milestoneDir = join(base, ".gsd", "milestones", "M003");
+    mkdirSync(milestoneDir, { recursive: true });
+    const summaryPath = join(milestoneDir, "M003-SUMMARY.md");
+    writeFileSync(summaryPath, "# Existing Summary\n");
+
+    const result = await inProjectDir(base, () => executeCompleteMilestone({
+      milestoneId: "M003",
+      title: "Milestone Three",
+      oneLiner: "Completed milestone",
+      narrative: "Everything shipped.",
+      verificationPassed: true,
+    }, base));
+
+    assert.equal(result.isError, undefined);
+    assert.equal(result.details.operation, "complete_milestone");
+    assert.equal(result.details.alreadyComplete, true);
+    assert.match(result.content[0].text, /already complete/);
+    assert.equal(readFileSync(summaryPath, "utf-8"), "# Existing Summary\n");
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
 test("executeReassessRoadmap writes assessment and updates roadmap projection", async () => {
   const base = makeTmpBase();
   try {
@@ -692,7 +721,18 @@ test("executeSummarySave supports root-level deep planning artifacts", async () 
 
     const project = await inProjectDir(base, () => executeSummarySave({
       artifact_type: "PROJECT",
-      content: "# Project\n\n## What This Is\n\nA root project artifact.",
+      content: [
+        "# Project",
+        "",
+        "## What This Is",
+        "",
+        "A root project artifact.",
+        "",
+        "## Milestone Sequence",
+        "",
+        "- [ ] M001: Foundation - Establish the first runnable slice.",
+        "",
+      ].join("\n"),
     }, base));
     assert.equal(project.isError, undefined);
     assert.equal(project.details.path, "PROJECT.md");
@@ -794,7 +834,7 @@ test("executeSummarySave registers PROJECT milestone sequence for the next run",
   }
 });
 
-test("executeSummarySave keeps PROJECT artifact save successful if milestone registration fails", async () => {
+test("executeSummarySave hard-fails when milestone registration throws so silent No-Active-Milestone is impossible", async () => {
   const base = makeTmpBase();
   try {
     openTestDb(base);
@@ -824,10 +864,15 @@ test("executeSummarySave keeps PROJECT artifact save successful if milestone reg
       ].join("\n"),
     }, base));
 
-    assert.equal(result.isError, undefined);
+    // The artifact is persisted before registration runs, but registration must
+    // surface as isError so the LLM retries (INSERT OR IGNORE makes it idempotent)
+    // instead of announcing "ready" while the DB has zero milestone rows.
+    assert.equal(result.isError, true);
     assert.equal(result.details.path, "PROJECT.md");
-    assert.equal(result.details.registeredMilestones, undefined);
-    assert.match(String(result.details.warning), /milestone registration failed/);
+    assert.equal(result.details.error, "milestone_registration_threw");
+    assert.match(String(result.details.registration_error), /simulated milestone registration failure/);
+    assert.match(result.content[0].text, /milestone registration failed/);
+    assert.match(result.content[0].text, /idempotent/);
     assert.ok(existsSync(join(base, ".gsd", "PROJECT.md")));
     const artifact = originalPrepare("SELECT path FROM artifacts WHERE path = ?").get("PROJECT.md");
     assert.equal(artifact?.path, "PROJECT.md");
@@ -872,9 +917,22 @@ test("executeSummarySave requires verified root approval in deep mode", async ()
     writeFileSync(join(base, ".gsd", "PREFERENCES.md"), "---\nplanning_depth: deep\n---\n");
     openTestDb(base);
 
+    const projectFixture = [
+      "# Project",
+      "",
+      "## What This Is",
+      "",
+      "A root project artifact.",
+      "",
+      "## Milestone Sequence",
+      "",
+      "- [ ] M001: Foundation - Establish the first runnable slice.",
+      "",
+    ].join("\n");
+
     const blocked = await inProjectDir(base, () => executeSummarySave({
       artifact_type: "PROJECT",
-      content: "# Project\n\n## What This Is\n\nA root project artifact.",
+      content: projectFixture,
     }, base));
 
     assert.equal(blocked.isError, true);
@@ -886,7 +944,7 @@ test("executeSummarySave requires verified root approval in deep mode", async ()
 
     const unblocked = await inProjectDir(base, () => executeSummarySave({
       artifact_type: "PROJECT",
-      content: "# Project\n\n## What This Is\n\nA root project artifact.",
+      content: projectFixture,
     }, base));
 
     assert.equal(unblocked.isError, undefined);

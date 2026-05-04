@@ -23,6 +23,11 @@ import {
   showSmartEntry,
   startDeepProjectSetupForeground,
 } from "../guided-flow.ts";
+import {
+  closeDatabase,
+  insertMilestone,
+  openDatabase,
+} from "../gsd-db.ts";
 import type { GSDPreferences } from "../preferences.ts";
 import type { GSDState } from "../types.ts";
 
@@ -338,6 +343,62 @@ test("deep project setup: pre-dispatch can run before the first milestone exists
       assert.equal(result.data.midTitle, "Project setup");
     }
   } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("deep project setup: bootstrap continues queued M002 without milestone context", async () => {
+  const base = makeRepo();
+  try {
+    writeCapturedDeepPrefs(base);
+    writeValidProjectAndRequirements(base);
+    mkdirSync(join(base, ".gsd", "runtime"), { recursive: true });
+    writeFileSync(join(base, ".gsd", "runtime", "research-decision.json"), '{"decision":"skip"}\n');
+
+    openDatabase(join(base, ".gsd", "gsd.db"));
+    insertMilestone({ id: "M001", title: "First milestone", status: "complete" });
+    insertMilestone({ id: "M002", title: "Second milestone", status: "queued" });
+    closeDatabase();
+
+    const messages: unknown[] = [];
+    const pi = {
+      ...makePi(messages),
+      getThinkingLevel: () => "medium",
+    };
+    const s = new AutoSession();
+    const ready = await bootstrapAutoSession(
+      s,
+      makeCtx(`queued-${randomUUID()}`) as any,
+      pi as any,
+      base,
+      false,
+      false,
+      {
+        shouldUseWorktreeIsolation: () => false,
+        registerSigtermHandler: () => {},
+        lockBase: () => base,
+        buildResolver: () => ({}) as any,
+      },
+      {
+        classification: "none",
+        lock: null,
+        pausedSession: null,
+        state: null,
+        recovery: null,
+        recoveryPrompt: null,
+        recoveryToolCallCount: 0,
+        artifactSatisfied: false,
+        hasResumableDiskState: false,
+        isBootstrapCrash: false,
+      },
+    );
+
+    assert.equal(ready, true);
+    assert.equal(s.active, true);
+    assert.equal(s.currentMilestoneId, "M002");
+    assert.equal(messages.length, 0, "queued deep milestone must not re-enter smart new-milestone discussion");
+  } finally {
+    try { closeDatabase(); } catch {}
     rmSync(base, { recursive: true, force: true });
   }
 });
@@ -1020,10 +1081,7 @@ test("deep project setup: research-project blocker placeholder is a file, not th
   const base = makeBase();
   try {
     const expectedPath = resolveExpectedArtifactPath("research-project", "PROJECT-RESEARCH", base);
-    assert.equal(
-      expectedPath,
-      join(realpathSync(base), ".gsd", "research", "PROJECT-RESEARCH-BLOCKER.md"),
-    );
+    assert.equal(expectedPath, join(realpathSync(base), ".gsd", "research", "PROJECT-RESEARCH-BLOCKER.md"));
 
     mkdirSync(join(base, ".gsd", "research"), { recursive: true });
     const diagnosis = writeBlockerPlaceholder(

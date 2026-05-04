@@ -692,6 +692,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
       const contextFile = resolveMilestoneFile(basePath, mid, "CONTEXT");
       const hasContext = !!(contextFile && (await loadFile(contextFile)));
       if (hasContext) return null; // fall through to next rule
+      if (prefs?.planning_depth === "deep") return null;
       // H6 fix (#4973): keep the non-deep auto-mode bypass, but do not
       // pre-verify deep planning's user-facing milestone approval gate.
       if (shouldBypassMilestoneDepthGateInAuto(prefs)) {

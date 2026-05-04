@@ -55,7 +55,7 @@ import { writeUnitRuntimeRecord } from "../unit-runtime.js";
 import { withTimeout, FINALIZE_PRE_TIMEOUT_MS, FINALIZE_POST_TIMEOUT_MS } from "./finalize-timeout.js";
 import { getEligibleSlices } from "../slice-parallel-eligibility.js";
 import { startSliceParallel } from "../slice-parallel-orchestrator.js";
-import { isDbAvailable, getMilestoneSlices } from "../gsd-db.js";
+import { isDbAvailable, getMilestoneSlices, refreshOpenDatabaseFromDisk } from "../gsd-db.js";
 import type { MinimalModelRegistry } from "../context-budget.js";
 import { ensurePlanV2Graph, isEmptyPlanV2GraphResult, isMissingFinalizedContextResult } from "../uok/plan-v2.js";
 import { resolveUokFlags } from "../uok/flags.js";
@@ -74,6 +74,12 @@ import {
 /** Compare two paths for physical identity, tolerating trailing slashes and symlinks. */
 function isSamePathLocal(a: string, b: string): boolean {
   return normalizeWorktreePathForCompare(a) === normalizeWorktreePathForCompare(b);
+}
+
+function refreshPlanSliceRecoveryDbIfNeeded(unitType: string): boolean {
+  if (unitType !== "plan-slice") return true;
+  if (!isDbAvailable()) return true;
+  return refreshOpenDatabaseFromDisk();
 }
 
 // ─── Session timeout auto-resume state ────────────────────────────────────────
@@ -230,6 +236,33 @@ async function emitCancelledUnitEnd(
     },
     causedBy: { flowId: ic.flowId, seq: unitStartSeq },
   });
+}
+
+export function _buildCancelledUnitStopReason(
+  unitType: string,
+  unitId: string,
+  errorContext?: { message: string; category: string },
+): {
+  notifyMessage: string;
+  stopReason: string;
+  loopReason: "session-failed" | "unit-aborted";
+} {
+  const cancellationMessage = errorContext?.message ?? "unknown";
+  const isSessionCreationFailure = errorContext?.category === "session-failed";
+
+  if (isSessionCreationFailure) {
+    return {
+      notifyMessage: `Session creation failed for ${unitType} ${unitId}: ${cancellationMessage}. Stopping auto-mode.`,
+      stopReason: `Session creation failed: ${cancellationMessage}`,
+      loopReason: "session-failed",
+    };
+  }
+
+  return {
+    notifyMessage: `Unit ${unitType} ${unitId} aborted after dispatch: ${cancellationMessage}. Stopping auto-mode.`,
+    stopReason: `Unit aborted: ${cancellationMessage}`,
+    loopReason: "unit-aborted",
+  };
 }
 
 async function failClosedOnFinalizeTimeout(
@@ -994,7 +1027,10 @@ export async function runDispatch(
     // See: https://github.com/gsd-build/gsd-2/issues/2474
     if (dispatchResult.level === "warning") {
       ctx.ui.notify(dispatchResult.reason, "warning");
-      await deps.pauseAuto(ctx, pi);
+      await deps.pauseAuto(ctx, pi, {
+        message: dispatchResult.reason,
+        category: "unknown",
+      });
     } else {
       await closeoutAndStop(ctx, pi, s, deps, dispatchResult.reason);
     }
@@ -1065,7 +1101,16 @@ export async function runDispatch(
             `Stuck recovery: artifact for ${unitType} ${unitId} found on disk. Invalidating caches.`,
             "info",
           );
+          if (!refreshPlanSliceRecoveryDbIfNeeded(unitType)) {
+            ctx.ui.notify(
+              `Stuck recovery found ${unitType} ${unitId} artifacts, but the DB refresh failed. Keeping stuck state for retry.`,
+              "warning",
+            );
+            return { action: "continue" };
+          }
           deps.invalidateAllCaches();
+          loopState.recentUnits.length = 0;
+          loopState.stuckRecoveryAttempts = 0;
           return { action: "continue" };
         }
         ctx.ui.notify(
@@ -1075,6 +1120,32 @@ export async function runDispatch(
         deps.invalidateAllCaches();
       } else {
         // Level 2: hard stop — genuinely stuck
+        deps.invalidateAllCaches();
+        const artifactExists = verifyExpectedArtifact(
+          unitType,
+          unitId,
+          s.basePath,
+        );
+        if (artifactExists && unitType !== "complete-milestone") {
+          debugLog("autoLoop", {
+            phase: "stuck-recovery",
+            level: 2,
+            action: "artifact-found",
+          });
+          ctx.ui.notify(
+            `Stuck recovery: artifact for ${unitType} ${unitId} found on disk after cache invalidation. Continuing.`,
+            "info",
+          );
+          if (refreshPlanSliceRecoveryDbIfNeeded(unitType)) {
+            loopState.recentUnits.length = 0;
+            loopState.stuckRecoveryAttempts = 0;
+            return { action: "continue" };
+          }
+          ctx.ui.notify(
+            `Stuck recovery found ${unitType} ${unitId} artifacts, but the DB refresh failed. Stopping for manual recovery.`,
+            "warning",
+          );
+        }
         debugLog("autoLoop", {
           phase: "stuck-detected",
           unitType,
@@ -1470,7 +1541,12 @@ export async function runUnitPhase(
   s.lastGitActionFailure = null;
   s.lastGitActionStatus = null;
   s.lastUnitAgentEndMessages = null;
-  setCurrentPhase(unitType);
+  setCurrentPhase(unitType, {
+    basePath: s.basePath,
+    traceId: ic.flowId,
+    turnId: `iter-${ic.iteration}`,
+    causedBy: "unit-start",
+  });
   s.lastToolInvocationError = null; // #2883: clear stale error from previous unit
   const unitStartSeq = ic.nextSeq();
   deps.emitJournalEvent({ ts: new Date().toISOString(), flowId: ic.flowId, seq: unitStartSeq, eventType: "unit-start", data: { unitType, unitId } });
@@ -1866,13 +1942,16 @@ export async function runUnitPhase(
     }
     await deps.autoCommitUnit?.(s.basePath, unitType, unitId, ctx);
     await emitCancelledUnitEnd(ic, unitType, unitId, unitStartSeq, unitResult.errorContext);
-    ctx.ui.notify(
-      `Session creation failed for ${unitType} ${unitId}: ${unitResult.errorContext?.message ?? "unknown"}. Stopping auto-mode.`,
-      "warning",
+
+    const cancelledStop = _buildCancelledUnitStopReason(
+      unitType,
+      unitId,
+      unitResult.errorContext,
     );
-    await deps.stopAuto(ctx, pi, `Session creation failed: ${unitResult.errorContext?.message ?? "unknown"}`);
-    debugLog("autoLoop", { phase: "exit", reason: "session-failed" });
-    return { action: "break", reason: "session-failed" };
+    ctx.ui.notify(cancelledStop.notifyMessage, "warning");
+    await deps.stopAuto(ctx, pi, cancelledStop.stopReason);
+    debugLog("autoLoop", { phase: "exit", reason: cancelledStop.loopReason });
+    return { action: "break", reason: cancelledStop.loopReason };
   }
 
   // ── Immediate unit closeout (metrics, activity log, memory) ────────

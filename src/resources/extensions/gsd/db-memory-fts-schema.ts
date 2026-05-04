@@ -7,6 +7,11 @@ export interface MemoryFtsSchemaOptions {
   onUnavailable?: (message: string) => void;
 }
 
+function formatFtsUnavailableError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.replace(/\bmoduel\s*:\s*/gi, "module: ");
+}
+
 /**
  * Create the FTS5 virtual table for memories plus the triggers that keep it
  * in sync with the base table. FTS5 may be unavailable on stripped-down
@@ -44,7 +49,7 @@ export function tryCreateMemoriesFtsSchema(
     `);
     return true;
   } catch (err) {
-    options.onUnavailable?.(`FTS5 unavailable — memory queries will use LIKE fallback: ${(err as Error).message}`);
+    options.onUnavailable?.(`FTS5 unavailable — memory queries will use LIKE fallback: ${formatFtsUnavailableError(err)}`);
     return false;
   }
 }
