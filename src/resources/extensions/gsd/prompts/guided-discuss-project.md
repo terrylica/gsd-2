@@ -1,6 +1,6 @@
-**Working directory:** `{{workingDirectory}}`. All file reads, writes, and shell commands MUST operate relative to this directory. Do NOT `cd` to any other directory. For `.gsd` files in this prompt, use absolute paths rooted at `{{workingDirectory}}` instead of discovering them with `Glob`.
+**Working directory:** `{{workingDirectory}}`. All file reads, writes, and shell commands MUST operate relative to this directory. Do NOT `cd` elsewhere. For `.gsd` files, use absolute paths rooted at `{{workingDirectory}}`, not `Glob`.
 
-Discuss the **project** as a whole: vision, users, anti-goals, constraints, and rough milestone sequence. Ask only about real gray areas, then write `.gsd/PROJECT.md` with the **Project** template below. If a `GSD Skill Preferences` block exists, use it to choose skills; artifact rules still apply.
+Discuss the **project** as a whole: vision, users, anti-goals, constraints, and rough milestone sequence. Ask only real gray areas, then write `.gsd/PROJECT.md` with the **Project** template below. If a `GSD Skill Preferences` block exists, use it; artifact rules still apply.
 
 This runs once before milestone discussion. Later milestones, requirements, and roadmaps depend on it.
 
@@ -30,7 +30,7 @@ Wait for the response so follow-ups use their terminology.
 
 After the opening answer, classify project shape as **`simple`** or **`complex`**. Print exactly one verdict line, `Project shape: simple` or `Project shape: complex`, plus a one-line rationale.
 
-**`simple`** — most apply: single primary user/team, no integrations beyond common SDKs/libs, greenfield/self-contained, scope fits 1-2 clear sentences, no compliance/regulatory needs, <=5 distinct capabilities.
+**`simple`** — most apply: single primary user/team, no integrations beyond common SDKs/libs, greenfield/self-contained, scope fits 1-2 sentences, no compliance/regulatory needs, <=5 capabilities.
 
 **`complex`** — any apply: roles/permissions, non-trivial brownfield codebase, auth/data integrations, compliance/security/regulated domain such as PII/payments/healthcare, >5 capabilities or unclear scope, cross-team/org work, novel domain needing validation.
 
@@ -41,22 +41,15 @@ Persist the verdict to PROJECT.md -> `## Project Shape`; downstream `discuss-req
 ### Before deeper rounds
 
 Before deeper rounds, investigate enough to avoid assumption-driven questions:
-- Scout the codebase with `rg`, `find`, or `scout`: greenfield/brownfield, language/framework signals.
-- Check prior `.planning/` or `.gsd/` artifacts for history.
-- Use `resolve_library` / `get_library_docs` for unfamiliar libraries the user mentions.
+- Scout code with `rg`, `find`, or `scout` for greenfield/brownfield and framework signals.
+- Check prior `.planning/` or `.gsd/` artifacts.
+- Use `resolve_library` / `get_library_docs` for unfamiliar mentioned libraries.
 
 **Web search budget:** typically 3–5 per turn. Prefer `resolve_library` / `get_library_docs`. Use 2–3 searches in the first pass; save the rest for follow-ups. Do not go deep.
 
 ### Question rounds
 
-Ask **1–3 questions per round**, one focus at a time:
-- **What**: concrete enough to describe to a stranger.
-- **Who**: primary/secondary users, internal/external.
-- **Core value**: the ONE thing that must work.
-- **Anti-goals**: explicit non-wants and disappointments.
-- **Constraints**: budget, timeline, tech, irreversible architecture.
-- **Existing context**: prior work, brownfield state, decisions already made.
-- **Milestone shape**: rough v1/v1.1 sequence and differentiators.
+Ask **1–3 questions per round**, one focus at a time: what, who, core value, anti-goals, constraints, existing context, or milestone shape.
 
 **Never fabricate or simulate user input.** Never generate fake transcript markers like `[User]`, `[Human]`, or `User:`. Ask one question round, then wait for the user's actual response before continuing.
 
@@ -64,7 +57,7 @@ Ask **1–3 questions per round**, one focus at a time:
 - **`simple`**: 1-2 plain-text rounds; use `ask_user_questions` only for concrete alternatives; reach the depth checklist quickly.
 - **`complex`**: full investigation, multiple rounds, structured questions when meaningful alternatives exist.
 
-**If `{{structuredQuestionsAvailable}}` is `true` and you use `ask_user_questions`:** ask 1-3 questions per call. Every question object MUST include a stable lowercase `id`. Keep labels short (3-5 words). In **`complex`** mode, multi-choice questions MUST offer **3 or 4 concrete, researched options** plus **"Other — let me discuss"**; options must be grounded in the investigation, not generic placeholders. In **`simple`** mode, 2 options is fine. Binary depth-check/wrap-up gates are exempt. Wait for each tool result before the next round.
+**If `{{structuredQuestionsAvailable}}` is `true` and you use `ask_user_questions`:** ask 1-3 questions per call. Every question needs stable lowercase `id`. Keep labels short (3-5 words). In **`complex`** mode, multi-choice questions MUST offer **3 or 4 concrete, researched options** plus **"Other — let me discuss"**; options must be grounded in the investigation, not generic placeholders. In **`simple`** mode, 2 options is fine. Binary depth-check/wrap-up gates are exempt. Wait for each tool result before the next round.
 
 **If `{{structuredQuestionsAvailable}}` is `false`:** ask questions in plain text. Keep each round to 1–3 focused questions.
 
@@ -74,7 +67,7 @@ After each round, investigate only new unknowns, then ask the next round.
 
 After each round, decide whether PROJECT.md would be strong enough.
 
-- **Incremental persistence:** After every 2 question rounds, silently save `.gsd/PROJECT-DRAFT.md` via `gsd_summary_save` with `artifact_type: "PROJECT-DRAFT"` and no `milestone_id`. Do NOT mention this crash protection.
+- **Incremental persistence:** After every 2 question rounds, silently save `.gsd/PROJECT-DRAFT.md` via `gsd_summary_save` with `artifact_type: "PROJECT-DRAFT"` and no `milestone_id`. Do NOT mention this save to the user.
 - If not ready, continue to the next round.
 - Use a wrap-up prompt only when the depth checklist is satisfied or the user wants to stop.
 
@@ -82,39 +75,21 @@ After each round, decide whether PROJECT.md would be strong enough.
 
 ## Questioning philosophy
 
-Start open and follow energy. Challenge vague phrases like "smart" or "good UX" with specifics. Use position-first framing: "I'd lean toward X because Y — does that match your thinking?" Ask what would disappoint them and what they explicitly do not want.
+Start open and follow energy. Challenge vague phrases like "smart" or "good UX" with specifics. Use position-first framing: "I'd lean toward X because Y — does that match your thinking?" Ask what would disappoint them and what they do not want.
 
-**Anti-patterns — never do these:**
-- Checklist walking through predetermined topics regardless of what the user said
-- Canned generic questions ("What are your key success metrics?")
-- Rapid-fire questions without acknowledging answers
-- Asking about technical skill level
-- Asking about specific milestone implementations — that's the next stage
+**Anti-patterns — never do these:** checklist walking, canned questions ("What are your key success metrics?"), rapid-fire interrogation, asking about technical skill level, or asking milestone implementation details.
 
 ---
 
 ## Depth Verification
 
-Before the wrap-up gate, verify coverage:
-
-- [ ] What they're building — concrete enough to describe to a stranger
-- [ ] Who it's for
-- [ ] Core value (the ONE thing that must work)
-- [ ] Anti-goals / explicit non-wants
-- [ ] Constraints (budget, time, tech, architecture)
-- [ ] Greenfield vs brownfield state
-- [ ] Rough milestone sequence (at least M001's intent)
+Before the wrap-up gate, verify coverage: what they're building, who it's for, core value, anti-goals, constraints, greenfield/brownfield state, and rough milestone sequence.
 
 **Print a structured depth summary in chat first** using the user's terminology: what you understood, what shaped it, and remaining uncertainty.
 
 **Then confirm:**
 
-**If `{{structuredQuestionsAvailable}}` is `true`:** use `ask_user_questions` with:
-- header: "Depth Check"
-- id: "depth_verification_project_confirm"
-- question: "Did I capture the depth right?"
-- options: "Yes, you got it (Recommended)", "Not quite — let me clarify"
-- **The question ID must contain `depth_verification_project`** — this enables the write-gate downstream.
+**If `{{structuredQuestionsAvailable}}` is `true`:** use `ask_user_questions` with header "Depth Check", id "depth_verification_project_confirm", question "Did I capture the depth right?", and options "Yes, you got it (Recommended)" / "Not quite — let me clarify". **The question ID must contain `depth_verification_project`** so the write-gate can detect it.
 
 **If `{{structuredQuestionsAvailable}}` is `false`:** ask in plain text: "Did I capture that correctly? If not, tell me what I missed." Wait for explicit confirmation. **The same non-bypassable gate applies to the plain-text path**: if the user does not respond, gives an ambiguous answer, or does not explicitly confirm, re-ask.
 
@@ -131,7 +106,7 @@ The depth verification is the only required confirmation gate. Do not add a seco
 Once the user confirms depth:
 
 1. Use the **Project** output template (inlined above).
-2. Call `gsd_summary_save` with `artifact_type: "PROJECT"` and full project markdown as `content`; omit `milestone_id`. The tool writes `.gsd/PROJECT.md` and persists to DB. Preserve the user's terminology, emphasis, and framing.
+2. Call `gsd_summary_save` with `artifact_type: "PROJECT"` and full project markdown as `content`; omit `milestone_id`. The tool writes `.gsd/PROJECT.md` and persists to DB. Preserve the user's terms and framing.
 3. The `## Project Shape` section MUST contain `**Complexity:** simple` or `**Complexity:** complex` (matching the verdict you announced) plus a one-line `**Why:**` rationale. Downstream stages read this line.
 4. The `## Capability Contract` section MUST reference `.gsd/REQUIREMENTS.md` — that file does not yet exist; the next stage (`discuss-requirements`) will produce it.
 5. The `## Milestone Sequence` MUST list at least M001 with title and one-liner. Subsequent milestones may be listed as known intents; they will be elaborated in their own discuss-milestone stages.
