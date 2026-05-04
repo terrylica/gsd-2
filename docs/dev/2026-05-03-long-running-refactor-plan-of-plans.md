@@ -627,6 +627,26 @@ Baseline usage is documented in `docs/dev/refactor-baseline-runbook.md`.
 4. Delete only one legacy category per PR.
 5. Keep deletions independently reversible.
 
+**Implemented so far:**
+
+- Added runtime counters and baseline dashboard fields for all six Phase 8 deprecated paths.
+- Wired `legacy.markdownFallbackUsed` to explicit markdown state derivation fallback.
+- Wired `legacy.workflowEngineUsed` to legacy workflow template dispatch paths.
+- Wired `legacy.uokFallbackUsed` to non-kernel UOK execution paths.
+- Wired `legacy.mcpAliasUsed` to execution through backward-compatible MCP tool aliases.
+- Wired `legacy.componentFormatUsed` to successful legacy `SKILL.md` and agent `.md` component loads.
+- Wired `legacy.providerDefaultUsed` to canonical provider-default model fallback selection.
+- Added one-warning-per-counter diagnostics through the shared legacy telemetry layer.
+
+**Migration notes before deletion:**
+
+- Markdown state fallback: migrate projects to DB-authoritative state and keep markdown as projection/manual reference only. Do not remove fallback until `legacy.markdownFallbackUsed` stays at zero on representative runs.
+- Legacy workflow engines/templates: move active workflows to `auto-milestone` templates and keep legacy aliases documented until `legacy.workflowEngineUsed` is zero.
+- UOK fallback/parity wrappers: resolve blockers that require `legacy_fallback` or `GSD_UOK_FORCE_LEGACY`; removal is allowed only after kernel path telemetry shows no fallback use.
+- MCP tool aliases: update agents and prompts to canonical `gsd_*` tool names before alias removal. Alias wrappers now count actual alias execution.
+- Legacy component formats: migrate installed skills and agents to `component.yaml` plus `SKILL.md` or `AGENT.md` entry files before removing legacy loaders.
+- Provider defaults: configure explicit provider-aware model preferences or available model registries before removing canonical provider-default fallbacks.
+
 **Acceptance criteria:**
 
 - No legacy path is removed before telemetry exists.
