@@ -9,3 +9,4 @@
 export * from "./spawn.ts";
 export * from "./tmp-project.ts";
 export * from "./artifacts.ts";
+export * from "./fake-llm.ts";
