@@ -937,9 +937,10 @@ export class TUI extends Container {
 		// Track cursor position for next render
 		// cursorRow tracks end of content (for viewport calculation)
 		// hardwareCursorRow tracks actual terminal cursor position (for movement)
-		this.cursorRow = Math.max(0, newLines.length - 1);
+		const contentBottomRow = Math.max(0, newLines.length - 1);
+		this.cursorRow = contentBottomRow;
 		this.hardwareCursorRow = finalCursorRow;
-		this.contentCursorRow = finalCursorRow;
+		this.contentCursorRow = contentBottomRow;
 		// Track terminal's working area (grows but doesn't shrink unless cleared)
 		this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
 		this.previousViewportTop = Math.max(0, this.maxLinesRendered - height);
