@@ -316,6 +316,18 @@ describe("resolveImportPath", () => {
     assert.ok(result.exists);
     assert.ok(result.resolvedPath?.endsWith("route.server.ts"));
   });
+
+  test("missing unknown explicit extension does not match code-extension shadow", (t) => {
+    const dir = mkdtempSync(join(tmpdir(), "post-exec-test-unknown-shadow-"));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(join(dir, "src", "video.mp4.ts"), "export {};\n");
+    writeFileSync(join(dir, "src", "main.ts"), "");
+
+    const result = resolveImportPath("./video.mp4", "src/main.ts", dir);
+    assert.ok(!result.exists);
+    assert.equal(result.resolvedPath, null);
+  });
 });
 
 // ─── Import Resolution Check Tests ───────────────────────────────────────────

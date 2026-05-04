@@ -155,8 +155,19 @@ export function resolveImportPath(
       ".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico", ".bmp",
       ".woff", ".woff2", ".ttf", ".otf", ".eot",
     ]);
+    const runtimeFallbackExtensions = new Set([".js", ".jsx", ".mjs", ".cjs"]);
+    const dottedStemFallbackExtensions = new Set([".server", ".client", ".webhook"]);
 
-    if (nonFallbackExtensions.has(explicitExt) && ![".js", ".jsx", ".mjs", ".cjs"].includes(explicitExt)) {
+    if (
+      explicitExt !== "" &&
+      !runtimeFallbackExtensions.has(explicitExt) &&
+      !nonFallbackExtensions.has(explicitExt) &&
+      !dottedStemFallbackExtensions.has(explicitExt)
+    ) {
+      return { exists: false, resolvedPath: null };
+    }
+
+    if (nonFallbackExtensions.has(explicitExt) && !runtimeFallbackExtensions.has(explicitExt)) {
       return { exists: false, resolvedPath: null };
     }
   }
@@ -232,7 +243,7 @@ export function checkImportResolution(
       // React Router generated +types modules may not exist on disk during
       // post-exec checks (generated during framework build). Don't block task
       // completion on these imports.
-      if (/^\.{1,2}\/\+types\//.test(importPath) || /\/\+types\//.test(importPath)) {
+      if (/^\.{1,2}\/\+types\//.test(importPath)) {
         continue;
       }
 
