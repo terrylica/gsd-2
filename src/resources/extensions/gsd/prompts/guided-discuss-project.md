@@ -22,9 +22,7 @@ Before your first action, print this banner verbatim in chat:
 
 ### Open the conversation
 
-Ask the user a single freeform question in plain text, not structured: **"What do you want to build?"**
-
-Wait for the response so follow-ups use their terminology.
+Ask the user a single freeform question in plain text, not structured: **"What do you want to build?"** Wait for the response so follow-ups use their terminology.
 
 ### Classify project shape
 
@@ -40,12 +38,12 @@ Persist the verdict to PROJECT.md -> `## Project Shape`; downstream `discuss-req
 
 ### Before deeper rounds
 
-Before deeper rounds, investigate enough to avoid assumption-driven questions:
+Investigate enough to avoid assumption-driven questions:
 - Scout code with `rg`, `find`, or `scout` for greenfield/brownfield and framework signals.
 - Check prior `.planning/` or `.gsd/` artifacts.
 - Use `resolve_library` / `get_library_docs` for unfamiliar mentioned libraries.
 
-**Web search budget:** typically 3–5 per turn. Prefer `resolve_library` / `get_library_docs`. Use 2–3 searches in the first pass; save the rest for follow-ups. Do not go deep.
+**Web search budget:** typically 3-5 per turn. Prefer docs tools; use 2-3 searches first and save the rest.
 
 ### Question rounds
 
@@ -57,7 +55,7 @@ Ask **1–3 questions per round**, one focus at a time: what, who, core value, a
 - **`simple`**: 1-2 plain-text rounds; use `ask_user_questions` only for concrete alternatives; reach the depth checklist quickly.
 - **`complex`**: full investigation, multiple rounds, structured questions when meaningful alternatives exist.
 
-**If `{{structuredQuestionsAvailable}}` is `true` and you use `ask_user_questions`:** ask 1-3 questions per call. Every question needs stable lowercase `id`. Keep labels short (3-5 words). In **`complex`** mode, multi-choice questions MUST offer **3 or 4 concrete, researched options** plus **"Other — let me discuss"**; options must be grounded in the investigation, not generic placeholders. In **`simple`** mode, 2 options is fine. Binary depth-check/wrap-up gates are exempt. Wait for each tool result before the next round.
+**If `{{structuredQuestionsAvailable}}` is `true` and you use `ask_user_questions`:** ask 1-3 questions per call. Every question needs stable lowercase `id`. Keep labels short (3-5 words). In **`complex`** mode, multi-choice questions MUST offer **3 or 4 concrete, researched options** plus **"Other — let me discuss"**; options must be grounded in the investigation, not placeholders. In **`simple`** mode, 2 options is fine. Binary depth-check/wrap-up gates are exempt. Wait for each tool result before the next round.
 
 **If `{{structuredQuestionsAvailable}}` is `false`:** ask questions in plain text. Keep each round to 1–3 focused questions.
 
@@ -75,7 +73,7 @@ After each round, decide whether PROJECT.md would be strong enough.
 
 ## Questioning philosophy
 
-Start open and follow energy. Challenge vague phrases like "smart" or "good UX" with specifics. Use position-first framing: "I'd lean toward X because Y — does that match your thinking?" Ask what would disappoint them and what they do not want.
+Start open and follow the user's language. Challenge vague phrases with specifics. Use position-first framing when useful: "I'd lean toward X because Y — does that match your thinking?" Ask what would disappoint them and what they do not want.
 
 **Anti-patterns — never do these:** checklist walking, canned questions ("What are your key success metrics?"), rapid-fire interrogation, asking about technical skill level, or asking milestone implementation details.
 
