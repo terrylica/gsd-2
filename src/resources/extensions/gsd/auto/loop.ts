@@ -48,7 +48,6 @@ import {
   decideCooldownRecovery,
   decideDispatchClaim,
   decideEngineDispatch,
-  decideEngineReconcile,
   decideFinalizeResult,
   decideInfrastructureError,
   decideIterationErrorRecovery,
@@ -86,6 +85,7 @@ import {
 } from "./workflow-unit-dispatch.js";
 import { buildCustomEngineIterationData } from "./workflow-custom-engine-iteration.js";
 import { handleCustomEngineVerifyRetry } from "./workflow-custom-engine-retry.js";
+import { handleCustomEngineReconcile } from "./workflow-custom-engine-reconcile.js";
 
 // ── Stuck detection persistence (#3704) ──────────────────────────────────
 // Phase C migration: stuck-state.json deleted in favor of DB-backed
@@ -543,26 +543,26 @@ export async function autoLoop(
         }
 
         // Verification passed — mark step complete
-        s.verificationRetryCount?.delete(`${iterData.unitType}/${iterData.unitId}`);
-        saveCustomVerifyRetryCounts(s, {
-          logFailure: logCustomVerifyRetrySaveFailure,
+        const reconcileOutcome = await handleCustomEngineReconcile({
+          session: s,
+          engineState,
+          iterData,
+          iteration,
+          deps: {
+            saveRetryCounts: () => saveCustomVerifyRetryCounts(s, {
+              logFailure: logCustomVerifyRetrySaveFailure,
+            }),
+            logReconcile: details => debugLog("autoLoop", {
+              phase: "custom-engine-reconcile",
+              ...details,
+            }),
+            reconcile: (state, completedStep) => engine.reconcile(state, completedStep),
+            now: () => Date.now(),
+            clearUnitTimeout: deps.clearUnitTimeout,
+            completeIteration,
+          },
         });
-        debugLog("autoLoop", { phase: "custom-engine-reconcile", iteration, unitId: iterData.unitId });
-        const reconcileResult = await engine.reconcile(engineState, {
-          unitType: iterData.unitType,
-          unitId: iterData.unitId,
-          startedAt: s.currentUnit?.startedAt ?? Date.now(),
-          finishedAt: Date.now(),
-        });
-
-        deps.clearUnitTimeout();
-        completeIteration();
-
-        const reconcileDecision = decideEngineReconcile(
-          reconcileResult.outcome === "stop"
-            ? { outcome: "stop", reason: reconcileResult.reason }
-            : { outcome: reconcileResult.outcome },
-        );
+        const reconcileDecision = reconcileOutcome.decision;
         if (reconcileDecision.action === "complete-workflow") {
           await deps.stopAuto(ctx, pi, reconcileDecision.stopReason);
           phaseReporter.report("custom-engine", "milestone-complete", {
@@ -586,9 +586,9 @@ export async function autoLoop(
           phaseReporter.report("custom-engine", "stop", {
             unitType: iterData.unitType,
             unitId: iterData.unitId,
-            reason: reconcileResult.reason,
+            reason: reconcileOutcome.reason,
           });
-          finishTurn("stopped", "manual-attention", reconcileResult.reason);
+          finishTurn("stopped", "manual-attention", reconcileOutcome.reason);
           break;
         }
         phaseReporter.report("custom-engine", "continue", {
