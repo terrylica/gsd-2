@@ -598,6 +598,8 @@ Baseline usage is documented in `docs/dev/refactor-baseline-runbook.md`.
 
 **Exit gate:** Generated PR bodies satisfy template, linked issue, tests, and AI disclosure requirements.
 
+**Closeout status (2026-05-04):** Phase 7 SRC-first process consolidation is closed. `/gsd ship`, `git.auto_pr`, and GitHub sync PR body generation now use the shared `buildPrEvidence` generator with TL;DR, linked issue, tests run, change type, rollback/compatibility, and AI disclosure sections. GitHub sync slice PRs and swarm lane PRs reuse the same generator through their existing formatter surface. Process routing now has one canonical recommended path for hotfix, bugfix, small feature, large feature, and architecture-change work, surfaced in `/gsd start` and `/gsd templates` help. Baseline reporting now emits the Phase 7 dashboard fields: `process.prGeneratorConsumers`, `process.prBodiesMissingIssue`, `process.prBodiesMissingTests`, `process.docsConflictCount`, and `process.shipPathCount`; the current scan reports three shared PR evidence consumers, zero missing issue/test evidence flags, and zero DB-vs-markdown docs conflicts. Verification used targeted PR evidence, GitHub sync formatter, process path, workflow template, changed-src, and `npm run baseline:refactor:gate` tests.
+
 ## Phase 8: Legacy Cleanup Plan
 
 **Goal:** Remove compatibility layers only after telemetry and tests prove they are safe.
