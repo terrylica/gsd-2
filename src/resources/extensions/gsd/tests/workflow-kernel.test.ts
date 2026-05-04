@@ -6,6 +6,8 @@ import test from "node:test";
 
 import {
   decideCooldownRecovery,
+  decideCustomEngineRecovery,
+  decideCustomEngineVerifyRetry,
   decideDispatchClaim,
   decideEngineDispatch,
   decideEngineReconcile,
@@ -366,6 +368,87 @@ test("decideIterationErrorRecovery stops on third consecutive error with history
         "  3. third",
       stopMessage: "3 consecutive iteration failures",
       turnStatus: "failed",
+    },
+  );
+});
+
+test("decideCustomEngineVerifyRetry retries until the retry budget is exceeded", () => {
+  assert.deepEqual(
+    decideCustomEngineVerifyRetry({ attempts: 3, maxRetries: 3 }),
+    { action: "retry" },
+  );
+  assert.deepEqual(
+    decideCustomEngineVerifyRetry({ attempts: 4, maxRetries: 3 }),
+    { action: "recover" },
+  );
+});
+
+test("decideCustomEngineRecovery maps pause recovery to manual attention", () => {
+  assert.deepEqual(
+    decideCustomEngineRecovery({
+      outcome: "pause",
+      reason: "needs review",
+      unitId: "step-1",
+      attempts: 4,
+    }),
+    {
+      action: "pause",
+      turnError: "needs review",
+    },
+  );
+  assert.deepEqual(
+    decideCustomEngineRecovery({
+      outcome: "pause",
+      unitId: "step-1",
+      attempts: 4,
+    }),
+    {
+      action: "pause",
+      turnError: "custom-engine-verify-retry-exhausted",
+    },
+  );
+});
+
+test("decideCustomEngineRecovery maps skip recovery to a stop message", () => {
+  assert.deepEqual(
+    decideCustomEngineRecovery({
+      outcome: "skip",
+      unitId: "step-1",
+      attempts: 4,
+    }),
+    {
+      action: "stop",
+      stopMessage:
+        "Custom workflow verification for step-1 requested skip after retry exhaustion, but the custom engine cannot reconcile skipped steps.",
+      turnError: "custom-engine-verify-retry-exhausted",
+    },
+  );
+});
+
+test("decideCustomEngineRecovery maps stop and retry outcomes to exhausted stops", () => {
+  assert.deepEqual(
+    decideCustomEngineRecovery({
+      outcome: "stop",
+      reason: "blocked by policy",
+      unitId: "step-1",
+      attempts: 4,
+    }),
+    {
+      action: "stop",
+      stopMessage: "blocked by policy",
+      turnError: "custom-engine-verify-retry-exhausted",
+    },
+  );
+  assert.deepEqual(
+    decideCustomEngineRecovery({
+      outcome: "retry",
+      unitId: "step-1",
+      attempts: 4,
+    }),
+    {
+      action: "stop",
+      stopMessage: "Custom workflow verification for step-1 requested retry 4 times without passing.",
+      turnError: "custom-engine-verify-retry-exhausted",
     },
   );
 });

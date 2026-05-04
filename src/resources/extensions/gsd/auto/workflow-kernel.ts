@@ -111,6 +111,30 @@ export type IterationErrorRecoveryDecision =
   | { action: "invalidate-and-retry"; notifyMessage: string; turnStatus: "retry" }
   | { action: "retry"; notifyMessage: string; turnStatus: "retry" };
 
+export interface CustomEngineVerifyRetryInput {
+  attempts: number;
+  maxRetries: number;
+}
+
+export type CustomEngineVerifyRetryDecision =
+  | { action: "retry" }
+  | { action: "recover" };
+
+export interface CustomEngineRecoveryInput {
+  outcome: "retry" | "skip" | "stop" | "pause";
+  reason?: string;
+  unitId: string;
+  attempts: number;
+}
+
+export type CustomEngineRecoveryDecision =
+  | { action: "pause"; turnError: string }
+  | {
+      action: "stop";
+      stopMessage: string;
+      turnError: "custom-engine-verify-retry-exhausted";
+    };
+
 export interface WorkflowLoopInput {
   active: boolean;
   iteration: number;
@@ -325,5 +349,44 @@ export function decideIterationErrorRecovery(
     action: "retry",
     notifyMessage: `Iteration error: ${input.currentErrorMessage}. Retrying.`,
     turnStatus: "retry",
+  };
+}
+
+export function decideCustomEngineVerifyRetry(
+  input: CustomEngineVerifyRetryInput,
+): CustomEngineVerifyRetryDecision {
+  return input.attempts > input.maxRetries
+    ? { action: "recover" }
+    : { action: "retry" };
+}
+
+export function decideCustomEngineRecovery(
+  input: CustomEngineRecoveryInput,
+): CustomEngineRecoveryDecision {
+  const exhaustedTurnError = "custom-engine-verify-retry-exhausted";
+
+  if (input.outcome === "pause") {
+    return {
+      action: "pause",
+      turnError: input.reason ?? exhaustedTurnError,
+    };
+  }
+
+  if (input.outcome === "skip") {
+    return {
+      action: "stop",
+      stopMessage:
+        input.reason ??
+        `Custom workflow verification for ${input.unitId} requested skip after retry exhaustion, but the custom engine cannot reconcile skipped steps.`,
+      turnError: exhaustedTurnError,
+    };
+  }
+
+  const exhaustedReason =
+    `Custom workflow verification for ${input.unitId} requested retry ${input.attempts} times without passing.`;
+  return {
+    action: "stop",
+    stopMessage: input.outcome === "stop" && input.reason ? input.reason : exhaustedReason,
+    turnError: exhaustedTurnError,
   };
 }

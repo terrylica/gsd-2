@@ -55,6 +55,8 @@ import { join } from "node:path";
 import { normalizeRealPath } from "../paths.js";
 import {
   decideCooldownRecovery,
+  decideCustomEngineRecovery,
+  decideCustomEngineVerifyRetry,
   decideDispatchClaim,
   decideEngineDispatch,
   decideEngineReconcile,
@@ -677,31 +679,25 @@ export async function autoLoop(
             unitId: iterData.unitId,
             attempts,
           });
-          if (attempts > MAX_CUSTOM_ENGINE_VERIFY_RETRIES) {
+          const retryDecision = decideCustomEngineVerifyRetry({
+            attempts,
+            maxRetries: MAX_CUSTOM_ENGINE_VERIFY_RETRIES,
+          });
+          if (retryDecision.action === "recover") {
             const recovery = await policy.recover(iterData.unitType, iterData.unitId, { basePath: s.basePath });
-            if (recovery.outcome === "pause") {
+            const recoveryDecision = decideCustomEngineRecovery({
+              outcome: recovery.outcome,
+              reason: recovery.reason,
+              unitId: iterData.unitId,
+              attempts,
+            });
+            if (recoveryDecision.action === "pause") {
               await deps.pauseAuto(ctx, pi);
-              finishTurn("paused", "manual-attention", recovery.reason ?? "custom-engine-verify-retry-exhausted");
+              finishTurn("paused", "manual-attention", recoveryDecision.turnError);
               break;
             }
-            if (recovery.outcome === "skip") {
-              await deps.stopAuto(
-                ctx,
-                pi,
-                recovery.reason ??
-                  `Custom workflow verification for ${iterData.unitId} requested skip after retry exhaustion, but the custom engine cannot reconcile skipped steps.`,
-              );
-              finishTurn("stopped", "manual-attention", "custom-engine-verify-retry-exhausted");
-              break;
-            }
-            const exhaustedReason =
-              `Custom workflow verification for ${iterData.unitId} requested retry ${attempts} times without passing.`;
-            await deps.stopAuto(
-              ctx,
-              pi,
-              recovery.outcome === "stop" && recovery.reason ? recovery.reason : exhaustedReason,
-            );
-            finishTurn("stopped", "manual-attention", "custom-engine-verify-retry-exhausted");
+            await deps.stopAuto(ctx, pi, recoveryDecision.stopMessage);
+            finishTurn("stopped", "manual-attention", recoveryDecision.turnError);
             break;
           }
           finishTurn("retry");
