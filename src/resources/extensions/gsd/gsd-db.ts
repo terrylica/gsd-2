@@ -35,8 +35,9 @@ import { createCoordinationTablesV24 } from "./db-coordination-schema.js";
 import { createDbConnectionCache, type DbConnectionCacheEntry } from "./db-connection-cache.js";
 import { createDbOpenState, type DbOpenPhase } from "./db-open-state.js";
 import { createRuntimeKvTableV25 } from "./db-runtime-kv-schema.js";
-import { ensureColumn, getCurrentSchemaVersion, indexExists, recordSchemaVersion } from "./db-schema-metadata.js";
+import { ensureColumn, getCurrentSchemaVersion, recordSchemaVersion } from "./db-schema-metadata.js";
 import { createDbTransactionRunner } from "./db-transaction.js";
+import { ensureVerificationEvidenceDedupIndex } from "./db-verification-evidence-schema.js";
 import { createSqliteProviderLoader, suppressSqliteWarning, type DbProviderName, type SqliteFallbackOpen } from "./db-provider.js";
 // Type-only import to avoid a circular runtime dep. The runtime side of
 // workflow-manifest.ts depends on this file, but the StateManifest type is
@@ -54,23 +55,6 @@ const providerLoader = createSqliteProviderLoader({
 });
 
 export const SCHEMA_VERSION = 25;
-
-function dedupeVerificationEvidenceRows(db: DbAdapter): void {
-  db.exec(`
-    DELETE FROM verification_evidence
-    WHERE rowid NOT IN (
-      SELECT MIN(rowid)
-      FROM verification_evidence
-      GROUP BY task_id, slice_id, milestone_id, command, verdict
-    )
-  `);
-}
-
-function ensureVerificationEvidenceDedupIndex(db: DbAdapter): void {
-  if (indexExists(db, "idx_verification_evidence_dedup")) return;
-  dedupeVerificationEvidenceRows(db);
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_verification_evidence_dedup ON verification_evidence(task_id, slice_id, milestone_id, command, verdict)");
-}
 
 function initSchema(db: DbAdapter, fileBacked: boolean): void {
   if (fileBacked) db.exec("PRAGMA journal_mode=WAL");
