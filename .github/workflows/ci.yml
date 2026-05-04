@@ -349,6 +349,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build core
+        # `npm pack` does not run prepublishOnly, so we must build dist/
+        # explicitly before packing — otherwise the tarball ships without
+        # the loader and the runtime-local Dockerfile target can't find
+        # the entry point.
+        run: npm run build:core
+
       - name: Run docker e2e suite
         run: npm run test:e2e:docker
 
