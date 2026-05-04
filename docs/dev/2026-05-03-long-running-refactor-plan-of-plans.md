@@ -345,6 +345,8 @@ Baseline usage is documented in `docs/dev/refactor-baseline-runbook.md`.
 
 **Exit gate:** Warm local loop improves by at least 25% and full preflight behavior is preserved.
 
+**Closeout status (2026-05-04):** Phase 3 source-owned tooling now has stale-aware `test:compile`, a focused `npm run test:changed:src` loop, and baseline dashboard fields for test compile cache state, compile file/byte counts, warm/cold command timings, and changed/full verification timings. Measured cold compile was 6146ms; measured warm compile was 417ms, a 93.2% reduction. The focused changed-src path also supports `--base` and `--since`, uses the shared TypeScript test loader, and ran `src/tests/refactor-baseline.test.ts` successfully through the warm compile path. The full `npm run verify:pr` command remains the preserved preflight gate; Phase 3 verification in this stack used targeted tests plus `npm run baseline:refactor:gate`.
+
 ## Phase 4: Workflow Kernel Plan
 
 **Goal:** Extract auto-mode into a pure workflow kernel with explicit adapters and a thin facade.
