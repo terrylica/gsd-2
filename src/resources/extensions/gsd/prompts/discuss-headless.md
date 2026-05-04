@@ -9,11 +9,10 @@ You are creating a GSD milestone from a provided specification document. This is
 ## Reflection Step
 
 Summarize your concrete understanding of the specification:
-
-1. Summarize what is being built in your own words.
-2. Give an honest size read: rough milestone count and first-milestone slice count based on actual work, not labels.
-3. Include scope honesty: "Here's what I'm reading from the spec:" plus major capability bullets.
-4. Note any ambiguities, gaps, or areas where the spec is vague.
+1. What is being built, in your own words.
+2. Honest size read: rough milestone count and first-milestone slice count.
+3. Scope honesty: "Here's what I'm reading from the spec:" plus major capability bullets.
+4. Ambiguities, gaps, or vague areas.
 
 Print this reflection in chat. Do not skip this step.
 
@@ -21,9 +20,9 @@ Print this reflection in chat. Do not skip this step.
 
 Decide the approach based on the actual scope:
 
-**If the work spans multiple milestones:** Map the full landscape:
-1. Propose a milestone sequence — names, one-line intents, rough dependencies
-2. Print this in chat as the working milestone sequence
+**If the work spans multiple milestones:** map the landscape:
+1. Propose milestone names, one-line intents, and rough dependencies.
+2. Print this as the working milestone sequence.
 
 **If the work fits in a single milestone:** Proceed directly to investigation.
 
@@ -32,20 +31,15 @@ Decide the approach based on the actual scope:
 ## Mandatory Investigation
 
 Investigate before making decisions:
-
-1. Scout the codebase with `ls`, `find`, `rg`, or `scout` for relevant areas, patterns, and constraints.
-2. Check current library docs with `resolve_library` / `get_library_docs` for mentioned tech.
-3. Use `search-the-web`, `fetch_page`, or `search_and_read` only when the domain, service, API, or current practice needs external facts.
+1. Scout relevant code with `ls`, `find`, `rg`, or `scout`.
+2. Check mentioned tech with `resolve_library` / `get_library_docs`.
+3. Use `search-the-web`, `fetch_page`, or `search_and_read` only for current external facts.
 
 Budget searches across investigation and focused research. Prefer library docs and one-shot `search_and_read`; avoid repeated similar queries. Decisions must reflect codebase and ecosystem evidence.
 
 ## Autonomous Decision-Making
 
-For every ambiguous, vague, or silent area:
-
-- Apply the depth checklist below.
-- Make the smallest sound judgment call from spec intent, codebase patterns, domain conventions, and investigation findings.
-- Document every assumption in CONTEXT.md under "Assumptions": what the spec said or omitted, what you decided, and why.
+For every ambiguous, vague, or silent area, apply the depth checklist, make the smallest sound judgment from spec intent, codebase patterns, domain conventions, and investigation findings, and Document every assumption in CONTEXT.md under "Assumptions": what the spec said or omitted, what you decided, and why.
 
 ### Depth Checklist
 
@@ -72,12 +66,7 @@ This is the audit trail. Print it.
 
 ## Focused Research
 
-Do focused research before roadmap creation. Research is advisory, not auto-binding. Use the spec + investigation to identify:
-- table stakes the product space usually expects
-- domain-standard behaviors that may be implied but not stated
-- likely omissions that would make the product feel incomplete
-- plausible anti-features or scope traps
-- differentiators worth preserving
+Do focused research before roadmap creation. Research is advisory, not auto-binding. Use the spec + investigation to identify table stakes, implied domain-standard behaviors, likely omissions, anti-features/scope traps, and differentiators worth preserving.
 
 For multi-milestone visions, research should cover the full landscape, not just the first milestone. Research findings may affect milestone sequencing, not just slice ordering within M001.
 
@@ -89,25 +78,9 @@ Before writing a roadmap, produce `.gsd/REQUIREMENTS.md`.
 
 Use it as the project's explicit capability contract.
 
-Requirements must be organized into:
-- Active
-- Validated
-- Deferred
-- Out of Scope
-- Traceability
+Requirements must be organized into Active, Validated, Deferred, Out of Scope, and Traceability.
 
-Each requirement includes:
-- stable ID (`R###`)
-- title
-- class
-- status
-- description
-- why it matters
-- source (`spec`, `inferred`, `research`, or `execution`)
-- primary owning slice
-- supporting slices
-- validation status
-- notes
+Each requirement includes stable ID (`R###`), title, class, status, description, why it matters, source (`spec`, `inferred`, `research`, or `execution`), primary owning slice, supporting slices, validation status, and notes.
 
 Rules:
 - Keep requirements capability-oriented, not a feature inventory
@@ -133,10 +106,7 @@ This is the user's TUI audit trail; do not skip it.
 
 ### Naming Convention
 
-Directories use bare IDs. Files use ID-SUFFIX format. Titles live inside file content, not in names.
-- Milestone dir: `.gsd/milestones/{{milestoneId}}/`
-- Milestone files: `{{milestoneId}}-CONTEXT.md`, `{{milestoneId}}-ROADMAP.md`
-- Slice dirs: `S01/`, `S02/`, etc.
+Directories use bare IDs. Files use ID-SUFFIX format. Titles live inside content, not names. Milestone dir: `.gsd/milestones/{{milestoneId}}/`; files: `{{milestoneId}}-CONTEXT.md`, `{{milestoneId}}-ROADMAP.md`; slice dirs: `S01/`, `S02/`, etc.
 
 ### Single Milestone
 
@@ -147,8 +117,8 @@ In a single pass:
 
 **Depth-Preservation Guidance for context.md:** Preserve the specification's exact terminology, emphasis, and framing. Do not flatten domain-specific language into generics. CONTEXT.md is downstream agents' only window into this spec.
 
-4. Write `{{contextPath}}` — use the **Context** output template below. Preserve key risks, unknowns, existing codebase constraints, integration points, and relevant requirements surfaced during research. Include an "Assumptions" section documenting every judgment call.
-5. Call `gsd_plan_milestone` to create the roadmap. Decompose into demoable vertical slices with risk, depends, demo sentences, proof strategy, verification classes, definition of done, requirement coverage, and a boundary map. If the milestone crosses runtime boundaries, include a final integration slice proving end-to-end behavior in a real environment. Use the **Roadmap** output template below for tool parameters.
+4. Write `{{contextPath}}` from the **Context** template. Preserve risks, unknowns, codebase constraints, integration points, relevant requirements, and an "Assumptions" section.
+5. Call `gsd_plan_milestone` to create demoable vertical slices with risk, depends, demo, proof strategy, verification classes, definition of done, requirement coverage, and boundary map. If crossing runtime boundaries, include a final end-to-end integration slice. Use the **Roadmap** output template below.
 6. For each architectural or pattern decision, call `gsd_decision_save` — the tool auto-assigns IDs and regenerates `.gsd/DECISIONS.md` automatically.
 7. {{commitInstruction}}
 
@@ -171,7 +141,7 @@ After completing steps 1–7 above, say exactly: "Milestone {{milestoneId}} read
 
 #### Phase 1: Shared artifacts
 
-1. For each milestone, call `gsd_milestone_generate_id` to get its ID; never invent IDs. Then `mkdir -p .gsd/milestones/<ID>/slices` for each.
+1. For each milestone, call `gsd_milestone_generate_id`; never invent IDs. Then `mkdir -p .gsd/milestones/<ID>/slices`.
 2. Write `.gsd/PROJECT.md` — use the **Project** output template below.
 3. Write `.gsd/REQUIREMENTS.md` — use the **Requirements** output template below. Capture Active, Deferred, Out of Scope, and any already Validated requirements. Later milestones may have provisional ownership where slice plans do not exist yet.
 4. For any architectural or pattern decisions, call `gsd_decision_save` — the tool auto-assigns IDs and regenerates `.gsd/DECISIONS.md` automatically.
@@ -183,7 +153,7 @@ After completing steps 1–7 above, say exactly: "Milestone {{milestoneId}} read
 
 #### MANDATORY: depends_on Frontmatter in CONTEXT.md
 
-Every CONTEXT.md for a milestone that depends on other milestones MUST have YAML frontmatter with `depends_on`. The auto-mode state machine reads this for execution order; without it, milestones may run out of order or in parallel.
+Every CONTEXT.md for a milestone that depends on other milestones MUST have YAML frontmatter with `depends_on`. Auto-mode reads this for execution order.
 
 ```yaml
 ---
@@ -197,18 +167,18 @@ If a milestone has no dependencies, omit frontmatter. Do NOT rely on QUEUE.md or
 
 #### Phase 3: Remaining milestones
 
-For each remaining milestone, in dependency order, autonomously decide the best readiness mode:
+For each remaining milestone, in dependency order, autonomously decide the readiness mode:
 
 - **Write full context** — if the spec provides enough detail for this milestone and investigation confirms feasibility. Write a full `CONTEXT.md` with technical assumptions verified against the actual codebase.
 - **Write draft for later** — if the spec has seed material but the milestone needs its own investigation/research in a future session. Write a `CONTEXT-DRAFT.md` capturing seed material, key ideas, provisional scope, and open questions. **Downstream:** Auto-mode pauses at this milestone and prompts the user to discuss.
 - **Just queue it** — if the milestone is identified but the spec provides no actionable detail. No context file written. **Downstream:** Auto-mode pauses and starts a full discussion from scratch.
 
-**Default to writing full context** when the spec is detailed enough. Default to draft when the spec mentions the milestone but is vague. Default to queue when the milestone is implied by the vision but not described.
+**Default to writing full context** when the spec is detailed enough, draft when mentioned but vague, and queue when implied but not described.
 
 **Technical Assumption Verification is still MANDATORY** for full-context milestones:
-1. Read the actual code for every file or module you reference. Confirm APIs exist, check what functions actually do.
-2. Check for stale assumptions — verify referenced modules still work as described.
-3. Print findings in chat before writing each milestone's CONTEXT.md.
+1. Read actual code for every referenced file or module.
+2. Check stale assumptions against current behavior.
+3. Print findings before writing each milestone's CONTEXT.md.
 
 Each full or draft context must let a future agent understand intent, constraints, dependencies, unlocks, and done criteria without this session.
 
