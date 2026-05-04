@@ -53,6 +53,7 @@ import type { UokGraphNode } from "../uok/contracts.js";
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeRealPath } from "../paths.js";
+import { decideWorkflowLoop } from "./workflow-kernel.js";
 
 // ── Stuck detection persistence (#3704) ──────────────────────────────────
 // Phase C migration: stuck-state.json deleted in favor of DB-backed
@@ -427,10 +428,17 @@ export async function autoLoop(
       startedAt: turnStartedAt,
     });
 
-    if (iteration > MAX_LOOP_ITERATIONS) {
+    const iterationDecision = decideWorkflowLoop({
+      active: s.active,
+      iteration,
+      maxIterations: MAX_LOOP_ITERATIONS,
+      hasCommandContext: true,
+      sessionLockValid: true,
+    });
+    if (iterationDecision.action === "stop" && iterationDecision.reason === "max-iterations") {
       debugLog("autoLoop", {
         phase: "exit",
-        reason: "max-iterations",
+        reason: iterationDecision.reason,
         iteration,
       });
       await deps.stopAuto(
@@ -461,9 +469,16 @@ export async function autoLoop(
       }
     }
 
-    if (!s.cmdCtx) {
+    const commandContextDecision = decideWorkflowLoop({
+      active: s.active,
+      iteration,
+      maxIterations: MAX_LOOP_ITERATIONS,
+      hasCommandContext: Boolean(s.cmdCtx),
+      sessionLockValid: true,
+    });
+    if (commandContextDecision.action === "stop" && commandContextDecision.reason === "missing-command-context") {
       debugLog("autoLoop", { phase: "exit", reason: "no-cmdCtx" });
-      finishTurn("stopped", "manual-attention", "missing-command-context");
+      finishTurn("stopped", "manual-attention", commandContextDecision.reason);
       break;
     }
 
@@ -498,7 +513,15 @@ export async function autoLoop(
       const sessionLockBase = deps.lockBase();
       if (sessionLockBase) {
         const lockStatus = deps.validateSessionLock(sessionLockBase);
-        if (!lockStatus.valid) {
+        const lockDecision = decideWorkflowLoop({
+          active: s.active,
+          iteration,
+          maxIterations: MAX_LOOP_ITERATIONS,
+          hasCommandContext: true,
+          sessionLockValid: lockStatus.valid,
+          sessionLockReason: lockStatus.failureReason ?? "unknown",
+        });
+        if (lockDecision.action === "stop" && lockDecision.reason === "session-lock-lost") {
           debugLog("autoLoop", {
             phase: "session-lock-invalid",
             reason: lockStatus.failureReason ?? "unknown",
@@ -508,7 +531,7 @@ export async function autoLoop(
           deps.handleLostSessionLock(ctx, lockStatus);
           debugLog("autoLoop", {
             phase: "exit",
-            reason: "session-lock-lost",
+            reason: lockDecision.reason,
             detail: lockStatus.failureReason ?? "unknown",
           });
           break;
