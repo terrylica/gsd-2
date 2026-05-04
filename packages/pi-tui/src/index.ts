@@ -1,5 +1,12 @@
 // Core TUI interfaces and classes
 
+// Style primitives
+export {
+	style,
+	TerminalStyle,
+	type TerminalBorderStyle,
+	type TerminalStyleSpec,
+} from "./style.js";
 // Autocomplete support
 export {
 	type AutocompleteItem,

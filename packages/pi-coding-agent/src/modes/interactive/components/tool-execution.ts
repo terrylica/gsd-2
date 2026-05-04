@@ -6,6 +6,7 @@ import {
 	type ImageDimensions,
 	imageFallback,
 	Spacer,
+	style,
 	Text,
 	type TUI,
 	truncateToWidth,
@@ -107,8 +108,6 @@ function renderToolFrame(
 	const topColor = opts.tone === "error" ? "error" : "toolTitle";
 	const labelColor = opts.tone === "error" ? "error" : "toolTitle";
 	const statusColor = opts.tone === "error" ? "error" : opts.tone === "pending" ? "warning" : "success";
-	const border = (s: string) => theme.fg(borderColor, s);
-
 	const leftStyled = theme.fg(labelColor, theme.bold(`• ${opts.label}`));
 	const rightStyled = theme.fg(statusColor, opts.status);
 	const gap = Math.max(1, outerWidth - visibleWidth(leftStyled) - visibleWidth(rightStyled));
@@ -118,14 +117,14 @@ function renderToolFrame(
 	const sourceLines = trimOuterBlankLines(contentLines);
 	const bodyLines = (sourceLines.length > 0 ? sourceLines : [""]).map((line) => {
 		const clipped = truncateToWidth(line, contentWidth, "");
-		return border("│ ") + clipped;
+		return clipped;
 	});
 
-	return [
-		theme.fg(topColor, "─".repeat(outerWidth)),
-		headerRow + " ".repeat(headerPad),
-		...bodyLines,
-	];
+	return style()
+		.border("rule")
+		.borderColor((line) => theme.fg(line.startsWith("─") ? topColor : borderColor, line))
+		.title(headerRow + " ".repeat(headerPad))
+		.render(bodyLines, outerWidth);
 }
 
 const COMPACT_ARG_VALUE_LIMIT = 60;
