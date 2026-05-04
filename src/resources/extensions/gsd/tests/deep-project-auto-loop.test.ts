@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1020,7 +1020,10 @@ test("deep project setup: research-project blocker placeholder is a file, not th
   const base = makeBase();
   try {
     const expectedPath = resolveExpectedArtifactPath("research-project", "PROJECT-RESEARCH", base);
-    assert.equal(expectedPath, join(base, ".gsd", "research", "PROJECT-RESEARCH-BLOCKER.md"));
+    assert.equal(
+      expectedPath,
+      join(realpathSync(base), ".gsd", "research", "PROJECT-RESEARCH-BLOCKER.md"),
+    );
 
     mkdirSync(join(base, ".gsd", "research"), { recursive: true });
     const diagnosis = writeBlockerPlaceholder(

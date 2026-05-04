@@ -47,7 +47,7 @@ test("execute-task prompt renders compact execution and completion gates", async
 
   assert.match(prompt, /You execute\./);
   assert.match(prompt, /Call `memory_query`/);
-  assert.match(prompt, /Before any `Write` creating an artifact\/output file/);
+  assert.match(prompt, /Before any `Write` that creates an artifact or output file/);
   assert.match(prompt, /Build real behavior/);
   assert.match(prompt, /Background process rule/);
   assert.match(prompt, /blocker_discovered: true/);
