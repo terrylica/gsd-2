@@ -16,6 +16,9 @@ export const promptGoldenUnits = [
     requiredMarkers: [
       "UNIT: Execute Task T01",
       "Inlined Task Plan",
+      "Background process rule",
+      "Verification Evidence",
+      "blocker_discovered",
       "gsd_task_complete",
       "Implement baseline harness",
     ],
