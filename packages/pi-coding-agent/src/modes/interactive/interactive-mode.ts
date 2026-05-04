@@ -176,6 +176,41 @@ export function shouldRenderExtensionNotifyInChat(type: ExtensionNotifyType): bo
 	return type !== "warning";
 }
 
+export interface ExtensionNotifyRenderResult {
+	rendered: boolean;
+	statusSpacer?: Spacer;
+	statusText?: Text;
+}
+
+export function renderExtensionNotifyInChat(
+	chatContainer: Container,
+	message: string,
+	type?: ExtensionNotifyType,
+): ExtensionNotifyRenderResult {
+	if (!shouldRenderExtensionNotifyInChat(type)) {
+		return { rendered: false };
+	}
+
+	const spacer = new Spacer(1);
+	chatContainer.addChild(spacer);
+
+	if (type === "error") {
+		chatContainer.addChild(new Text(theme.fg("error", `Error: ${message}`), 1, 0));
+		return { rendered: true };
+	}
+	if (type === "success") {
+		chatContainer.addChild(new DynamicBorder((text) => theme.fg("success", text)));
+		chatContainer.addChild(new Text(theme.fg("success", message), 1, 0));
+		chatContainer.addChild(new DynamicBorder((text) => theme.fg("success", text)));
+		chatContainer.addChild(new Spacer(1));
+		return { rendered: true };
+	}
+
+	const statusText = new Text(theme.fg("dim", message), 1, 0);
+	chatContainer.addChild(statusText);
+	return { rendered: true, statusSpacer: spacer, statusText };
+}
+
 /**
  * Options for InteractiveMode initialization.
  */
@@ -1839,17 +1874,16 @@ export class InteractiveMode {
 	/**
 	 * Show a notification for extensions.
 	 */
-	private showExtensionNotify(message: string, type?: "info" | "warning" | "error" | "success"): void {
-		if (!shouldRenderExtensionNotifyInChat(type)) {
+	private showExtensionNotify(message: string, type?: ExtensionNotifyType): void {
+		const result = renderExtensionNotifyInChat(this.chatContainer, message, type);
+		if (!result.rendered) {
 			return;
 		}
-		if (type === "error") {
-			this.showError(message);
-		} else if (type === "success") {
-			this.showSuccess(message);
-		} else {
-			this.showStatus(message, { append: true });
+		if (result.statusSpacer && result.statusText) {
+			this.lastStatusSpacer = result.statusSpacer;
+			this.lastStatusText = result.statusText;
 		}
+		this.ui.requestRender();
 	}
 
 	/** Show a custom component with keyboard focus. Overlay mode renders on top of existing content. */

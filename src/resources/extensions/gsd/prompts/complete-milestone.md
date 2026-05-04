@@ -42,7 +42,7 @@ Then:
 
 ### Verification Gate — STOP if verification failed
 
-**If ANY verification failure was recorded in steps 3, 4, or 5, you MUST follow the failure path below. Do NOT proceed to step 10.**
+**If ANY verification failure was recorded in steps 3, 4, or 5, you MUST follow the failure path below. Do NOT proceed with steps 9–13.**
 
 **Failure path** (verification failed):
 - Do NOT call `gsd_complete_milestone` — the milestone must not be marked as complete.
