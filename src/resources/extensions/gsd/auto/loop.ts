@@ -85,6 +85,10 @@ import {
 } from "./workflow-unit-dispatch.js";
 import { buildCustomEngineIterationData } from "./workflow-custom-engine-iteration.js";
 import { handleCustomEngineVerifyRetry } from "./workflow-custom-engine-retry.js";
+import {
+  handleCustomEngineVerifyPause,
+  handleCustomEngineVerifyRetryOutcome,
+} from "./workflow-custom-engine-verify-outcome.js";
 import { handleCustomEngineReconcile } from "./workflow-custom-engine-reconcile.js";
 import { handleCustomEngineReconcileOutcome } from "./workflow-custom-engine-reconcile-outcome.js";
 
@@ -498,13 +502,17 @@ export async function autoLoop(
         debugLog("autoLoop", { phase: "custom-engine-verify", iteration, unitId: iterData.unitId });
         const verifyResult = await policy.verify(iterData.unitType, iterData.unitId, { basePath: s.basePath });
         if (verifyResult === "pause") {
-          await deps.pauseAuto(ctx, pi);
-          phaseReporter.report("custom-engine", "pause", {
+          const verifyFlow = await handleCustomEngineVerifyPause({
             unitType: iterData.unitType,
             unitId: iterData.unitId,
+            deps: {
+              pauseAuto: () => deps.pauseAuto(ctx, pi),
+              stopAuto: reason => deps.stopAuto(ctx, pi, reason),
+              reportPause: details => phaseReporter.report("custom-engine", "pause", details),
+              finishTurn,
+            },
           });
-          finishTurn("paused", "manual-attention", "custom-engine-verify-pause");
-          break;
+          if (verifyFlow.action === "break") break;
         }
         if (verifyResult === "retry") {
           const retryOutcome = await handleCustomEngineVerifyRetry({
@@ -529,17 +537,16 @@ export async function autoLoop(
               reportRetry: details => phaseReporter.report("custom-engine", "retry", details),
             },
           });
-          if (retryOutcome.action === "pause") {
-            await deps.pauseAuto(ctx, pi);
-            finishTurn("paused", "manual-attention", retryOutcome.turnError);
-            break;
-          }
-          if (retryOutcome.action === "stop") {
-            await deps.stopAuto(ctx, pi, retryOutcome.stopMessage);
-            finishTurn("stopped", "manual-attention", retryOutcome.turnError);
-            break;
-          }
-          finishTurn("retry");
+          const retryFlow = await handleCustomEngineVerifyRetryOutcome({
+            outcome: retryOutcome,
+            deps: {
+              pauseAuto: () => deps.pauseAuto(ctx, pi),
+              stopAuto: reason => deps.stopAuto(ctx, pi, reason),
+              reportPause: details => phaseReporter.report("custom-engine", "pause", details),
+              finishTurn,
+            },
+          });
+          if (retryFlow.action === "break") break;
           continue;
         }
 
