@@ -86,6 +86,7 @@ import {
   runUnitPhaseViaContract,
   type DispatchContract,
 } from "./workflow-unit-dispatch.js";
+import { buildCustomEngineIterationData } from "./workflow-custom-engine-iteration.js";
 
 // ── Stuck detection persistence (#3704) ──────────────────────────────────
 // Phase C migration: stuck-state.json deleted in favor of DB-backed
@@ -442,28 +443,17 @@ export async function autoLoop(
 
         // dispatch.action === "dispatch"
         const step = dispatch.step!;
-        const gsdState = await deps.deriveState(s.canonicalProjectRoot);
-        debugLog("autoLoop", {
-          phase: "post-derive",
-          site: "custom-engine-gsd-state",
+        iterData = await buildCustomEngineIterationData({
+          step,
           basePath: s.basePath,
           canonicalProjectRoot: s.canonicalProjectRoot,
-          derivedPhase: gsdState.phase,
-          activeUnit: gsdState.activeTask?.id ?? gsdState.activeSlice?.id ?? gsdState.activeMilestone?.id,
+          currentMilestoneId: s.currentMilestoneId,
+          deriveState: deps.deriveState,
+          logPostDerive: details => debugLog("autoLoop", {
+            phase: "post-derive",
+            ...details,
+          }),
         });
-
-        iterData = {
-          unitType: step.unitType,
-          unitId: step.unitId,
-          prompt: step.prompt,
-          finalPrompt: step.prompt,
-          pauseAfterUatDispatch: false,
-          state: gsdState,
-          mid: s.currentMilestoneId ?? "workflow",
-          midTitle: "Workflow",
-          isRetry: false,
-          previousTier: undefined,
-        };
         observedUnitType = iterData.unitType;
         observedUnitId = iterData.unitId;
 
