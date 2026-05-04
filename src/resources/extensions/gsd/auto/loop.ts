@@ -85,6 +85,7 @@ import { validateWorkflowSessionLock } from "./workflow-session-lock.js";
 import { dequeueSidecarItem } from "./workflow-sidecar-queue.js";
 import { maintainWorkerHeartbeat } from "./workflow-worker-heartbeat.js";
 import { measureMemoryPressure } from "./workflow-memory-pressure.js";
+import { buildSidecarIterationData } from "./workflow-sidecar-iteration.js";
 
 // ── Stuck detection persistence (#3704) ──────────────────────────────────
 // Phase C migration: stuck-state.json deleted in favor of DB-backed
@@ -692,27 +693,16 @@ export async function autoLoop(
         observedUnitType = iterData.unitType;
         observedUnitId = iterData.unitId;
       } else {
-        // ── Sidecar path: use values from the sidecar item directly ──
-        const sidecarState = await deps.deriveState(s.canonicalProjectRoot);
-        debugLog("autoLoop", {
-          phase: "post-derive",
-          site: "sidecar",
+        iterData = await buildSidecarIterationData({
+          sidecarItem,
           basePath: s.basePath,
           canonicalProjectRoot: s.canonicalProjectRoot,
-          derivedPhase: sidecarState.phase,
-          activeUnit: sidecarState.activeTask?.id ?? sidecarState.activeSlice?.id ?? sidecarState.activeMilestone?.id,
+          deriveState: deps.deriveState,
+          logPostDerive: details => debugLog("autoLoop", {
+            phase: "post-derive",
+            ...details,
+          }),
         });
-        iterData = {
-          unitType: sidecarItem.unitType,
-          unitId: sidecarItem.unitId,
-          prompt: sidecarItem.prompt,
-          finalPrompt: sidecarItem.prompt,
-          pauseAfterUatDispatch: false,
-          state: sidecarState,
-          mid: sidecarState.activeMilestone?.id,
-          midTitle: sidecarState.activeMilestone?.title,
-          isRetry: false, previousTier: undefined,
-        };
         observedUnitType = iterData.unitType;
         observedUnitId = iterData.unitId;
         phaseReporter.report("dispatch", "sidecar", {
