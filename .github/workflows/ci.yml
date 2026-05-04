@@ -29,6 +29,7 @@ jobs:
       docs-only: ${{ steps.check.outputs.docs-only }}
       portability-changed: ${{ steps.check.outputs.portability-changed }}
       docker-changed: ${{ steps.check.outputs.docker-changed }}
+      studio-changed: ${{ steps.check.outputs.studio-changed }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -76,6 +77,15 @@ jobs:
           else
             echo "docker-changed=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No Docker-relevant changes detected — skipping docker-e2e"
+          fi
+          STUDIO=$(echo "$NON_DOCS" | grep -E '^studio/' || true)
+          if [ -n "$STUDIO" ]; then
+            echo "studio-changed=true" >> "$GITHUB_OUTPUT"
+            echo "Studio-relevant files changed:"
+            echo "$STUDIO"
+          else
+            echo "studio-changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Studio-relevant changes detected — skipping studio-e2e"
           fi
 
   docs-check:
@@ -392,6 +402,48 @@ jobs:
           path: test-results/e2e
           if-no-files-found: ignore
           retention-days: 7
+
+  studio-e2e:
+    # Studio Electron app launch-only e2e. Verifies the app launches into
+    # one window, the renderer DOM mounts, and there are no uncaught errors
+    # during boot. Scope is intentionally narrow per peer review — Studio
+    # has no shipped features yet, so feature-level e2e tests scaffolding,
+    # not product. Expand once Studio ships features.
+    #
+    # Non-blocking via continue-on-error: there is currently a known
+    # preload-format bug surfaced by this test (see follow-up issue).
+    # Drop continue-on-error once the preload bug is fixed.
+    #
+    # No untrusted GitHub event input is consumed in run: blocks.
+    timeout-minutes: 15
+    needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.docs-only != 'true' &&
+      needs.detect-changes.outputs.studio-changed == 'true'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers (electron driver)
+        run: npx playwright install --with-deps chromium
+
+      - name: Build studio
+        run: npm run build -w @gsd/studio
+
+      - name: Run studio launch e2e (xvfb)
+        run: xvfb-run --auto-servernum npm run test:e2e -w @gsd/studio
 
   windows-portability:
     timeout-minutes: 25
