@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "@gsd/pi-tui";
+import { style, truncateToWidth, visibleWidth } from "@gsd/pi-tui";
 import { theme } from "../theme/theme.js";
 import { formatTimestamp, type TimestampFormat } from "./timestamp.js";
 
@@ -67,21 +67,21 @@ export function renderChatFrame(
 	const headerRow = `${leftStyled}${" ".repeat(gap)}${rightStyled}`;
 	const headerPad = Math.max(0, outerWidth - visibleWidth(headerRow));
 
-	const sourceLines = trimOuterBlankLines(contentLines);
 	const bodyColor =
 		opts.tone === "user"
 			? "userMessageText"
 			: isPurple
 				? "customMessageText"
 				: "assistantMessageText";
+	const sourceLines = trimOuterBlankLines(contentLines);
 	const bodyLines = (sourceLines.length > 0 ? sourceLines : [""]).map((line) => {
 		const clipped = truncateToWidth(line, contentWidth, "");
-		return border("│ ") + theme.fg(bodyColor, clipped);
+		return theme.fg(bodyColor, clipped);
 	});
 
-	return [
-		theme.fg(borderMuted, "─".repeat(outerWidth)),
-		headerRow + " ".repeat(headerPad),
-		...bodyLines,
-	];
+	return style()
+		.border("rule")
+		.borderColor((line) => (line.startsWith("─") ? theme.fg(borderMuted, line) : border(line)))
+		.title(headerRow + " ".repeat(headerPad))
+		.render(bodyLines, outerWidth);
 }
