@@ -598,7 +598,6 @@ function listUntrackedProjectFiles(basePath: string): string[] {
 function hasKnownProjectMarkers(basePath: string, signals: ProjectSignals): boolean {
   if (signals.detectedFiles.length > 0) return true;
   if (signals.xcodePlatforms.length > 0) return true;
-  if (hasProjectFileInAncestor(basePath)) return true;
   return false;
 }
 

@@ -152,6 +152,32 @@ test("complete-milestone prompt does not trust stale pass validation without met
   }
 });
 
+test("complete-milestone prompt does not trust pass validation missing current summary coverage", async () => {
+  const base = makeRepo({ "index.html": "<!doctype html>\n<title>Test</title>\n" });
+  try {
+    writeCompleteMilestoneFiles(base, [
+      "---",
+      "verdict: pass",
+      "remediation_round: 0",
+      "---",
+      "",
+      "# Validation",
+      "validation_metadata:",
+      "  covered_artifacts:",
+      "    - `.gsd/milestones/M001/M001-VALIDATION.md`",
+      "    - `.gsd/milestones/M001/M001-ROADMAP.md`",
+      "",
+      "All checks passed.",
+    ].join("\n"));
+    const prompt = await buildCompleteMilestonePrompt("M001", "Polish static page", base, "minimal");
+    assert.match(prompt, /Validation Requires Attention/);
+    assert.match(prompt, /does not cover current milestone artifacts/);
+    assert.doesNotMatch(prompt, /Passing Validation Artifact/);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("complete-milestone prompt keeps deeper review path without passing validation", async () => {
   const base = makeRepo({ "index.html": "<!doctype html>\n<title>Test</title>\n" });
   try {

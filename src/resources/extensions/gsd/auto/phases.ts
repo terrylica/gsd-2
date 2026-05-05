@@ -1489,6 +1489,7 @@ export async function runUnitPhase(
   // hallucinate summaries since they cannot read or write any files.
   // Uses project classification so project presence is not conflated with
   // ecosystem marker detection. Static/minimal repos become untyped-existing.
+  let projectClassification: ReturnType<typeof classifyProject> | null = null;
   if (s.basePath && unitType === "execute-task") {
     const gitMarker = join(s.basePath, ".git");
     const hasGit = deps.existsSync(gitMarker);
@@ -1499,12 +1500,15 @@ export async function runUnitPhase(
       await deps.stopAuto(ctx, pi, msg);
       return { action: "break", reason: "worktree-invalid" };
     }
-    const classification = classifyProject(s.basePath);
-    if (classification.kind === "greenfield" || classification.kind === "invalid-repo") {
-      debugLog("runUnitPhase", { phase: "worktree-health-greenfield", basePath: s.basePath, classification });
+    projectClassification = classifyProject(s.basePath);
+    if (projectClassification.kind === "invalid-repo") {
+      debugLog("runUnitPhase", { phase: "worktree-health-invalid-repo", basePath: s.basePath, classification: projectClassification });
+      ctx.ui.notify(`Warning: ${s.basePath} is not a valid git repo for project classification — proceeding with caution`, "warning");
+    } else if (projectClassification.kind === "greenfield") {
+      debugLog("runUnitPhase", { phase: "worktree-health-greenfield", basePath: s.basePath, classification: projectClassification });
       ctx.ui.notify(`Warning: ${s.basePath} has no project content yet — proceeding as greenfield project`, "warning");
-    } else if (classification.kind === "untyped-existing") {
-      debugLog("runUnitPhase", { phase: "worktree-health-untyped-existing", basePath: s.basePath, classification });
+    } else if (projectClassification.kind === "untyped-existing") {
+      debugLog("runUnitPhase", { phase: "worktree-health-untyped-existing", basePath: s.basePath, classification: projectClassification });
       ctx.ui.notify(
         `Notice: ${s.basePath} has existing project content but no recognized tooling markers — using generic file-level workflow guidance`,
         "info",
@@ -1588,7 +1592,7 @@ export async function runUnitPhase(
   let finalPrompt = prompt;
 
   if (unitType === "execute-task") {
-    const projectClassification = classifyProject(s.basePath);
+    projectClassification ??= classifyProject(s.basePath);
     if (projectClassification.kind === "untyped-existing") {
       const samples = projectClassification.contentFiles.slice(0, 8).join(", ") || "project files";
       finalPrompt +=

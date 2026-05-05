@@ -79,6 +79,23 @@ test("classifyProject: empty git repo is greenfield", (t) => {
   assert.equal(classification.kind, "greenfield");
 });
 
+test("classifyProject: nested empty git repo does not inherit ancestor markers", (t) => {
+  const parent = makeGitRepo("classify-parent-marker");
+  t.after(() => cleanup(parent));
+
+  writeFileSync(join(parent, "package.json"), JSON.stringify({ name: "parent" }), "utf-8");
+  git(parent, ["add", "package.json"]);
+  git(parent, ["commit", "-m", "add parent marker"]);
+  const child = join(parent, "nested");
+  mkdirSync(child, { recursive: true });
+  git(child, ["init"]);
+  git(child, ["config", "user.email", "test@example.com"]);
+  git(child, ["config", "user.name", "Test User"]);
+
+  const classification = classifyProject(child);
+  assert.equal(classification.kind, "greenfield");
+});
+
 test("classifyProject: tracked static HTML is existing untyped content", (t) => {
   const dir = makeGitRepo("classify-index");
   t.after(() => cleanup(dir));

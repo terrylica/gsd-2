@@ -120,8 +120,9 @@ export function postflightPopStash(
   stashMarker: string | undefined,
   notify: (message: string, level: "info" | "warning" | "error") => void,
 ): void {
+  let stashRef: string | null = null;
   try {
-    const stashRef = findPreflightStashRef(basePath, milestoneId, stashMarker);
+    stashRef = findPreflightStashRef(basePath, milestoneId, stashMarker);
     if (!stashRef) {
       const msg = `No matching GSD preflight stash found for milestone ${milestoneId}; leaving stash list untouched.`;
       logWarning("preflight", msg);
@@ -138,7 +139,10 @@ export function postflightPopStash(
   } catch (err) {
     // Pop conflicts mean the merged code collides with the stashed changes.
     // Log a warning — the user needs to resolve manually, but the merge succeeded.
-    const msg = `git stash pop failed after merge of milestone ${milestoneId}: ${err instanceof Error ? err.message : String(err)}. Run "git stash pop" manually to restore your changes.`;
+    const restoreHint = stashRef
+      ? `Run "git stash pop ${stashRef}" or "git stash apply ${stashRef}" manually to restore the correct stash.`
+      : `Run "git stash list" to find the matching GSD preflight stash before restoring manually.`;
+    const msg = `git stash pop ${stashRef ?? ""}`.trim() + ` failed after merge of milestone ${milestoneId}: ${err instanceof Error ? err.message : String(err)}. ${restoreHint}`;
     logWarning("preflight", msg);
     notify(msg, "warning");
   }

@@ -119,16 +119,45 @@ function formatProjectClassificationForPlanning(classification: ProjectClassific
   return lines.join("\n");
 }
 
-function isValidationFreshOrApplicable(validationContent: string | null, validationRel: string): boolean {
-  if (!validationContent) return false;
-  if (!/validation_metadata:/i.test(validationContent)) return false;
-  if (!/covered[_-]?artifacts:/i.test(validationContent)) return false;
-  return validationContent.includes(validationRel);
+function normalizeArtifactRef(value: string): string {
+  return value.trim().replace(/^[-\s]+/, "").replace(/^["'`]+|["'`]+$/g, "").replaceAll("\\", "/").replace(/^\.\//, "");
 }
 
-function formatCloseoutReviewInstructions(validationContent: string | null, validationRel: string): string {
+function parseCoveredArtifacts(validationContent: string): Set<string> {
+  const covered = new Set<string>();
+  const lines = validationContent.split(/\r?\n/);
+  let inCoveredArtifacts = false;
+  for (const line of lines) {
+    if (/^\s*covered[-_]?artifacts\s*:/i.test(line)) {
+      inCoveredArtifacts = true;
+      const inline = line.split(/covered[-_]?artifacts\s*:/i)[1]?.trim();
+      if (inline && inline !== "[]") {
+        inline.replace(/^\[|\]$/g, "").split(",").map(normalizeArtifactRef).filter(Boolean).forEach((item) => covered.add(item));
+      }
+      continue;
+    }
+    if (!inCoveredArtifacts) continue;
+    if (/^\S/.test(line) && !/^\s*-/.test(line)) break;
+    const item = line.match(/^\s*-\s*(.+)$/)?.[1];
+    if (item) covered.add(normalizeArtifactRef(item));
+  }
+  return covered;
+}
+
+function isValidationFreshOrApplicable(validationContent: string | null, currentArtifacts: string[]): boolean {
+  if (!validationContent) return false;
+  if (!/validation_metadata:/i.test(validationContent)) return false;
+  const coveredArtifacts = parseCoveredArtifacts(validationContent);
+  if (coveredArtifacts.size === 0) return false;
+  return currentArtifacts
+    .map(normalizeArtifactRef)
+    .filter(Boolean)
+    .every((artifact) => coveredArtifacts.has(artifact));
+}
+
+function formatCloseoutReviewInstructions(validationContent: string | null, validationRel: string, currentArtifacts: string[]): string {
   const verdict = validationContent ? extractVerdict(validationContent) : null;
-  const validationFresh = isValidationFreshOrApplicable(validationContent, validationRel);
+  const validationFresh = isValidationFreshOrApplicable(validationContent, currentArtifacts);
   if (verdict === "pass" && validationFresh) {
     return [
       "### Passing Validation Artifact",
@@ -2429,10 +2458,6 @@ export async function buildCompleteMilestonePrompt(
   const validationContent = validationPath ? await loadFile(validationPath) : null;
 
   const inlined: string[] = [];
-  inlined.push(formatCloseoutReviewInstructions(validationContent, validationRel));
-  if (validationContent) {
-    inlined.push(`### Milestone Validation\nSource: \`${validationRel}\`\n\n${validationContent.trim()}`);
-  }
   inlined.push(await inlineFile(roadmapPath, roadmapRel, "Milestone Roadmap"));
 
   // Inline all slice summaries (deduplicated by slice ID)
@@ -2472,6 +2497,13 @@ export async function buildCompleteMilestonePrompt(
       `### On-demand Slice Summaries\n\nExcerpted above. Read the full file for any slice when the excerpt's section heads don't carry enough narrative for the milestone summary you're drafting:\n\n${pathList}`,
     );
   }
+  const validationContext = [
+    formatCloseoutReviewInstructions(validationContent, validationRel, [validationRel, roadmapRel, ...summaryRelPaths]),
+  ];
+  if (validationContent) {
+    validationContext.push(`### Milestone Validation\nSource: \`${validationRel}\`\n\n${validationContent.trim()}`);
+  }
+  inlined.unshift(...validationContext);
 
   // Inline root GSD files (skip for minimal — completion can read these if needed)
   if (inlineLevel !== "minimal") {

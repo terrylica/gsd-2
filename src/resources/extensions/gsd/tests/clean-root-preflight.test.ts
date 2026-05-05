@@ -185,6 +185,30 @@ test("preflight + merge + postflight round-trip preserves uncommitted changes", 
   }
 });
 
+test("postflightPopStash conflict warning names the exact stash ref", () => {
+  const repo = createTempRepo();
+  try {
+    writeFileSync(join(repo, "README.md"), "# local work\n");
+    const preflight = preflightCleanRoot(repo, "M005C", () => {});
+    assert.equal(preflight.stashPushed, true, "must have stashed");
+
+    writeFileSync(join(repo, "README.md"), "# merged work\n");
+    run("git add README.md", repo);
+    run('git commit -m "simulate conflicting merge"', repo);
+
+    const notifications: Array<{ msg: string; level: string }> = [];
+    postflightPopStash(repo, "M005C", preflight.stashMarker, (msg, level) => {
+      notifications.push({ msg, level });
+    });
+
+    const warning = notifications.find((n) => n.level === "warning")?.msg ?? "";
+    assert.match(warning, /git stash pop stash@\{\d+\}/);
+    assert.match(warning, /git stash apply stash@\{\d+\}/);
+  } finally {
+    try { rmSync(repo, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch { /* ignore */ }
+  }
+});
+
 test("postflightPopStash restores the matching GSD stash, not stash@{0}", () => {
   const repo = createTempRepo();
   try {
