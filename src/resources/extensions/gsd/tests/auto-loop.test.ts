@@ -2556,7 +2556,7 @@ test("autoLoop warns but proceeds for greenfield project (no project files) (#18
     "should not stop with health check failure for greenfield project",
   );
   const greenfieldWarning = notifications.find(
-    (n) => n.includes("no recognized project files") && n.includes("greenfield"),
+    (n) => n.includes("no project content yet") && n.includes("greenfield"),
   );
   assert.ok(
     greenfieldWarning,

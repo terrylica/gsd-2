@@ -184,3 +184,25 @@ test("preflight + merge + postflight round-trip preserves uncommitted changes", 
     try { rmSync(repo, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch { /* ignore */ }
   }
 });
+
+test("postflightPopStash restores the matching GSD stash, not stash@{0}", () => {
+  const repo = createTempRepo();
+  try {
+    writeFileSync(join(repo, "README.md"), "# target stash\n");
+    const preflight = preflightCleanRoot(repo, "M006", () => {});
+    assert.equal(preflight.stashPushed, true, "must have stashed target change");
+
+    writeFileSync(join(repo, "other.txt"), "other stash\n");
+    run('git stash push --include-untracked -m "unrelated newer stash"', repo);
+
+    postflightPopStash(repo, "M006", () => {});
+
+    const content = readFileSync(join(repo, "README.md"), "utf-8");
+    assert.equal(content.replace(/\r\n/g, "\n"), "# target stash\n");
+    const stashList = run("git stash list", repo);
+    assert.ok(stashList.includes("unrelated newer stash"), "unrelated newer stash must remain");
+    assert.ok(!stashList.includes("gsd-preflight-stash [gsd-preflight-stash:M006"), "target stash should be consumed");
+  } finally {
+    try { rmSync(repo, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch { /* ignore */ }
+  }
+});

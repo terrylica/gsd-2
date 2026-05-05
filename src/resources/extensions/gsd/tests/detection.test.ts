@@ -11,12 +11,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   detectProjectState,
   detectV1Planning,
   detectProjectSignals,
+  classifyProject,
   scanProjectFiles,
 } from "../detection.ts";
 
@@ -37,6 +39,18 @@ function cleanup(dir: string): void {
   }
 }
 
+function git(dir: string, args: string[]): void {
+  execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+}
+
+function makeGitRepo(prefix: string): string {
+  const dir = makeTempDir(prefix);
+  git(dir, ["init"]);
+  git(dir, ["config", "user.email", "test@example.com"]);
+  git(dir, ["config", "user.name", "Test User"]);
+  return dir;
+}
+
 // ─── detectProjectState ─────────────────────────────────────────────────────────
 
 test("detectProjectState: empty directory returns state=none", (t) => {
@@ -47,6 +61,76 @@ test("detectProjectState: empty directory returns state=none", (t) => {
   assert.equal(result.state, "none");
   assert.equal(result.v1, undefined);
   assert.equal(result.v2, undefined);
+});
+
+test("classifyProject: no git repo is invalid", (t) => {
+  const dir = makeTempDir("classify-invalid");
+  t.after(() => cleanup(dir));
+
+  const classification = classifyProject(dir);
+  assert.equal(classification.kind, "invalid-repo");
+});
+
+test("classifyProject: empty git repo is greenfield", (t) => {
+  const dir = makeGitRepo("classify-greenfield");
+  t.after(() => cleanup(dir));
+
+  const classification = classifyProject(dir);
+  assert.equal(classification.kind, "greenfield");
+});
+
+test("classifyProject: tracked static HTML is existing untyped content", (t) => {
+  const dir = makeGitRepo("classify-index");
+  t.after(() => cleanup(dir));
+
+  writeFileSync(join(dir, "index.html"), "<main></main>\n", "utf-8");
+  git(dir, ["add", "index.html"]);
+  git(dir, ["commit", "-m", "add static page"]);
+
+  const classification = classifyProject(dir);
+  assert.equal(classification.kind, "untyped-existing");
+  assert.deepEqual(classification.contentFiles, ["index.html"]);
+});
+
+test("classifyProject: README-only repo is existing untyped content", (t) => {
+  const dir = makeGitRepo("classify-readme");
+  t.after(() => cleanup(dir));
+
+  writeFileSync(join(dir, "README.md"), "# docs\n", "utf-8");
+  git(dir, ["add", "README.md"]);
+  git(dir, ["commit", "-m", "add docs"]);
+
+  const classification = classifyProject(dir);
+  assert.equal(classification.kind, "untyped-existing");
+});
+
+test("classifyProject: known markers produce typed existing project", (t) => {
+  const dir = makeGitRepo("classify-typed");
+  t.after(() => cleanup(dir));
+
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "typed" }), "utf-8");
+  git(dir, ["add", "package.json"]);
+  git(dir, ["commit", "-m", "add package"]);
+
+  const classification = classifyProject(dir);
+  assert.equal(classification.kind, "typed-existing");
+  assert.ok(classification.markers.includes("package.json"));
+});
+
+test("classifyProject: ignored build/cache-only files do not count as content", (t) => {
+  const dir = makeGitRepo("classify-ignored");
+  t.after(() => cleanup(dir));
+
+  writeFileSync(join(dir, ".gitignore"), "dist/\n.cache/\n", "utf-8");
+  git(dir, ["add", ".gitignore"]);
+  git(dir, ["commit", "-m", "ignore generated files"]);
+  mkdirSync(join(dir, "dist"), { recursive: true });
+  writeFileSync(join(dir, "dist", "bundle.js"), "generated\n", "utf-8");
+  mkdirSync(join(dir, ".cache"), { recursive: true });
+  writeFileSync(join(dir, ".cache", "x"), "cache\n", "utf-8");
+
+  const classification = classifyProject(dir);
+  assert.equal(classification.kind, "greenfield");
 });
 
 test("detectProjectState: directory with .gsd/milestones/M001 returns v2-gsd", (t) => {

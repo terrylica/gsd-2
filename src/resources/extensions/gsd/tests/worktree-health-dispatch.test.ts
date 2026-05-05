@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
-import { PROJECT_FILES } from "../detection.js";
+import { PROJECT_FILES, classifyProject } from "../detection.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -27,6 +27,14 @@ function createGitRepo(): string {
   execSync("git config user.name Test", { cwd: dir, stdio: "ignore" });
   writeFileSync(join(dir, "README.md"), "# test\n");
   execSync("git add . && git commit -m init", { cwd: dir, stdio: "ignore" });
+  return dir;
+}
+
+function createEmptyGitRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), "wt-dispatch-test-empty-"));
+  execSync("git init", { cwd: dir, stdio: "ignore" });
+  execSync("git config user.email test@test.com", { cwd: dir, stdio: "ignore" });
+  execSync("git config user.name Test", { cwd: dir, stdio: "ignore" });
   return dir;
 }
 
@@ -132,8 +140,18 @@ describe("health check with git repo", () => {
   });
 
   test("health check passes for empty git repo (greenfield project)", () => {
-    assert.ok(wouldPassHealthCheck(dir, existsSync), "empty git repo should pass health check (greenfield)");
-    assert.ok(!hasRecognizedProjectFiles(dir, existsSync), "empty git repo has no recognized project files");
+    const empty = createEmptyGitRepo();
+    try {
+      assert.ok(wouldPassHealthCheck(empty, existsSync), "empty git repo should pass health check (greenfield)");
+      assert.equal(classifyProject(empty).kind, "greenfield");
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  test("health check classifies README-only repo as untyped existing, not greenfield", () => {
+    assert.ok(wouldPassHealthCheck(dir, existsSync), "README-only repo should pass health check");
+    assert.equal(classifyProject(dir).kind, "untyped-existing");
   });
 });
 

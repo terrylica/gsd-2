@@ -21,8 +21,29 @@ import { nativeHasChanges } from "./native-git-bridge.js";
 export interface PreflightResult {
   /** true when a stash was pushed and postflightPopStash should be called */
   stashPushed: boolean;
+  /** Unique marker embedded in the stash message for targeted restoration */
+  stashMarker?: string;
   /** human-readable summary of what happened (empty string for clean trees) */
   summary: string;
+}
+
+function findPreflightStashRef(basePath: string, milestoneId: string): string | null {
+  const markerPrefix = `gsd-preflight-stash:${milestoneId}:`;
+  try {
+    const list = execFileSync("git", ["stash", "list", "--format=%gd%x00%s"], {
+      cwd: basePath,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+      env: GIT_NO_PROMPT_ENV,
+    });
+    for (const line of list.split("\n")) {
+      const [ref, subject] = line.split("\x00");
+      if (ref && subject?.includes(markerPrefix)) return ref;
+    }
+  } catch (err) {
+    logWarning("preflight", `stash list failed before restore: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return null;
 }
 
 /**
@@ -62,7 +83,8 @@ export function preflightCleanRoot(
 
   // Push the stash
   try {
-    execFileSync("git", ["stash", "push", "--include-untracked", "-m", "gsd-preflight-stash"], {
+    const stashMarker = `gsd-preflight-stash:${milestoneId}:${process.pid}:${Date.now()}:${process.hrtime.bigint().toString(36)}`;
+    execFileSync("git", ["stash", "push", "--include-untracked", "-m", `gsd-preflight-stash [${stashMarker}]`], {
       cwd: basePath,
       stdio: ["ignore", "pipe", "pipe"],
       encoding: "utf-8",
@@ -70,6 +92,7 @@ export function preflightCleanRoot(
     });
     return {
       stashPushed: true,
+      stashMarker,
       summary: `Stashed uncommitted changes before merge (milestone ${milestoneId}).`,
     };
   } catch (err) {
@@ -94,7 +117,14 @@ export function postflightPopStash(
   notify: (message: string, level: "info" | "warning" | "error") => void,
 ): void {
   try {
-    execFileSync("git", ["stash", "pop"], {
+    const stashRef = findPreflightStashRef(basePath, milestoneId);
+    if (!stashRef) {
+      const msg = `No matching GSD preflight stash found for milestone ${milestoneId}; leaving stash list untouched.`;
+      logWarning("preflight", msg);
+      notify(msg, "warning");
+      return;
+    }
+    execFileSync("git", ["stash", "pop", stashRef], {
       cwd: basePath,
       stdio: ["ignore", "pipe", "pipe"],
       encoding: "utf-8",
