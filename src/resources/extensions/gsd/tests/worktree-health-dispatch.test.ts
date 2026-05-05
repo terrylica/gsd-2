@@ -93,6 +93,8 @@ test("runUnitPhase fails closed when classification returns invalid-repo", () =>
     source.indexOf('projectClassification.kind === "greenfield"'),
   );
 
+  assert.match(invalidRepoBranch, /projectClassification\.reason === "missing \.git" && hasGit/);
+  assert.match(invalidRepoBranch, /project classification could not confirm \.git/);
   assert.match(invalidRepoBranch, /ctx\.ui\.notify\(msg,\s*"error"\)/);
   assert.match(invalidRepoBranch, /await deps\.stopAuto\(ctx,\s*pi,\s*msg\)/);
   assert.match(invalidRepoBranch, /return \{ action: "break", reason: "worktree-invalid" \}/);

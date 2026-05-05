@@ -1504,9 +1504,16 @@ export async function runUnitPhase(
     if (projectClassification.kind === "invalid-repo") {
       const msg = `Worktree health check failed: ${s.basePath} classified as invalid-repo (${projectClassification.reason}) — refusing to dispatch ${unitType} ${unitId}`;
       debugLog("runUnitPhase", { phase: "worktree-health-invalid-repo", basePath: s.basePath, classification: projectClassification });
-      ctx.ui.notify(msg, "error");
-      await deps.stopAuto(ctx, pi, msg);
-      return { action: "break", reason: "worktree-invalid" };
+      if (projectClassification.reason === "missing .git" && hasGit) {
+        ctx.ui.notify(
+          `Warning: ${s.basePath} project classification could not confirm .git; assuming it has no project content yet — proceeding as greenfield project because worktree health reported .git present`,
+          "warning",
+        );
+      } else {
+        ctx.ui.notify(msg, "error");
+        await deps.stopAuto(ctx, pi, msg);
+        return { action: "break", reason: "worktree-invalid" };
+      }
     } else if (projectClassification.kind === "greenfield") {
       debugLog("runUnitPhase", { phase: "worktree-health-greenfield", basePath: s.basePath, classification: projectClassification });
       ctx.ui.notify(`Warning: ${s.basePath} has no project content yet — proceeding as greenfield project`, "warning");
