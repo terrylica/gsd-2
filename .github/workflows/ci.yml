@@ -16,6 +16,16 @@ on:
       - '.github/workflows/build-native.yml'
       - '.github/workflows/cleanup-dev-versions.yml'
       - 'LICENSE'
+  workflow_dispatch:
+    inputs:
+      full_windows_e2e:
+        description: "Run the full Windows e2e suite"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -28,8 +38,10 @@ jobs:
     outputs:
       docs-only: ${{ steps.check.outputs.docs-only }}
       portability-changed: ${{ steps.check.outputs.portability-changed }}
+      windows-e2e-changed: ${{ steps.check.outputs.windows-e2e-changed }}
       docker-changed: ${{ steps.check.outputs.docker-changed }}
       studio-changed: ${{ steps.check.outputs.studio-changed }}
+      rtk-changed: ${{ steps.check.outputs.rtk-changed }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -69,6 +81,15 @@ jobs:
             echo "portability-changed=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No portability-relevant changes detected — skipping portability matrix jobs"
           fi
+          WINDOWS_E2E=$(echo "$NON_DOCS" | grep -E '^(tests/e2e/|src/(loader|rtk|rtk/|native|native/|resources/extensions/gsd/gsd-db|resources/extensions/gsd/extension-host|resources/extensions/gsd/auto-worktree|resources/extensions/gsd/workflow-mcp)|packages/(pi-coding-agent|pi-ai|pi-agent-core|native|mcp-server|rpc-client)/|native/|package\.json$|package-lock\.json$|tsconfig[^/]*\.json$|packages/.*/tsconfig\.json$)' || true)
+          if [ -n "$WINDOWS_E2E" ]; then
+            echo "windows-e2e-changed=true" >> "$GITHUB_OUTPUT"
+            echo "Windows e2e-relevant files changed:"
+            echo "$WINDOWS_E2E"
+          else
+            echo "windows-e2e-changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Windows e2e-relevant changes detected — skipping Windows e2e"
+          fi
           DOCKER=$(echo "$NON_DOCS" | grep -E '^(Dockerfile$|docker/|scripts/install\.js$|scripts/.*\.cjs$|scripts/.*\.mjs$|package\.json$|package-lock\.json$|src/|packages/|tests/e2e/docker/)' || true)
           if [ -n "$DOCKER" ]; then
             echo "docker-changed=true" >> "$GITHUB_OUTPUT"
@@ -86,6 +107,15 @@ jobs:
           else
             echo "studio-changed=false" >> "$GITHUB_OUTPUT"
             echo "::notice::No Studio-relevant changes detected — skipping studio-e2e"
+          fi
+          RTK=$(echo "$NON_DOCS" | grep -E '^(src/rtk|src/rtk/|src/tests/rtk|src/tests/postinstall\.test\.ts|src/tests/app-smoke\.test\.ts|src/resources/extensions/gsd/tests/custom-verification\.test\.ts|src/resources/extensions/gsd/tests/verification-gate\.test\.ts|scripts/install\.js|package\.json$|package-lock\.json$)' || true)
+          if [ -n "$RTK" ]; then
+            echo "rtk-changed=true" >> "$GITHUB_OUTPUT"
+            echo "RTK-relevant files changed:"
+            echo "$RTK"
+          else
+            echo "rtk-changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No RTK-relevant changes detected — skipping RTK portability matrix"
           fi
 
   docs-check:
@@ -253,7 +283,9 @@ jobs:
         run: npm run verify:workspace-coverage
 
       - name: Run unit tests
-        run: npm run test:unit
+        run: |
+          npm run test:compile
+          npm run test:unit:compiled
 
       - name: Run package tests
         run: npm run test:packages
@@ -400,10 +432,11 @@ jobs:
     # tarball files. Gated by detect-changes so doc-only PRs skip it.
     # No untrusted GitHub event input is consumed in run: blocks.
     timeout-minutes: 20
-    needs: detect-changes
+    needs: [detect-changes, ci-circuit-breaker-fast, mergeability-gate]
     if: >-
       needs.detect-changes.outputs.docs-only != 'true' &&
-      needs.detect-changes.outputs.docker-changed == 'true'
+      needs.detect-changes.outputs.docker-changed == 'true' &&
+      needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
@@ -441,11 +474,12 @@ jobs:
     # continue-on-error.
     #
     # No untrusted GitHub event input is consumed in run: blocks.
-    timeout-minutes: 20
-    needs: detect-changes
+    timeout-minutes: 10
+    needs: [detect-changes, ci-circuit-breaker-fast, mergeability-gate]
     if: >-
       needs.detect-changes.outputs.docs-only != 'true' &&
-      needs.detect-changes.outputs.portability-changed == 'true'
+      needs.detect-changes.outputs.windows-e2e-changed == 'true' &&
+      needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
     runs-on: blacksmith-4vcpu-windows-2025
     continue-on-error: true
 
@@ -460,6 +494,10 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+          GSD_SKIP_RTK_INSTALL: '1'
         run: npm ci
 
       - name: Build core
@@ -469,13 +507,62 @@ jobs:
         shell: bash
         run: |
           export GSD_SMOKE_BINARY="$(pwd)/dist/loader.js"
-          npm run test:e2e
+          npm run test:e2e:windows-smoke
 
       - name: Upload e2e artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-artifacts-windows
+          path: test-results/e2e
+          if-no-files-found: ignore
+          retention-days: 7
+
+  e2e-windows-full:
+    # Full Windows e2e is still exploratory. It has previously hung after
+    # fake-LLM failures while child services remained alive, so keep it
+    # manual until that suite is stable enough to promote.
+    timeout-minutes: 25
+    needs: [detect-changes, ci-circuit-breaker-fast, mergeability-gate]
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.full_windows_e2e == 'true' &&
+      needs.detect-changes.outputs.docs-only != 'true' &&
+      needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
+    runs-on: blacksmith-4vcpu-windows-2025
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+          GSD_SKIP_RTK_INSTALL: '1'
+        run: npm ci
+
+      - name: Build core
+        run: npm run build:core
+
+      - name: Run full e2e suite (against built binary)
+        shell: bash
+        run: |
+          export GSD_SMOKE_BINARY="$(pwd)/dist/loader.js"
+          npm run test:e2e
+
+      - name: Upload e2e artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts-windows-full
           path: test-results/e2e
           if-no-files-found: ignore
           retention-days: 7
@@ -489,10 +576,11 @@ jobs:
     #
     # No untrusted GitHub event input is consumed in run: blocks.
     timeout-minutes: 15
-    needs: detect-changes
+    needs: [detect-changes, ci-circuit-breaker-fast, mergeability-gate]
     if: >-
       needs.detect-changes.outputs.docs-only != 'true' &&
-      needs.detect-changes.outputs.studio-changed == 'true'
+      needs.detect-changes.outputs.studio-changed == 'true' &&
+      needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
@@ -567,7 +655,7 @@ jobs:
     needs: [detect-changes, ci-circuit-breaker-build, mergeability-gate]
     if: >-
       needs.detect-changes.outputs.docs-only != 'true' &&
-      needs.detect-changes.outputs.portability-changed == 'true' &&
+      needs.detect-changes.outputs.rtk-changed == 'true' &&
       needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
     strategy:
       fail-fast: false
