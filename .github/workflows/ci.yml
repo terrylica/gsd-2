@@ -147,10 +147,49 @@ jobs:
             exit 1
           fi
 
+  mergeability-gate:
+    timeout-minutes: 2
+    needs: [detect-changes, ci-circuit-breaker-fast]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      skip-heavy-jobs: ${{ steps.gate.outputs.skip-heavy-jobs }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Determine whether heavy CI should be skipped
+        id: gate
+        uses: actions/github-script@v8
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        with:
+          script: |
+            const eventName = process.env.EVENT_NAME;
+            let mergeableState = "unknown";
+
+            if (eventName === "pull_request") {
+              for (let i = 0; i < 6; i++) {
+                const { data } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.pull_request.number,
+                });
+
+                mergeableState = data.mergeable_state ?? "unknown";
+                if (mergeableState !== "unknown") break;
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+            }
+
+            const { shouldSkipHeavyJobs } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/mergeability-gate.mjs`);
+            const skipHeavyJobs = shouldSkipHeavyJobs({ eventName, mergeableState });
+            core.info(`mergeable_state=${mergeableState}; skip-heavy-jobs=${skipHeavyJobs}`);
+            core.setOutput("skip-heavy-jobs", skipHeavyJobs ? "true" : "false");
+
   build:
     timeout-minutes: 25
-    needs: [detect-changes, ci-circuit-breaker-fast]
-    if: needs.detect-changes.outputs.docs-only != 'true'
+    needs: [detect-changes, ci-circuit-breaker-fast, mergeability-gate]
+    if: needs.detect-changes.outputs.docs-only != 'true' && needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
@@ -204,9 +243,9 @@ jobs:
 
   ci-circuit-breaker-build:
     timeout-minutes: 2
-    needs: [detect-changes, build]
+    needs: [detect-changes, build, mergeability-gate]
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: always() && needs.detect-changes.outputs.docs-only != 'true'
+    if: always() && needs.detect-changes.outputs.docs-only != 'true' && needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
     steps:
       - name: Stop pipeline when build gate fails
         env:
@@ -219,8 +258,8 @@ jobs:
 
   integration-tests:
     timeout-minutes: 15
-    needs: [detect-changes, ci-circuit-breaker-build]
-    if: needs.detect-changes.outputs.docs-only != 'true'
+    needs: [detect-changes, ci-circuit-breaker-build, mergeability-gate]
+    if: needs.detect-changes.outputs.docs-only != 'true' && needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
@@ -266,8 +305,8 @@ jobs:
     # workflow. Mirrors the Dev Publish smoke step at dev-publish.yml:84-88.
     # No untrusted GitHub event input is consumed in run: blocks.
     timeout-minutes: 10
-    needs: [detect-changes, ci-circuit-breaker-build]
-    if: needs.detect-changes.outputs.docs-only != 'true'
+    needs: [detect-changes, ci-circuit-breaker-build, mergeability-gate]
+    if: needs.detect-changes.outputs.docs-only != 'true' && needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
@@ -292,12 +331,55 @@ jobs:
           export GSD_SMOKE_BINARY="$(pwd)/dist/loader.js"
           npm run test:live-regression
 
+  e2e:
+    # Real-process e2e tests in tests/e2e/. Spawns the built dist/loader.js
+    # through the shared harness in tests/e2e/_shared/. This is where new
+    # cross-process flows land (fake-LLM agent loops, MCP server, native
+    # ABI, migration chain, etc.) - see tests/e2e/README.md.
+    # No untrusted GitHub event input is consumed in run: blocks.
+    timeout-minutes: 15
+    needs: [detect-changes, mergeability-gate]
+    if: needs.detect-changes.outputs.docs-only != 'true' && needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build core
+        run: npm run build:core
+
+      - name: Run e2e suite (against built binary)
+        run: |
+          chmod +x dist/loader.js
+          export GSD_SMOKE_BINARY="$(pwd)/dist/loader.js"
+          npm run test:e2e
+
+      - name: Upload e2e artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: test-results/e2e
+          if-no-files-found: ignore
+          retention-days: 7
+
   windows-portability:
     timeout-minutes: 25
-    needs: [detect-changes, ci-circuit-breaker-build]
+    needs: [detect-changes, ci-circuit-breaker-build, mergeability-gate]
     if: >-
       needs.detect-changes.outputs.docs-only != 'true' &&
-      needs.detect-changes.outputs.portability-changed == 'true'
+      needs.detect-changes.outputs.portability-changed == 'true' &&
+      needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
     runs-on: blacksmith-4vcpu-windows-2025
 
     steps:
@@ -338,10 +420,11 @@ jobs:
 
   rtk-portability:
     timeout-minutes: 20
-    needs: [detect-changes, ci-circuit-breaker-build]
+    needs: [detect-changes, ci-circuit-breaker-build, mergeability-gate]
     if: >-
       needs.detect-changes.outputs.docs-only != 'true' &&
-      needs.detect-changes.outputs.portability-changed == 'true'
+      needs.detect-changes.outputs.portability-changed == 'true' &&
+      needs.mergeability-gate.outputs.skip-heavy-jobs != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -359,10 +442,17 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Node.js
+        if: matrix.label != 'windows'
         uses: actions/setup-node@v6
         with:
           node-version: '24'
           cache: 'npm'
+
+      - name: Setup Node.js (Windows, no npm cache)
+        if: matrix.label == 'windows'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
 
       - name: Install dependencies
         env:
@@ -376,7 +466,7 @@ jobs:
       - name: Validate managed RTK install
         run: >-
           node --experimental-strip-types --input-type=module -e
-          "const mod = await import('./src/rtk.ts');
+          "const mod = await import('./src/rtk/rtk.ts').catch(() => import('./src/rtk.ts'));
           const result = await mod.ensureRtkAvailable();
           if (!result.available || !result.binaryPath || !mod.validateRtkBinary(result.binaryPath)) {
             console.error('Managed RTK validation failed:', result);
