@@ -119,9 +119,17 @@ function formatProjectClassificationForPlanning(classification: ProjectClassific
   return lines.join("\n");
 }
 
+function isValidationFreshOrApplicable(validationContent: string | null, validationRel: string): boolean {
+  if (!validationContent) return false;
+  if (!/validation_metadata:/i.test(validationContent)) return false;
+  if (!/covered[_-]?artifacts:/i.test(validationContent)) return false;
+  return validationContent.includes(validationRel);
+}
+
 function formatCloseoutReviewInstructions(validationContent: string | null, validationRel: string): string {
   const verdict = validationContent ? extractVerdict(validationContent) : null;
-  if (verdict === "pass") {
+  const validationFresh = isValidationFreshOrApplicable(validationContent, validationRel);
+  if (verdict === "pass" && validationFresh) {
     return [
       "### Passing Validation Artifact",
       "",
@@ -135,7 +143,7 @@ function formatCloseoutReviewInstructions(validationContent: string | null, vali
     return [
       "### Validation Requires Attention",
       "",
-      `A validation artifact is present at \`${validationRel}\` with verdict \`${verdict}\`. Do not treat the milestone as complete unless the issues are resolved and evidence supports completion.`,
+      `A validation artifact is present at \`${validationRel}\` with verdict \`${verdict}\`, but it is missing freshness metadata or does not cover current milestone artifacts. Do not treat the milestone as complete unless the issues are resolved and evidence supports completion.`,
     ].join("\n");
   }
 

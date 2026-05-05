@@ -39,6 +39,16 @@ function writeCompleteMilestoneFiles(base: string, validation: string): void {
   writeFileSync(join(dir, "slices", "S01", "S01-SUMMARY.md"), "# S01 Summary\n\n**Verification:** passed\n");
 }
 
+function validationMetadata(): string {
+  return [
+    "validation_metadata:",
+    "  covered_artifacts:",
+    "    - `.gsd/milestones/M001/M001-VALIDATION.md`",
+    "    - `.gsd/milestones/M001/M001-ROADMAP.md`",
+    "    - `.gsd/milestones/M001/slices/S01/S01-SUMMARY.md`",
+  ].join("\n");
+}
+
 test("plan-milestone prompt includes tiny untyped project classification and one-slice guidance", async () => {
   const base = makeRepo({ "index.html": "<!doctype html>\n<title>Test</title>\n" });
   try {
@@ -105,7 +115,7 @@ test("prompt templates carry right-sized planning and closeout mode guidance", (
 test("complete-milestone prompt trusts passing validation artifact", async () => {
   const base = makeRepo({ "index.html": "<!doctype html>\n<title>Test</title>\n" });
   try {
-    writeCompleteMilestoneFiles(base, "---\nverdict: pass\nremediation_round: 0\n---\n\n# Validation\nAll checks passed.");
+    writeCompleteMilestoneFiles(base, `---\nverdict: pass\nremediation_round: 0\n---\n\n# Validation\n${validationMetadata()}\n\nAll checks passed.`);
     const prompt = await buildCompleteMilestonePrompt("M001", "Polish static page", base, "minimal");
     assert.match(prompt, /Passing Validation Artifact/);
     assert.match(prompt, /Treat it as authoritative/);
@@ -119,11 +129,24 @@ test("complete-milestone prompt trusts passing validation artifact", async () =>
 test("complete-milestone prompt trusts centralized markdown body pass verdict", async () => {
   const base = makeRepo({ "index.html": "<!doctype html>\n<title>Test</title>\n" });
   try {
-    writeCompleteMilestoneFiles(base, "# Validation\n\n**Verdict:** PASS\n\nAll checks passed.");
+    writeCompleteMilestoneFiles(base, `# Validation\n\n**Verdict:** PASS\n\n${validationMetadata()}\n\nAll checks passed.`);
     const prompt = await buildCompleteMilestonePrompt("M001", "Polish static page", base, "minimal");
     assert.match(prompt, /Passing Validation Artifact/);
     assert.match(prompt, /Treat it as authoritative/);
     assert.match(prompt, /Do not delegate fresh reviewer\/security\/tester audits/);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("complete-milestone prompt does not trust stale pass validation without metadata", async () => {
+  const base = makeRepo({ "index.html": "<!doctype html>\n<title>Test</title>\n" });
+  try {
+    writeCompleteMilestoneFiles(base, "---\nverdict: pass\nremediation_round: 0\n---\n\n# Validation\nAll checks passed.");
+    const prompt = await buildCompleteMilestonePrompt("M001", "Polish static page", base, "minimal");
+    assert.match(prompt, /Validation Requires Attention/);
+    assert.match(prompt, /missing freshness metadata/);
+    assert.doesNotMatch(prompt, /Passing Validation Artifact/);
   } finally {
     rmSync(base, { recursive: true, force: true });
   }

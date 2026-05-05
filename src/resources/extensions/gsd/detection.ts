@@ -182,23 +182,6 @@ export const PROJECT_FILES = [
   "requirements.txt",
 ] as const;
 
-const PROJECT_CONTENT_EXCLUDE_DIRS = new Set([
-  ".git",
-  ".gsd",
-  ".bg-shell",
-  "node_modules",
-  "dist",
-  "build",
-  "coverage",
-  ".cache",
-  ".turbo",
-  "target",
-  "vendor",
-  ".gradle",
-  "DerivedData",
-  "out",
-]);
-
 /** File extensions that indicate SQLite databases in the project. */
 const SQLITE_EXTENSIONS = [".sqlite", ".sqlite3", ".db"] as const;
 
@@ -277,6 +260,7 @@ const TEST_MARKERS = [
 const RECURSIVE_SCAN_IGNORED_DIRS = new Set([
   ".git",
   ".gsd",
+  ".bg-shell",
   ".planning",
   ".plans",
   ".claude",
@@ -300,6 +284,8 @@ const RECURSIVE_SCAN_IGNORED_DIRS = new Set([
   "DerivedData",
   "out",
 ]) as ReadonlySet<string>;
+
+const PROJECT_CONTENT_EXCLUDE_DIRS = RECURSIVE_SCAN_IGNORED_DIRS;
 
 /** Project file markers safe to detect recursively via suffix matching. */
 const ROOT_ONLY_PROJECT_FILES = new Set<string>([
@@ -604,15 +590,13 @@ function listTrackedProjectFiles(basePath: string): string[] {
 }
 
 function listUntrackedProjectFiles(basePath: string): string[] {
-  return runGitLines(basePath, ["status", "--porcelain", "--untracked-files=normal"])
-    .filter((line) => line.startsWith("?? "))
-    .map((line) => normalizeGitPath(line.slice(3)))
+  return runGitLines(basePath, ["ls-files", "--others", "--exclude-standard"])
+    .map(normalizeGitPath)
     .filter(isProjectContentFile);
 }
 
 function hasKnownProjectMarkers(basePath: string, signals: ProjectSignals): boolean {
   if (signals.detectedFiles.length > 0) return true;
-  if (existsSync(join(basePath, "src"))) return true;
   if (signals.xcodePlatforms.length > 0) return true;
   if (hasProjectFileInAncestor(basePath)) return true;
   return false;

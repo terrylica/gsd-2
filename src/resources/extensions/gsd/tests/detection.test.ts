@@ -104,6 +104,32 @@ test("classifyProject: README-only repo is existing untyped content", (t) => {
   assert.equal(classification.kind, "untyped-existing");
 });
 
+test("classifyProject: src-only content is untyped existing, not typed marker", (t) => {
+  const dir = makeGitRepo("classify-src-only");
+  t.after(() => cleanup(dir));
+
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", "index.txt"), "content\n", "utf-8");
+  git(dir, ["add", "src/index.txt"]);
+  git(dir, ["commit", "-m", "add source content"]);
+
+  const classification = classifyProject(dir);
+  assert.equal(classification.kind, "untyped-existing");
+  assert.deepEqual(classification.contentFiles, ["src/index.txt"]);
+});
+
+test("classifyProject: nested untracked files count as project content", (t) => {
+  const dir = makeGitRepo("classify-untracked-nested");
+  t.after(() => cleanup(dir));
+
+  mkdirSync(join(dir, "docs"), { recursive: true });
+  writeFileSync(join(dir, "docs", "index.html"), "<main></main>\n", "utf-8");
+
+  const classification = classifyProject(dir);
+  assert.equal(classification.kind, "untyped-existing");
+  assert.deepEqual(classification.untrackedFiles, ["docs/index.html"]);
+});
+
 test("classifyProject: known markers produce typed existing project", (t) => {
   const dir = makeGitRepo("classify-typed");
   t.after(() => cleanup(dir));
@@ -128,6 +154,19 @@ test("classifyProject: ignored build/cache-only files do not count as content", 
   writeFileSync(join(dir, "dist", "bundle.js"), "generated\n", "utf-8");
   mkdirSync(join(dir, ".cache"), { recursive: true });
   writeFileSync(join(dir, ".cache", "x"), "cache\n", "utf-8");
+
+  const classification = classifyProject(dir);
+  assert.equal(classification.kind, "greenfield");
+});
+
+test("classifyProject: generated framework/cache dirs do not count as content", (t) => {
+  const dir = makeGitRepo("classify-generated-dirs");
+  t.after(() => cleanup(dir));
+
+  mkdirSync(join(dir, ".next", "server"), { recursive: true });
+  writeFileSync(join(dir, ".next", "server", "page.js"), "generated\n", "utf-8");
+  mkdirSync(join(dir, ".venv", "lib"), { recursive: true });
+  writeFileSync(join(dir, ".venv", "lib", "site.py"), "generated\n", "utf-8");
 
   const classification = classifyProject(dir);
   assert.equal(classification.kind, "greenfield");

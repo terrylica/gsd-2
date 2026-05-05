@@ -229,3 +229,20 @@ test("postflightPopStash restores the exact preflight marker when another same-m
     try { rmSync(repo, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch { /* ignore */ }
   }
 });
+
+test("postflightPopStash falls back to milestone marker prefix when exact marker is unavailable", () => {
+  const repo = createTempRepo();
+  try {
+    writeFileSync(join(repo, "README.md"), "# fallback stash\n");
+    run('git stash push --include-untracked -m "gsd-preflight-stash [gsd-preflight-stash:M008:fallback]"', repo);
+
+    postflightPopStash(repo, "M008", undefined, () => {});
+
+    const content = readFileSync(join(repo, "README.md"), "utf-8");
+    assert.equal(content.replace(/\r\n/g, "\n"), "# fallback stash\n");
+    const stashList = run("git stash list", repo);
+    assert.ok(!stashList.includes("gsd-preflight-stash:M008:fallback"), "fallback stash should be consumed");
+  } finally {
+    try { rmSync(repo, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); } catch { /* ignore */ }
+  }
+});

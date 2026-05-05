@@ -27,7 +27,9 @@ export interface PreflightResult {
   summary: string;
 }
 
-function findPreflightStashRef(basePath: string, stashMarker: string): string | null {
+function findPreflightStashRef(basePath: string, milestoneId: string, stashMarker?: string): string | null {
+  const markerPrefix = `gsd-preflight-stash:${milestoneId}:`;
+  let fallbackRef: string | null = null;
   try {
     const list = execFileSync("git", ["stash", "list", "--format=%gd%x00%s"], {
       cwd: basePath,
@@ -37,12 +39,14 @@ function findPreflightStashRef(basePath: string, stashMarker: string): string | 
     });
     for (const line of list.split("\n")) {
       const [ref, subject] = line.split("\x00");
-      if (ref && subject?.includes(stashMarker)) return ref;
+      if (!ref || !subject) continue;
+      if (stashMarker && subject.includes(stashMarker)) return ref;
+      if (!fallbackRef && subject.includes(markerPrefix)) fallbackRef = ref;
     }
   } catch (err) {
     logWarning("preflight", `stash list failed before restore: ${err instanceof Error ? err.message : String(err)}`);
   }
-  return null;
+  return fallbackRef;
 }
 
 /**
@@ -117,7 +121,7 @@ export function postflightPopStash(
   notify: (message: string, level: "info" | "warning" | "error") => void,
 ): void {
   try {
-    const stashRef = stashMarker ? findPreflightStashRef(basePath, stashMarker) : null;
+    const stashRef = findPreflightStashRef(basePath, milestoneId, stashMarker);
     if (!stashRef) {
       const msg = `No matching GSD preflight stash found for milestone ${milestoneId}; leaving stash list untouched.`;
       logWarning("preflight", msg);
