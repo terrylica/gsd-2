@@ -717,6 +717,19 @@ export class ExtensionRunner {
 		};
 	}
 
+	private createEventContext(eventType: string): ExtensionContext {
+		return {
+			...this.createContext(),
+			shutdown: () => {
+				throw new Error(`Extension event '${eventType}' cannot request TUI shutdown`);
+			},
+		};
+	}
+
+	private isShutdownGuardedEvent(eventType: string): boolean {
+		return eventType === "agent_end" || eventType === "stop" || eventType === "session_end";
+	}
+
 	createCommandContext(): ExtensionCommandContext {
 		return {
 			...this.createContext(),
@@ -757,7 +770,9 @@ export class ExtensionRunner {
 		getEvent: () => unknown,
 		processResult: (handlerResult: unknown, extensionPath: string) => { done: boolean },
 	): Promise<void> {
-		const ctx = this.createContext();
+		const ctx = this.isShutdownGuardedEvent(eventType)
+			? this.createEventContext(eventType)
+			: this.createContext();
 
 		for (const ext of this.extensions) {
 			const handlers = ext.handlers.get(eventType);
