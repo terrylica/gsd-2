@@ -69,6 +69,44 @@ class StaticLinesComponent implements Component {
 }
 
 describe("TUI pin-to-bottom on clear", () => {
+  it("anchors short first renders to the terminal bottom", () => {
+    const terminal = new ResizableMockTerminal(20);
+    const tui = new TUI(terminal, false);
+    const component = new StaticLinesComponent(["line 1", "line 2", "line 3"]);
+    tui.addChild(component);
+
+    (tui as any).doRender();
+
+    const frame = terminal.writtenData.join("");
+    assert.ok(
+      frame.includes("\x1b[18;1Hline 1"),
+      `expected first render to start at bottom anchor row 18, got ${JSON.stringify(frame.slice(0, 120))}`,
+    );
+    assert.strictEqual(
+      (tui as any).previousViewportTop,
+      -17,
+      "short rendered blocks should use a bottom-anchored viewport baseline",
+    );
+  });
+
+  it("appends short auto-mode frames without feeding blank rows downward", () => {
+    const terminal = new ResizableMockTerminal(20);
+    const tui = new TUI(terminal, false);
+    const component = new StaticLinesComponent(["line 1", "line 2", "line 3"]);
+    tui.addChild(component);
+    (tui as any).doRender();
+
+    terminal.writtenData = [];
+    component.lines = ["line 1", "line 2", "line 3", "line 4"];
+    (tui as any).doRender();
+
+    const frame = terminal.writtenData.join("");
+    assert.ok(
+      frame.includes("\x1b[2J\x1b[17;1H"),
+      `expected append to redraw the resized bottom-anchored block at row 17, got ${JSON.stringify(frame)}`,
+    );
+  });
+
   it("anchors a short block to the terminal bottom when a height change triggers fullRender(clear)", () => {
     const terminal = new ResizableMockTerminal(24);
     const tui = new TUI(terminal, false);
