@@ -858,7 +858,6 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					host.streamingComponent.setShowMetadata(true);
 					host.streamingComponent.updateContent(host.streamingMessage);
 				}
-				replaceCompactToolRowsWithPhaseSummary(host);
 
 				if (host.streamingMessage.stopReason === "aborted" || host.streamingMessage.stopReason === "error") {
 					if (!errorMessage) {
@@ -877,6 +876,7 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 					for (const [, component] of host.pendingTools.entries()) {
 						component.setArgsComplete();
 					}
+					replaceCompactToolRowsWithPhaseSummary(host);
 				}
 				host.streamingComponent = undefined;
 				host.streamingMessage = undefined;
@@ -927,7 +927,6 @@ export async function handleAgentEvent(host: InteractiveModeStateHost & {
 			const component = host.pendingTools.get(event.toolCallId);
 			if (component) {
 				component.updateResult({ ...event.result, isError: event.isError });
-				host.pendingTools.delete(event.toolCallId);
 				replaceCompactToolRowsWithPhaseSummary(host);
 				host.ui.requestRender();
 			}
