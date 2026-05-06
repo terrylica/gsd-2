@@ -1094,10 +1094,6 @@ export async function runDispatch(
             level: 1,
             action: "artifact-found",
           });
-          ctx.ui.notify(
-            `Stuck recovery: artifact for ${unitType} ${unitId} found on disk. Invalidating caches.`,
-            "info",
-          );
           const recoveryDb = refreshRecoveryDbForArtifact(unitType, unitId);
           if (!recoveryDb.ok) {
             ctx.ui.notify(
@@ -1112,6 +1108,10 @@ export async function runDispatch(
             }
             return { action: "continue" };
           }
+          ctx.ui.notify(
+            `Stuck recovery: artifact for ${unitType} ${unitId} found on disk. Invalidating caches.`,
+            "info",
+          );
           deps.invalidateAllCaches();
           loopState.recentUnits.length = 0;
           loopState.stuckRecoveryAttempts = 0;
@@ -1149,7 +1149,7 @@ export async function runDispatch(
           ctx.ui.notify(
             recoveryDb.fatal
               ? `${recoveryDb.message} Pausing auto-mode for manual recovery.`
-              : `${recoveryDb.message} Keeping stuck state for retry.`,
+              : `${recoveryDb.message} Stopping for manual recovery.`,
             "warning",
           );
           if (recoveryDb.fatal) {
