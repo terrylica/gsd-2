@@ -124,14 +124,14 @@ async function runQuickTaskChoice(ctx: ExtensionCommandContext, pi: ExtensionAPI
     return;
   }
 
-  const task = (await ctx.ui.input("Quick task", "Describe the task to run with /gsd do"))?.trim();
+  const task = (await ctx.ui.input("Quick task", "Describe the small task to run with /gsd quick"))?.trim();
   if (!task) {
     ctx.ui.notify("Quick task cancelled.", "info");
     return;
   }
 
-  const { handleDo } = await import("./commands-do.js");
-  await handleDo(task, ctx, pi);
+  const { handleQuick } = await import("./quick.js");
+  await handleQuick(task, ctx, pi);
 }
 
 /**
