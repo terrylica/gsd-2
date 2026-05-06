@@ -300,8 +300,8 @@ function registerAutoWorkerForSession(
   if (session.workerId) return; // already registered (e.g. resume re-runs)
   try {
     const projectRootRealpath = normalizeRealPath(
-      session.scope?.workspace.projectRoot
-        ?? projectRootOverride
+      projectRootOverride
+        ?? session.scope?.workspace.projectRoot
         ?? (session.originalBasePath || session.basePath),
     );
     session.workerId = registerAutoWorker({ projectRootRealpath });
