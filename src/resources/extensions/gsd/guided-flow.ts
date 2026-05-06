@@ -2058,6 +2058,23 @@ export async function showSmartEntry(
     }
   }
 
+  if (interrupted.classification !== "recoverable") {
+    try {
+      const { autoImportMarkdownHierarchyIfDbMismatch } = await import("./migration-auto-check.js");
+      const result = await autoImportMarkdownHierarchyIfDbMismatch(basePath);
+      if (result.action === "imported") {
+        ctx.ui.notify(
+          `Recovered migrated planning state into gsd.db (${result.reason}): ${result.afterDb.milestones} milestone(s), ${result.afterDb.slices} slice(s), ${result.afterDb.tasks} task(s).`,
+          "info",
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      ctx.ui.notify(`GSD could not auto-import existing planning state into gsd.db: ${message}`, "warning");
+      logWarning("guided", `planning state auto-import failed: ${message}`, { file: "guided-flow.ts" });
+    }
+  }
+
   // Always derive from the project root — the assessment may have derived
   // state from a worktree path that was cleaned up in the stale branch above.
   const state = await deriveState(basePath);
