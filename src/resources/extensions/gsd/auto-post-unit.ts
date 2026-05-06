@@ -43,7 +43,7 @@ import {
 import { regenerateIfMissing } from "./workflow-projections.js";
 import { syncStateToProjectRoot } from "./auto-worktree.js";
 import { normalizeWorktreePathForCompare } from "./worktree-root.js";
-import { isDbAvailable, getTask, getSlice, getMilestone, updateTaskStatus, _getAdapter } from "./gsd-db.js";
+import { isDbAvailable, getTask, getSlice, getMilestone, updateTaskStatus, _getAdapter, getVerificationEvidence } from "./gsd-db.js";
 import { renderPlanCheckboxes } from "./markdown-renderer.js";
 import { consumeSignal } from "./session-status-io.js";
 import {
@@ -852,22 +852,22 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
         }
 
         // Evidence cross-reference (execute-task only)
-        // Verification evidence is passed via the complete-task tool call and
-        // stored in the SUMMARY.md on disk — not available as structured data
-        // in the DB. The evidence collector tracks actual bash tool calls, so
-        // we can still detect units that claimed success but ran no commands.
+        // Only compare against concrete command evidence persisted by the task
+        // completion tool. A prose Verify field can be satisfied later by the
+        // host verification gate, so it is not enough to accuse the unit.
         if (safetyConfig.evidence_cross_reference && s.currentUnit.type === "execute-task") {
           try {
             const actual = getEvidence();
             const bashCalls = actual.filter(e => e.kind === "bash");
-            // If the task is marked complete but zero bash commands were run,
-            // it's suspicious — the LLM may have fabricated results.
             if (sMid && sSid && sTid && isDbAvailable()) {
               const taskRow = getTask(sMid, sSid, sTid);
-              if (taskRow?.status === "complete" && taskRow.verify && bashCalls.length === 0) {
-                logWarning("safety", "task marked complete with verification commands but no bash calls were executed");
+              const claimedCommands = getVerificationEvidence(sMid, sSid, sTid)
+                .map((row) => row.command)
+                .filter((command): command is string => typeof command === "string" && command.trim().length > 0);
+              if (taskRow?.status === "complete" && claimedCommands.length > 0 && bashCalls.length === 0) {
+                logWarning("safety", "task claimed verification command evidence but no execution tool calls were recorded");
                 ctx.ui.notify(
-                  `Safety: task ${sTid} has verification commands but no bash calls were recorded`,
+                  `Safety: task ${sTid} claimed command evidence but no execution tool calls were recorded`,
                   "warning",
                 );
               }

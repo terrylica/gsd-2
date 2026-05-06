@@ -8,7 +8,7 @@
 
 import { loadFile, parseContinue, parseSummary, loadActiveOverrides, formatOverridesSection, parseTaskPlanFile } from "./files.js";
 import type { Override, UatType } from "./files.js";
-import { hasVerdict, getUatType } from "./verdict-parser.js";
+import { hasVerdict, getUatType, extractVerdict } from "./verdict-parser.js";
 import { loadPrompt, inlineTemplate } from "./prompt-loader.js";
 import {
   resolveMilestoneFile, resolveSliceFile, resolveSlicePath,
@@ -39,6 +39,7 @@ import { logWarning } from "./workflow-logger.js";
 import { inlineGraphSubgraph } from "./graph-context.js";
 import { buildExtractionStepsBlock } from "./commands-extract-learnings.js";
 import { resolveSkillManifest, warnIfManifestHasMissingSkills } from "./skill-manifest.js";
+import { classifyProject, type ProjectClassification } from "./detection.js";
 
 // ─── Preamble Cap ─────────────────────────────────────────────────────────────
 
@@ -78,6 +79,108 @@ function resolvePromptBudgets(): ReturnType<typeof computeBudgets> {
  */
 function resolveSummaryBudgetChars(): number {
   return resolvePromptBudgets().summaryBudgetChars;
+}
+
+function formatProjectClassificationForPlanning(classification: ProjectClassification): string {
+  const sampleFiles = classification.contentFiles.slice(0, 8);
+  const sample = sampleFiles.length > 0 ? sampleFiles.map((file) => `\`${file}\``).join(", ") : "(none)";
+  const lines = [
+    "### Project Classification",
+    "",
+    `- **Kind:** ${classification.kind}`,
+    `- **Content files:** ${classification.contentFiles.length}`,
+    `- **Sample files:** ${sample}`,
+    `- **Reason:** ${classification.reason}`,
+    "",
+  ];
+
+  if (classification.kind === "untyped-existing") {
+    if (classification.contentFiles.length <= 2) {
+      lines.push(
+        "**Workflow sizing:** This is a tiny existing untyped project. Prefer exactly one slice unless the milestone request clearly spans multiple independent user-visible capabilities.",
+      );
+    } else if (classification.contentFiles.length <= 5) {
+      lines.push(
+        "**Workflow sizing:** This is a small existing untyped project. Prefer 1-2 slices unless the milestone request clearly spans multiple independent user-visible capabilities.",
+      );
+    } else {
+      lines.push(
+        "**Workflow sizing:** Existing untyped project. Use generic file-level workflow guidance and size slices by real capability boundaries, not by missing tooling markers.",
+      );
+    }
+  } else if (classification.kind === "greenfield") {
+    lines.push("**Workflow sizing:** No project content exists yet. Use normal greenfield sizing for the requested scope.");
+  } else if (classification.kind === "typed-existing") {
+    lines.push("**Workflow sizing:** Known project markers exist. Use normal ecosystem-aware planning guidance.");
+  } else {
+    lines.push("**Workflow sizing:** Invalid repository state. Planning should surface this as a blocker rather than inventing project structure.");
+  }
+
+  return lines.join("\n");
+}
+
+function normalizeArtifactRef(value: string): string {
+  return value.trim().replace(/^[-\s]+/, "").replace(/^["'`]+|["'`]+$/g, "").replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
+function parseCoveredArtifacts(validationContent: string): Set<string> {
+  const covered = new Set<string>();
+  const lines = validationContent.split(/\r?\n/);
+  let inCoveredArtifacts = false;
+  for (const line of lines) {
+    if (/^\s*covered[-_]?artifacts\s*:/i.test(line)) {
+      inCoveredArtifacts = true;
+      const inline = line.split(/covered[-_]?artifacts\s*:/i)[1]?.trim();
+      if (inline && inline !== "[]") {
+        inline.replace(/^\[|\]$/g, "").split(",").map(normalizeArtifactRef).filter(Boolean).forEach((item) => covered.add(item));
+      }
+      continue;
+    }
+    if (!inCoveredArtifacts) continue;
+    if (/^\S/.test(line) && !/^\s*-/.test(line)) break;
+    const item = line.match(/^\s*-\s*(.+)$/)?.[1];
+    if (item) covered.add(normalizeArtifactRef(item));
+  }
+  return covered;
+}
+
+function isValidationFreshOrApplicable(validationContent: string | null, currentArtifacts: string[]): boolean {
+  if (!validationContent) return false;
+  if (!/validation_metadata:/i.test(validationContent)) return false;
+  const coveredArtifacts = parseCoveredArtifacts(validationContent);
+  if (coveredArtifacts.size === 0) return false;
+  return currentArtifacts
+    .map(normalizeArtifactRef)
+    .filter(Boolean)
+    .every((artifact) => coveredArtifacts.has(artifact));
+}
+
+function formatCloseoutReviewInstructions(validationContent: string | null, validationRel: string, currentArtifacts: string[]): string {
+  const verdict = validationContent ? extractVerdict(validationContent) : null;
+  const validationFresh = isValidationFreshOrApplicable(validationContent, currentArtifacts);
+  if (verdict === "pass" && validationFresh) {
+    return [
+      "### Passing Validation Artifact",
+      "",
+      `A passing validation artifact is present at \`${validationRel}\`. Treat it as authoritative for success criteria, requirement coverage, verification classes, and cross-slice integration.`,
+      "",
+      "Do not delegate fresh reviewer/security/tester audits and do not redo the validation evidence review unless the artifact is internally inconsistent with the inlined summaries. Focus this unit on final milestone narrative, learnings, PROJECT/requirements updates, and `gsd_complete_milestone`.",
+    ].join("\n");
+  }
+
+  if (verdict) {
+    return [
+      "### Validation Requires Attention",
+      "",
+      `A validation artifact is present at \`${validationRel}\` with verdict \`${verdict}\`, but it is missing freshness metadata or does not cover current milestone artifacts. Do not treat the milestone as complete unless the issues are resolved and evidence supports completion.`,
+    ].join("\n");
+  }
+
+  return [
+    "### No Passing Validation Artifact",
+    "",
+    `No passing validation artifact was found at \`${validationRel}\`. Use the full closeout review path before completion.`,
+  ].join("\n");
 }
 
 function capPreamble(preamble: string): string {
@@ -1658,6 +1761,8 @@ export async function buildPlanMilestonePrompt(mid: string, midTitle: string, ba
   const researchAnchor = readPhaseAnchor(base, mid, "research-milestone");
   if (researchAnchor) inlined.push(formatAnchorForPrompt(researchAnchor));
 
+  inlined.push(formatProjectClassificationForPlanning(classifyProject(base)));
+
   inlined.push(await inlineFile(contextPath, contextRel, "Milestone Context"));
   const researchInline = await inlineFileOptional(researchPath, researchRel, "Milestone Research");
   if (researchInline) inlined.push(researchInline);
@@ -2348,6 +2453,9 @@ export async function buildCompleteMilestonePrompt(
   const inlineLevel = level ?? resolveInlineLevel();
   const roadmapPath = resolveMilestoneFile(base, mid, "ROADMAP");
   const roadmapRel = relMilestoneFile(base, mid, "ROADMAP");
+  const validationPath = resolveMilestoneFile(base, mid, "VALIDATION");
+  const validationRel = relMilestoneFile(base, mid, "VALIDATION");
+  const validationContent = validationPath ? await loadFile(validationPath) : null;
 
   const inlined: string[] = [];
   inlined.push(await inlineFile(roadmapPath, roadmapRel, "Milestone Roadmap"));
@@ -2389,6 +2497,13 @@ export async function buildCompleteMilestonePrompt(
       `### On-demand Slice Summaries\n\nExcerpted above. Read the full file for any slice when the excerpt's section heads don't carry enough narrative for the milestone summary you're drafting:\n\n${pathList}`,
     );
   }
+  const validationContext = [
+    formatCloseoutReviewInstructions(validationContent, validationRel, [validationRel, roadmapRel, ...summaryRelPaths]),
+  ];
+  if (validationContent) {
+    validationContext.push(`### Milestone Validation\nSource: \`${validationRel}\`\n\n${validationContent.trim()}`);
+  }
+  inlined.unshift(...validationContext);
 
   // Inline root GSD files (skip for minimal — completion can read these if needed)
   if (inlineLevel !== "minimal") {

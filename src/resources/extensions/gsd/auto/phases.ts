@@ -32,13 +32,13 @@ import { detectStuck } from "./detect-stuck.js";
 import { runUnit } from "./run-unit.js";
 import { debugLog } from "../debug-logger.js";
 import { resolveWorktreeProjectRoot, normalizeWorktreePathForCompare } from "../worktree-root.js";
-import { PROJECT_FILES, hasProjectFileInAncestor } from "../detection.js";
+import { classifyProject } from "../detection.js";
 import { MergeConflictError } from "../git-service.js";
 import { setCurrentPhase, clearCurrentPhase } from "../../shared/gsd-phase-state.js";
 import { pauseAutoForProviderError } from "../provider-error-pause.js";
 import { resumeAutoAfterProviderDelay } from "../bootstrap/provider-error-resume.js";
 import { join, basename } from "node:path";
-import { existsSync, cpSync, readdirSync } from "node:fs";
+import { existsSync, cpSync } from "node:fs";
 import {
   logWarning,
   logError,
@@ -684,6 +684,7 @@ export async function runPreDispatch(
       deps.postflightPopStash(
         s.originalBasePath || s.basePath,
         s.currentMilestoneId!,
+        preflightTransition.stashMarker,
         ctx.ui.notify.bind(ctx.ui),
       );
     }
@@ -797,6 +798,7 @@ export async function runPreDispatch(
           deps.postflightPopStash(
             s.originalBasePath || s.basePath,
             s.currentMilestoneId,
+            preflightAllComplete.stashMarker,
             ctx.ui.notify.bind(ctx.ui),
           );
         }
@@ -925,6 +927,7 @@ export async function runPreDispatch(
         deps.postflightPopStash(
           s.originalBasePath || s.basePath,
           s.currentMilestoneId,
+          preflightComplete.stashMarker,
           ctx.ui.notify.bind(ctx.ui),
         );
       }
@@ -1484,8 +1487,9 @@ export async function runUnitPhase(
   // Verify the working directory is a valid git checkout with project
   // files before dispatching work. A broken worktree causes agents to
   // hallucinate summaries since they cannot read or write any files.
-  // Uses the shared PROJECT_FILES list from detection.ts to support all
-  // ecosystems (Rust, Go, Python, Java, etc.), not just JS.
+  // Uses project classification so project presence is not conflated with
+  // ecosystem marker detection. Static/minimal repos become untyped-existing.
+  let projectClassification: ReturnType<typeof classifyProject> | null = null;
   if (s.basePath && unitType === "execute-task") {
     const gitMarker = join(s.basePath, ".git");
     const hasGit = deps.existsSync(gitMarker);
@@ -1496,30 +1500,29 @@ export async function runUnitPhase(
       await deps.stopAuto(ctx, pi, msg);
       return { action: "break", reason: "worktree-invalid" };
     }
-    const hasProjectFile = PROJECT_FILES.some((f) => deps.existsSync(join(s.basePath, f)));
-    const hasSrcDir = deps.existsSync(join(s.basePath, "src"));
-    // Xcode bundles have project-specific names (*.xcodeproj, *.xcworkspace)
-    // that cannot be matched by exact filename — scan the directory by suffix.
-    let hasXcodeBundle = false;
-    try {
-      const entries = deps.existsSync(s.basePath) ? readdirSync(s.basePath) : [];
-      hasXcodeBundle = entries.some((e: string) => e.endsWith(".xcodeproj") || e.endsWith(".xcworkspace"));
-    } catch (err) {
-      debugLog("runUnitPhase", { phase: "xcode-bundle-scan-failed", basePath: s.basePath, error: String(err) });
-    }
-    // Monorepo support (#2347): if no project files in the worktree directory,
-    // walk parent directories up to the filesystem root. In monorepos,
-    // package.json / Cargo.toml etc. live in a parent directory.
-    const hasProjectFileInParent =
-      !hasProjectFile && !hasSrcDir && !hasXcodeBundle
-        ? hasProjectFileInAncestor(s.basePath, deps.existsSync)
-        : false;
-    if (!hasProjectFile && !hasSrcDir && !hasXcodeBundle && !hasProjectFileInParent) {
-      // Greenfield projects won't have project files yet — the first task creates them.
-      // Log a warning but allow execution to proceed. The .git check above is sufficient
-      // to ensure we're in a valid working directory.
-      debugLog("runUnitPhase", { phase: "worktree-health-warn-greenfield", basePath: s.basePath, hasProjectFile, hasSrcDir, hasXcodeBundle });
-      ctx.ui.notify(`Warning: ${s.basePath} has no recognized project files — proceeding as greenfield project`, "warning");
+    projectClassification = classifyProject(s.basePath);
+    if (projectClassification.kind === "invalid-repo") {
+      const msg = `Worktree health check failed: ${s.basePath} classified as invalid-repo (${projectClassification.reason}) — refusing to dispatch ${unitType} ${unitId}`;
+      debugLog("runUnitPhase", { phase: "worktree-health-invalid-repo", basePath: s.basePath, classification: projectClassification });
+      if (projectClassification.reason === "missing .git" && hasGit) {
+        ctx.ui.notify(
+          `Warning: ${s.basePath} project classification could not confirm .git; assuming it has no project content yet — proceeding as greenfield project because worktree health reported .git present`,
+          "warning",
+        );
+      } else {
+        ctx.ui.notify(msg, "error");
+        await deps.stopAuto(ctx, pi, msg);
+        return { action: "break", reason: "worktree-invalid" };
+      }
+    } else if (projectClassification.kind === "greenfield") {
+      debugLog("runUnitPhase", { phase: "worktree-health-greenfield", basePath: s.basePath, classification: projectClassification });
+      ctx.ui.notify(`Warning: ${s.basePath} has no project content yet — proceeding as greenfield project`, "warning");
+    } else if (projectClassification.kind === "untyped-existing") {
+      debugLog("runUnitPhase", { phase: "worktree-health-untyped-existing", basePath: s.basePath, classification: projectClassification });
+      ctx.ui.notify(
+        `Notice: ${s.basePath} has existing project content but no recognized tooling markers — using generic file-level workflow guidance`,
+        "info",
+      );
     }
   }
 
@@ -1597,6 +1600,17 @@ export async function runUnitPhase(
 
   // Prompt injection
   let finalPrompt = prompt;
+
+  if (unitType === "execute-task") {
+    projectClassification ??= classifyProject(s.basePath);
+    if (projectClassification.kind === "untyped-existing") {
+      const samples = projectClassification.contentFiles.slice(0, 8).join(", ") || "project files";
+      finalPrompt +=
+        "\n\n**Project classification:** Existing untyped project. No recognized build/tooling markers were detected, " +
+        "so use generic file-level workflow guidance. Task plans and completion summaries must list every concrete " +
+        `project file changed in \`files\` or \`expected_output\`. Detected content sample: ${samples}.`;
+    }
+  }
 
   if (s.pendingVerificationRetry) {
     const retryCtx = s.pendingVerificationRetry;
