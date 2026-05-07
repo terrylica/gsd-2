@@ -258,13 +258,24 @@ export function queryMemoriesRanked(opts: QueryMemoriesOptions): RankedMemory[] 
 
   if (keywordHits.length === 0 && semanticHits.length === 0 && !trimmedQuery) {
     // No query at all — return top-k by decay-aware ranked score.
-    // Fetch a larger candidate pool (5k or at least 50) so the decay factor
-    // can promote a fresh-but-lower-raw-score memory into the top k. Slicing
-    // before applying decay (the previous behavior) defeated the time-decay
-    // ranking — out-of-pool memories could never recover.
+    //
+    // Build the candidate pool from a direct SQL query that honors the
+    // request's activeClause (i.e. include_superseded). Using
+    // getActiveMemoriesRanked here would silently drop superseded rows even
+    // when the caller explicitly opted in, and would slice by raw score
+    // before decay/filters had a chance to reorder.
     const candidatePool = Math.min(Math.max(k * 5, 50), 500);
+    const rows = adapter
+      .prepare(
+        `SELECT * FROM memories ${activeClause}
+         ORDER BY (confidence * (1.0 + hit_count * 0.1)) DESC
+         LIMIT :limit`,
+      )
+      .all({ ':limit': candidatePool });
+
     const ranked: RankedMemory[] = [];
-    for (const memory of getActiveMemoriesRanked(candidatePool)) {
+    for (const row of rows) {
+      const memory = rowToMemory(row);
       if (!passesFilters(memory, opts)) continue;
       const decay = memoryDecayFactor(memory.last_hit_at);
       const score = memory.confidence * (1 + memory.hit_count * 0.1) * decay;
