@@ -972,6 +972,8 @@ export async function stopAuto(
       if (s.workerId) {
         markWorkerStopping(s.workerId);
       }
+      s.workerId = null;
+      s.milestoneLeaseToken = null;
     } catch (e) {
       debugLog("stop-cleanup-coordination", { error: e instanceof Error ? e.message : String(e) });
     }
