@@ -115,7 +115,7 @@ const CATEGORY_PRIORITY: Record<string, number> = {
  * Future timestamps (clock skew, manual DB edits) clamp to daysAgo=0 so the
  * factor stays in the documented [0.7, 1.0] contract.
  */
-function memoryDecayFactor(lastHitAt: string | null): number {
+export function memoryDecayFactor(lastHitAt: string | null): number {
   if (!lastHitAt) return 1.0;
   const ts = Date.parse(lastHitAt);
   if (!Number.isFinite(ts)) return 1.0;
