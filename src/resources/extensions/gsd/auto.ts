@@ -1975,6 +1975,10 @@ export async function startAuto(
       : new URL("../../../resource-loader.js", import.meta.url).href;
     const { initResources } = await import(resourceLoaderPath);
     initResources(agentDir);
+    // initResources() uses synchronous fs APIs, so the prompt-template cache
+    // can be primed immediately — no need for the legacy 1s setTimeout deferral.
+    const { primeCache } = await import("./prompt-loader.js");
+    primeCache();
     // Open the project DB before rebuild/derive so resume uses DB-backed
     // state instead of falling back to stale markdown parsing (#2940).
     await openProjectDbIfPresent(s.basePath);
