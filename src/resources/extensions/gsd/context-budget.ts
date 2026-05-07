@@ -38,12 +38,22 @@ const DEFAULT_CONTEXT_WINDOW = 200_000;
 const CLAUDE_CODE_EFFECTIVE_CONTEXT_WINDOW = 200_000;
 
 /**
- * Cached empirical chars-per-token from a tiktoken probe. Computed lazily on
- * first computeBudgets() call after the encoder warms; the cl100k_base encoder
- * gives a stable ratio for ASCII English so a single probe is sufficient.
- * NULL means "not yet probed" or "encoder unavailable".
+ * Cached empirical chars-per-token from a tiktoken probe, keyed by provider.
+ * countTokensSync's fallback path is provider-aware, so we cache per-provider
+ * to preserve that distinction once the encoder warms. The cl100k_base encoder
+ * itself gives a stable ratio for ASCII English so a single probe per provider
+ * key is sufficient. Empty map means "not yet probed" or "encoder unavailable".
  */
-let _cachedEmpiricalCharsPerToken: number | null = null;
+const _empiricalCharsPerTokenByProvider = new Map<string, number>();
+
+/**
+ * Test hook — clears the empirical chars-per-token cache so test cases that
+ * assert against the static char-ratio fallback aren't polluted by a prior
+ * tiktoken-warmed run in the same process. Production code must not call this.
+ */
+export function _resetEmpiricalCacheForTest(): void {
+  _empiricalCharsPerTokenByProvider.clear();
+}
 
 /** Percentage of context consumed before suggesting a continue-here checkpoint */
 const CONTINUE_THRESHOLD_PERCENT = 70;
@@ -117,16 +127,20 @@ export function computeBudgets(contextWindow: number, provider?: TokenProvider):
 
   // Prefer the tiktoken encoder for total-char estimation when it has been
   // warmed (initTokenCounter resolved). The cl100k_base ratio is stable for
-  // ASCII English, so probe once and cache — computeBudgets is called multiple
-  // times per prompt build and the probe encode is otherwise wasted work.
+  // ASCII English, so probe once per provider and cache — computeBudgets is
+  // called multiple times per prompt build and the probe encode is otherwise
+  // wasted work.
   let totalChars: number;
   if (isAccurateCountingAvailable()) {
-    if (_cachedEmpiricalCharsPerToken === null) {
+    const providerKey = provider ?? "__default__";
+    let empirical = _empiricalCharsPerTokenByProvider.get(providerKey);
+    if (empirical === undefined) {
       const probe = "the quick brown fox jumps over the lazy dog ".repeat(64);
       const probeTokens = countTokensSync(probe, provider);
-      _cachedEmpiricalCharsPerToken = probeTokens > 0 ? probe.length / probeTokens : charsPerToken;
+      empirical = probeTokens > 0 ? probe.length / probeTokens : charsPerToken;
+      _empiricalCharsPerTokenByProvider.set(providerKey, empirical);
     }
-    totalChars = effectiveWindow * _cachedEmpiricalCharsPerToken;
+    totalChars = effectiveWindow * empirical;
   } else {
     totalChars = effectiveWindow * charsPerToken;
   }
