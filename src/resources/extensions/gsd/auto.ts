@@ -1157,6 +1157,21 @@ export async function stopAuto(
       debugLog("stop-cleanup-basepath", { error: e instanceof Error ? e.message : String(e) });
     }
 
+    // Re-root the active command session/tool runtime after worktree teardown.
+    // mergeAndExit restores process.cwd(), but AgentSession has already captured
+    // its own cwd for tools and system prompt; refresh it before returning to the
+    // user so follow-up commands do not target a removed milestone worktree.
+    if (s.originalBasePath && ctx && s.cmdCtx) {
+      try {
+        const result = await s.cmdCtx.newSession({ workspaceRoot: s.basePath });
+        if (result.cancelled) {
+          logWarning("engine", "post-stop session re-root was cancelled", { file: "auto.ts", basePath: s.basePath });
+        }
+      } catch (err) {
+        logWarning("engine", `post-stop session re-root failed: ${err instanceof Error ? err.message : String(err)}`, { file: "auto.ts", basePath: s.basePath });
+      }
+    }
+
     // ── Step 8: Ledger notification ──
     try {
       const ledger = getLedger();
@@ -2281,24 +2296,7 @@ export async function dispatchHookUnit(
     startedAt: hookStartedAt,
   };
 
-  // Ensure cwd matches basePath BEFORE newSession() captures it (#1389).
-  // newSession() snapshots process.cwd() during construction; chdir-ing
-  // afterward leaves the session rooted to whatever cwd was when the call
-  // was made. Must be synchronous — no awaits between chdir and newSession.
-  try { if (process.cwd() !== s.basePath) process.chdir(s.basePath); } catch (err) {
-    const msg = `Failed to chdir before hook newSession (basePath: ${s.basePath}): ${err instanceof Error ? err.message : String(err)}`;
-    logWarning("engine", msg, { file: "auto.ts", basePath: s.basePath, error: err instanceof Error ? err.message : String(err) });
-    ctx.ui.notify(`${msg}. Cancelling hook dispatch to avoid running in the wrong directory.`, "error");
-    if (wasActive) {
-      s.basePath = previousBasePath;
-      s.currentUnit = previousCurrentUnit;
-    } else {
-      s.reset();
-    }
-    return false;
-  }
-
-  const result = await s.cmdCtx!.newSession();
+  const result = await s.cmdCtx!.newSession({ workspaceRoot: s.basePath });
   if (result.cancelled) {
     await stopAuto(ctx, pi);
     return false;
