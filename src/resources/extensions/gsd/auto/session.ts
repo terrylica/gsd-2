@@ -184,7 +184,7 @@ export class AutoSession {
    * plan-slice → pre-exec fail → re-dispatch loop when the planner cannot fix
    * the issues after MAX_PRE_EXEC_RETRIES re-attempts.
    */
-  preExecRetryCount: Map<string, number> = new Map();
+  readonly preExecRetryCount: Map<string, number> = new Map();
 
   // ── Tool invocation errors (#2883) ──────────────────────────────────
   /** Set when a GSD tool execution ends with isError due to malformed/truncated
@@ -350,7 +350,7 @@ export class AutoSession {
     this.rewriteAttemptCount = 0;
     this.consecutiveCompleteBootstraps = 0;
     this.lastPreExecFailure = null;
-    this.preExecRetryCount = new Map();
+    this.preExecRetryCount.clear();
     this.lastToolInvocationError = null;
     this.lastUnitAgentEndMessages = null;
     this.lastGitActionFailure = null;
