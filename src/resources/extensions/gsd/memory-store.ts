@@ -109,10 +109,17 @@ const CATEGORY_PRIORITY: Record<string, number> = {
  * Returns 1.0 for never-hit or recently-hit memories, decaying linearly to
  * 0.7 for memories not accessed in 90+ days. Floor at 0.7 keeps old-but-valid
  * knowledge from being fully suppressed.
+ *
+ * Defensive parsing: invalid timestamp strings (NaN from Date.parse) are
+ * treated as "no decay" rather than propagating NaN into score arithmetic.
+ * Future timestamps (clock skew, manual DB edits) clamp to daysAgo=0 so the
+ * factor stays in the documented [0.7, 1.0] contract.
  */
 function memoryDecayFactor(lastHitAt: string | null): number {
   if (!lastHitAt) return 1.0;
-  const daysAgo = (Date.now() - new Date(lastHitAt).getTime()) / 86_400_000;
+  const ts = Date.parse(lastHitAt);
+  if (!Number.isFinite(ts)) return 1.0;
+  const daysAgo = Math.max(0, (Date.now() - ts) / 86_400_000);
   return Math.max(0.7, 1.0 - 0.3 * Math.min(1.0, daysAgo / 90));
 }
 
@@ -250,19 +257,28 @@ export function queryMemoriesRanked(opts: QueryMemoriesOptions): RankedMemory[] 
     : [];
 
   if (keywordHits.length === 0 && semanticHits.length === 0 && !trimmedQuery) {
-    // No query at all — fall back to the existing ranked-by-score listing.
-    return getActiveMemoriesRanked(k).map((memory) => {
+    // No query at all — return top-k by decay-aware ranked score.
+    // Fetch a larger candidate pool (5k or at least 50) so the decay factor
+    // can promote a fresh-but-lower-raw-score memory into the top k. Slicing
+    // before applying decay (the previous behavior) defeated the time-decay
+    // ranking — out-of-pool memories could never recover.
+    const candidatePool = Math.min(Math.max(k * 5, 50), 500);
+    const ranked: RankedMemory[] = [];
+    for (const memory of getActiveMemoriesRanked(candidatePool)) {
+      if (!passesFilters(memory, opts)) continue;
       const decay = memoryDecayFactor(memory.last_hit_at);
       const score = memory.confidence * (1 + memory.hit_count * 0.1) * decay;
-      return {
+      ranked.push({
         memory,
         score,
         keywordRank: null,
         semanticRank: null,
         confidenceBoost: score,
         reason: 'ranked' as const,
-      };
-    }).filter((hit) => passesFilters(hit.memory, opts));
+      });
+    }
+    ranked.sort((a, b) => b.score - a.score);
+    return ranked.slice(0, k);
   }
 
   // 3) Reciprocal rank fusion — each hit contributes 1/(rrfK + rank).
