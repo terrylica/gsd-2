@@ -57,7 +57,8 @@ export function createBaseSchemaObjects(db: DbAdapter, hooks: BaseSchemaHooks): 
       slice_id TEXT DEFAULT NULL,
       task_id TEXT DEFAULT NULL,
       full_content TEXT NOT NULL DEFAULT '',
-      imported_at TEXT NOT NULL DEFAULT ''
+      imported_at TEXT NOT NULL DEFAULT '',
+      content_hash TEXT DEFAULT NULL
     )
   `);
 

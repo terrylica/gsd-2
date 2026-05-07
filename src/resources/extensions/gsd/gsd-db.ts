@@ -23,6 +23,7 @@
 // excluded from this invariant.
 
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 import { existsSync, copyFileSync, mkdirSync, realpathSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Decision, Requirement, GateRow, GateId, GateScope, GateStatus, GateVerdict } from "./types.js";
@@ -78,6 +79,7 @@ import {
   applyMigrationV22QualityGateRepair,
   applyMigrationV23MilestoneQueue,
   applyMigrationV26MilestoneCommitAttributions,
+  applyMigrationV27ArtifactHash,
 } from "./db-migration-steps.js";
 import { isMemoriesFtsAvailableSchema, tryCreateMemoriesFtsSchema } from "./db-memory-fts-schema.js";
 import { createDbOpenState, type DbOpenPhase } from "./db-open-state.js";
@@ -106,7 +108,7 @@ const providerLoader = createSqliteProviderLoader({
   writeStderr: (message: string) => process.stderr.write(message),
 });
 
-export const SCHEMA_VERSION = 26;
+export const SCHEMA_VERSION = 27;
 
 function initSchema(db: DbAdapter, fileBacked: boolean): void {
   if (fileBacked) db.exec("PRAGMA journal_mode=WAL");
@@ -333,6 +335,11 @@ function migrateSchema(db: DbAdapter): void {
     if (currentVersion < 26) {
       applyMigrationV26MilestoneCommitAttributions(db);
       recordSchemaVersion(db, 26);
+    }
+
+    if (currentVersion < 27) {
+      applyMigrationV27ArtifactHash(db);
+      recordSchemaVersion(db, 27);
     }
 
     db.exec("COMMIT");
@@ -913,9 +920,10 @@ export function insertArtifact(a: {
   full_content: string;
 }): void {
   if (!currentDb) throw new GSDError(GSD_STALE_STATE, "gsd-db: No database open");
+  const contentHash = createHash("sha256").update(a.full_content).digest("hex");
   currentDb.prepare(
-    `INSERT OR REPLACE INTO artifacts (path, artifact_type, milestone_id, slice_id, task_id, full_content, imported_at)
-     VALUES (:path, :artifact_type, :milestone_id, :slice_id, :task_id, :full_content, :imported_at)`,
+    `INSERT OR REPLACE INTO artifacts (path, artifact_type, milestone_id, slice_id, task_id, full_content, imported_at, content_hash)
+     VALUES (:path, :artifact_type, :milestone_id, :slice_id, :task_id, :full_content, :imported_at, :content_hash)`,
   ).run({
     ":path": a.path,
     ":artifact_type": a.artifact_type,
@@ -924,6 +932,7 @@ export function insertArtifact(a: {
     ":task_id": a.task_id,
     ":full_content": a.full_content,
     ":imported_at": new Date().toISOString(),
+    ":content_hash": contentHash,
   });
 }
 
