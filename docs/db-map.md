@@ -50,7 +50,7 @@ After commit: regenerate markdown artifacts → write to disk → invalidate cac
 
 ## 2. Schema Version History
 
-Current version: **V26**
+Current version: **V28**
 
 | Version | What Changed |
 |---------|-------------|
@@ -80,6 +80,8 @@ Current version: **V26**
 | V24 | **Auto-mode coordination**: workers, milestone_leases, unit_dispatches, cancellation_requests, command_queue |
 | V25 | runtime_kv (soft state KV with global/worker/milestone scope) |
 | V26 | milestone_commit_attributions |
+| V27 | artifacts.content_hash (SHA-256 of full_content, computed on every insertArtifact) |
+| V28 | memories.last_hit_at; incrementMemoryHitCount sets it; queryMemoriesRanked applies time-decay (1.0 → 0.7 floor over 90 days) |
 
 ---
 
@@ -143,8 +145,10 @@ slice_id      TEXT DEFAULT NULL
 task_id       TEXT DEFAULT NULL
 full_content  TEXT NOT NULL DEFAULT ''
 imported_at   TEXT NOT NULL DEFAULT ''
+content_hash  TEXT DEFAULT NULL                  ← V27, SHA-256 of full_content
 ```
 Stores markdown artifact content (PROJECT, REQUIREMENTS, SUMMARY, RESEARCH, CONTEXT, etc.).
+V27: `content_hash` is computed and stored on every `insertArtifact` for integrity fingerprinting.
 
 ---
 
@@ -428,10 +432,12 @@ hit_count         INTEGER NOT NULL DEFAULT 0
 scope             TEXT NOT NULL DEFAULT 'project'   ← V18
 tags              TEXT NOT NULL DEFAULT '[]'         ← V18, JSON
 structured_fields TEXT DEFAULT NULL                  ← V21, JSON
+last_hit_at       TEXT DEFAULT NULL                  ← V28, set by incrementMemoryHitCount
 ```
 - Index: `idx_memories_active` (superseded_by), `idx_memories_scope` (scope)
 - View: `active_memories` WHERE superseded_by IS NULL
 - FTS: `memories_fts` virtual table (V19)
+- V28: `queryMemoriesRanked` applies `memoryDecayFactor(last_hit_at)` — linear decay from 1.0 (≤0 days) to 0.7 floor (≥90 days)
 
 ---
 

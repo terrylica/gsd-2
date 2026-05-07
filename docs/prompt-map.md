@@ -429,36 +429,42 @@ LLM sees: "load these skill files and follow their rules for this unit"
 
 ## 10. Dispatch Rule Priority Order
 
-`auto-dispatch.ts` evaluates rules top-to-bottom, first match wins:
+`auto-dispatch.ts` evaluates 29 rules top-to-bottom, first match wins. Source of
+truth is the `DISPATCH_RULES` array in `auto-dispatch.ts`; the canary test
+`tests/dispatch-rule-coverage.test.ts` pins the count at 29.
 
 ```
-Priority  Rule                          Fires When
-────────  ────────────────────────────  ─────────────────────────────────────
-1         workflow-preferences          PREFERENCES.md missing
-2         discuss-project              PROJECT.md missing
-3         discuss-requirements         REQUIREMENTS.md missing
-4         research-decision            deep-mode flag not resolved
-5         research-project             deep mode ON + research not done
-6         discuss-milestone            active milestone, CONTEXT missing
-7         research-milestone           CONTEXT done, RESEARCH missing (if needed)
-8         plan-milestone               CONTEXT done, ROADMAP missing
-9         parallel-research-slices     ROADMAP done, slice RESEARCH missing
-10        guided-discuss-slice         slice CONTEXT missing
-11        plan-slice                   slice CONTEXT done, PLAN missing
-12        refine-slice                 slice is sketch, needs expansion
-13        reactive-execute             ≥3 tasks ready (parallel mode)
-14        execute-task                 1–2 tasks ready (sequential mode)
-15        gate-evaluate                gates pending
-16        run-uat                      tasks done, UAT pending
-17        complete-slice               UAT passed, slice not closed
-18        reassess-roadmap             slice closed, roadmap needs update
-19        validate-milestone           all slices closed, not yet validated
-20        complete-milestone           validated, not yet completed
-21        rethink                      user-triggered reorganization
-22        rewrite-docs                 OVERRIDES.md present and unprocessed
-23        triage-captures              captures pending triage
-24        doctor-heal                  doctor report present
-25        stop                         nothing left to do
+Priority  Rule                                          Fires When
+────────  ────────────────────────────────────────────  ─────────────────────────
+ 1        escalating-task → pause-for-escalation        a task escalation is awaiting user review
+ 2        rewrite-docs (override gate)                  OVERRIDES.md present and unprocessed
+ 3        execution-entry phase (no context) → discuss  re-entry into a milestone with no CONTEXT
+ 4        summarizing → complete-slice                  slice in 'summarizing' phase
+ 5        run-uat (post-completion)                     tasks done, UAT pending
+ 6        uat-verdict-gate (non-PASS blocks)            UAT non-PASS — block until resolved
+ 7        reassess-roadmap (post-completion)            slice closed, roadmap needs update
+ 8        needs-discussion → discuss-milestone          milestone explicitly flagged for discussion
+ 9        deep: workflow-preferences                    deep mode + PREFERENCES.md missing
+10        deep: discuss-project                         deep mode + PROJECT artifact missing
+11        deep: discuss-requirements                    deep mode + REQUIREMENTS missing
+12        deep: research-decision                       deep mode + research decision not made
+13        deep: research-project                        deep mode + research approved, files missing
+14        pre-planning (no context) → discuss-milestone active milestone, CONTEXT missing
+15        pre-planning (no research) → research-mile…   CONTEXT done, RESEARCH missing
+16        pre-planning (has research) → plan-milestone  CONTEXT + RESEARCH done, ROADMAP missing
+17        planning (require_slice_discussion) → pause   slice flagged for discussion (#3454)
+18        planning (multi slices need research) → par…  ROADMAP done, slice RESEARCH missing × ≥2
+19        planning (no research, not S01) → research…   single slice needs RESEARCH
+20        refining → refine-slice                       slice is sketch, needs expansion
+21        planning → plan-slice                         slice CONTEXT done, PLAN missing
+22        evaluating-gates → gate-evaluate              gates pending evaluation
+23        replanning-slice → replan-slice               slice in 'replanning' phase
+24        executing → reactive-execute (parallel)       ≥3 tasks ready (parallel mode)
+25        executing → execute-task (recover plan)       task plan missing — recover via plan-slice
+26        executing → execute-task                      1–2 tasks ready (sequential mode)
+27        validating-milestone → validate-milestone     all slices closed, not yet validated
+28        completing-milestone → complete-milestone     validated, not yet completed
+29        complete → stop                               nothing left to do
 ```
 
 ---

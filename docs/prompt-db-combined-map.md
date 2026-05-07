@@ -20,7 +20,7 @@ See also:
                        │  reads
                        ▼
               auto-dispatch.ts
-            (DISPATCH_RULES, 25 rules,
+            (DISPATCH_RULES, 29 rules,
              first match → prompt + builder)
                        │
                        ▼
@@ -262,10 +262,30 @@ execute-task / debug-diagnose / complete-milestone prompts
 later execute-task / plan-slice / research-slice prompts
   └─► memory_query(keywords)
         └─► SELECT FROM memories_fts WHERE content MATCH keywords  (FTS5)
-             OR  SELECT FROM memories WHERE content LIKE '%keywords%'  (fallback)
-        └─► UPDATE memories SET hit_count = hit_count + 1
+             OR  SELECT FROM memories WHERE content LIKE '%keywords%' LIMIT cap  (fallback)
+        └─► incrementMemoryHitCount(id, now):
+            UPDATE memories SET hit_count = hit_count + 1, last_hit_at = now  ← V28
+        └─► queryMemoriesRanked applies memoryDecayFactor(last_hit_at):
+            score *= max(0.7, 1.0 - 0.3 * min(1.0, daysAgo/90))               ← V28
         └─► Returns ranked memory rows → inlined into {{inlinedContext}}
 ```
+
+### Artifact Integrity Fingerprint (V27)
+
+Every prompt that writes an artifact (e.g. `guided-discuss-project` writing
+`artifacts (PROJECT)`, `complete-slice` writing the slice summary) flows through
+`insertArtifact` in `gsd-db.ts`, which now computes and persists a SHA-256 of
+`full_content` alongside the row:
+
+```
+prompt → gsd_summary_save tool → insertArtifact({...})
+  └─► content_hash = createHash('sha256').update(full_content).digest('hex')   ← V27
+  └─► INSERT OR REPLACE INTO artifacts (..., content_hash) VALUES (..., :hash)
+```
+
+The hash is read-only metadata for now (no consumers verify it yet); the column
+exists so future integrity-check tooling can detect manual edits or truncated
+writes without breaking older binaries (column is nullable).
 
 ---
 
