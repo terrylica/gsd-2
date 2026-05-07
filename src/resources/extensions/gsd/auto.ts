@@ -248,7 +248,14 @@ import { initTokenCounter } from "./token-counter.js";
 // can use accurate token counts via countTokensSync without paying the load
 // cost mid-prompt-build. Fire-and-forget — failure falls back to the
 // provider-aware char-ratio estimator already used by getCharsPerToken().
-void initTokenCounter();
+// Catch rejections explicitly: an unhandled rejection at module-import time
+// can destabilize startup before the engine logger is configured.
+void initTokenCounter().catch((err) => {
+  logWarning(
+    "engine",
+    `token counter warm-up failed: ${err instanceof Error ? err.message : String(err)}`,
+  );
+});
 
 // ─── Session State ─────────────────────────────────────────────────────────
 
