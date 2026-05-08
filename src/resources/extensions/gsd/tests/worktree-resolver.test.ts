@@ -1113,6 +1113,33 @@ test("mergeAndEnterNext enters next milestone even if merge fails", () => {
   );
 });
 
+test("mergeAndEnterNext halts after branch-mode user-notified checkout failure", () => {
+  const s = makeSession({ basePath: "/project", originalBasePath: "/project" });
+  const deps = makeDeps({
+    isInAutoWorktree: () => false,
+    getIsolationMode: () => "branch",
+    getCurrentBranch: () => "main",
+    autoWorktreeBranch: () => "milestone/M001",
+    checkoutBranch: () => {
+      throw new Error("dirty working tree blocks checkout");
+    },
+  });
+  const ctx = makeNotifyCtx();
+  const resolver = new WorktreeResolver(s, deps);
+
+  assert.throws(
+    () => resolver.mergeAndEnterNext("M001", "M002", ctx),
+    /dirty working tree blocks checkout/,
+  );
+  assert.equal(
+    findCalls(deps.calls, "enterBranchModeForMilestone").length,
+    0,
+    "must not enter the next milestone after a user-notified branch-mode failure",
+  );
+  assert.equal(findCalls(deps.calls, "mergeMilestoneToMain").length, 0);
+  assert.ok(ctx.messages.some((m) => m.level === "error" && m.msg.includes("Resolve manually")));
+});
+
 // ─── GitService Rebuild Atomicity ────────────────────────────────────────────
 
 test("GitService is rebuilt with the NEW basePath after enterMilestone", () => {

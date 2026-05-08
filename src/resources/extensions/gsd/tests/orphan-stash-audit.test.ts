@@ -51,7 +51,9 @@ describe("auditOrphanedPreflightStashes", () => {
   });
 
   afterEach(() => {
-    rmSync(repo, { recursive: true, force: true });
+    if (repo && existsSync(repo)) {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   test("returns empty result when there are no stashes", () => {

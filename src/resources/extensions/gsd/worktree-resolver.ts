@@ -962,6 +962,7 @@ export class WorktreeResolver {
     try {
       this.mergeAndExit(currentMilestoneId, ctx);
     } catch (err) {
+      if (err instanceof UserNotifiedError) throw err;
       // mergeAndExit emits a warning and restores state when it fails during
       // merge/cleanup. But if it throws before recovery runs (e.g., in
       // validateMilestoneId or emitJournalEvent), basePath won't be restored
