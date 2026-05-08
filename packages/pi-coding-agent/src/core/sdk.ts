@@ -39,9 +39,23 @@ export function canRestoreSessionModel(
 	return modelRegistry.isProviderRequestReady(model.provider);
 }
 
+const PROVIDER_TOOL_LIMITS: Record<string, number> = {
+	groq: 128,
+};
+
+function resolveProviderToolLimit(
+	providerCaps: ReturnType<typeof getProviderCapabilities>,
+	provider: string | undefined,
+): number {
+	if (provider && PROVIDER_TOOL_LIMITS[provider]) {
+		return PROVIDER_TOOL_LIMITS[provider];
+	}
+	return providerCaps.maxTools > 0 ? providerCaps.maxTools : 0;
+}
+
 export function filterToolsForProviderRequest(
 	tools: AgentTool[],
-	model: Pick<Model<any>, "api">,
+	model: Pick<Model<any>, "api" | "provider">,
 ): { compatible: AgentTool[]; filtered: AgentTool[] } {
 	const providerCaps = getProviderCapabilities(model.api);
 	if (!providerCaps.toolCalling) {
@@ -61,6 +75,12 @@ export function filterToolsForProviderRequest(
 			compatible.push(tool);
 		}
 	}
+
+	const toolLimit = resolveProviderToolLimit(providerCaps, model.provider);
+	if (toolLimit > 0 && compatible.length > toolLimit) {
+		filtered.push(...compatible.splice(toolLimit));
+	}
+
 	return { compatible, filtered };
 }
 import { Agent, maybeLogProviderPayloadAudit, type AgentMessage, type AgentTool, type ThinkingLevel } from "@gsd/pi-agent-core";
@@ -108,6 +128,21 @@ import {
 	writeTool,
 } from "./tools/index.js";
 import { getToolCompatibility } from "./tools/tool-compatibility-registry.js";
+
+export function getAdjustToolSetRequestCustomMessages(
+	messages: readonly AgentMessage[] | undefined,
+): Array<{ index: number; customType: string }> {
+	if (!messages) return [];
+	const requestMessages: Array<{ index: number; customType: string }> = [];
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index] as { role?: unknown; customType?: unknown };
+		if (message?.role === "assistant") break;
+		if (message?.role === "custom" && typeof message.customType === "string") {
+			requestMessages.push({ index, customType: message.customType });
+		}
+	}
+	return requestMessages.reverse();
+}
 
 export interface CreateAgentSessionOptions {
 	/** Working directory for project-local discovery. Default: process.cwd() */
@@ -429,7 +464,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 			if (!runner) return messages;
 			return runner.emitContext(messages);
 		},
-		filterTools: async (tools) => {
+		filterTools: async (tools, _signal, messages) => {
 			const currentModel = agent.state.activeInferenceModel ?? agent.state.model ?? model;
 			if (!currentModel) return tools;
 			const providerFiltered = filterToolsForProviderRequest(tools, currentModel);
@@ -441,6 +476,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 				selectedModelId: currentModel.id,
 				activeToolNames: providerFiltered.compatible.map((tool) => tool.name),
 				filteredTools: providerFiltered.filtered.map((tool) => tool.name),
+				requestCustomMessages: getAdjustToolSetRequestCustomMessages(messages),
 			});
 			if (!result?.toolNames) return providerFiltered.compatible;
 			const allowedNames = new Set(result.toolNames);

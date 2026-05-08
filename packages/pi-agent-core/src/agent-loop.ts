@@ -417,7 +417,7 @@ async function streamAssistantResponse(
 
 	// Convert to LLM-compatible messages (AgentMessage[] → Message[])
 	const llmMessages = await config.convertToLlm(messages);
-	const tools = config.filterTools ? await config.filterTools(context.tools ?? [], signal) : context.tools;
+	const tools = config.filterTools ? await config.filterTools(context.tools ?? [], signal, messages) : context.tools;
 
 	// Build LLM context
 	const llmContext: Context = {

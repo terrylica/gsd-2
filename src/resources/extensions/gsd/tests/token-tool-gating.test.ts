@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildMinimalAutoGsdToolSet, buildMinimalGsdToolSet, buildMinimalGsdWorkflowToolSet, MINIMAL_AUTO_BASE_TOOL_NAMES, MINIMAL_GSD_TOOL_NAMES, restoreGsdWorkflowTools, scopeGsdWorkflowToolsForDispatch } from "../bootstrap/register-hooks.ts";
+import { buildMinimalAutoGsdToolSet, buildMinimalGsdToolSet, buildMinimalGsdWorkflowToolSet, buildRequestScopedGsdToolSet, MINIMAL_AUTO_BASE_TOOL_NAMES, MINIMAL_GSD_TOOL_NAMES, restoreGsdWorkflowTools, scopeGsdWorkflowToolsForDispatch } from "../bootstrap/register-hooks.ts";
 
 test("buildMinimalGsdToolSet preserves non-GSD tools and replaces broad GSD surface", () => {
   const result = buildMinimalGsdToolSet([
@@ -193,6 +193,38 @@ test("buildMinimalGsdWorkflowToolSet keeps workflow GSD tools but drops broad no
   assert.ok(!result.includes("mac_find"));
   assert.ok(!result.includes("subagent"));
   assert.ok(!result.includes("gsd_graph"));
+});
+
+test("buildRequestScopedGsdToolSet scopes queued workflow custom-message requests", () => {
+  const result = buildRequestScopedGsdToolSet([
+    "ask_user_questions",
+    "bash",
+    "browser_wait_for",
+    "lsp",
+    "read",
+    "write",
+    "gsd_plan_milestone",
+    "gsd_complete_milestone",
+    "gsd_task_complete",
+    "gsd_graph",
+    "memory_query",
+    "capture_thought",
+  ], [{ customType: "gsd-run" }, { customType: "gsd-memory" }]);
+
+  assert.ok(result);
+  assert.ok(result.includes("ask_user_questions"));
+  assert.ok(result.includes("bash"));
+  assert.ok(result.includes("read"));
+  assert.ok(result.includes("write"));
+  assert.ok(result.includes("gsd_plan_milestone"));
+  assert.ok(result.includes("gsd_complete_milestone"));
+  assert.ok(!result.includes("browser_wait_for"));
+  assert.ok(!result.includes("lsp"));
+  assert.ok(!result.includes("gsd_graph"));
+});
+
+test("buildRequestScopedGsdToolSet ignores stale workflow messages outside the current request tail", () => {
+  assert.equal(buildRequestScopedGsdToolSet(["bash", "gsd_plan_milestone"], []), undefined);
 });
 
 test("scopeGsdWorkflowToolsForDispatch applies and restores per-unit skill visibility", () => {

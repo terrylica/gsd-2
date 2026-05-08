@@ -25,6 +25,7 @@ describe("agent-loop — pauseTurn handling (#2869)", () => {
 		}) as typeof process.stderr.write;
 
 		try {
+			let filteredMessages: AgentMessage[] | undefined;
 			const streamFn = (_model: Model<any>, llmContext: any): AssistantMessageEventStream => {
 				assert.equal(llmContext.messages.length, 1, "audit boundary must use transformed context");
 				assert.equal(llmContext.messages[0].content[0].text, "transformed");
@@ -47,6 +48,10 @@ describe("agent-loop — pauseTurn handling (#2869)", () => {
 					{ role: "user", content: [{ type: "text", text: "transformed" }], timestamp: Date.now() },
 				],
 				convertToLlm: (msgs) => msgs.filter((m): m is any => m.role !== "custom"),
+				filterTools: (tools, _signal, messages) => {
+					filteredMessages = messages;
+					return tools;
+				},
 				toolExecution: "sequential",
 			};
 
@@ -61,6 +66,7 @@ describe("agent-loop — pauseTurn handling (#2869)", () => {
 
 			assert.match(written, /"type":"token_audit"/);
 			assert.match(written, /"messageCount":1/);
+			assert.equal((filteredMessages?.[0] as any)?.content?.[0]?.text, "transformed");
 			assert.doesNotMatch(written, /transformed|original|new prompt|sensitive system/);
 		} finally {
 			process.stderr.write = originalWrite;

@@ -851,6 +851,13 @@ export interface BeforeModelSelectResult {
 	modelId: string;
 }
 
+export interface AdjustToolSetRequestCustomMessage {
+	/** Index in the post-transform AgentMessage context. */
+	index: number;
+	/** Custom message type only; prompt/content text is intentionally omitted. */
+	customType: string;
+}
+
 /**
  * Fired after model selection to allow extensions to adjust the active tool set (ADR-005 Phase 4).
  * Extensions can add, remove, or reorder tools based on the selected model's provider capabilities.
@@ -867,6 +874,12 @@ export interface AdjustToolSetEvent {
 	activeToolNames: string[];
 	/** Tools already filtered by provider compatibility */
 	filteredTools: string[];
+	/**
+	 * Custom message metadata in the current request tail, measured from the
+	 * latest assistant message. This is metadata-only so extensions can scope
+	 * queued custom-message turns without seeing raw prompt content.
+	 */
+	requestCustomMessages?: AdjustToolSetRequestCustomMessage[];
 }
 
 /** Result from adjust_tool_set event handler. Return { toolNames } to override tool set. */

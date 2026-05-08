@@ -125,6 +125,24 @@ export function buildMinimalGsdWorkflowToolSet(activeToolNames: readonly string[
   return [...new Set([...preserved, ...scoped])];
 }
 
+export function buildRequestScopedGsdToolSet(
+  activeToolNames: readonly string[],
+  requestCustomMessages: readonly { customType?: string }[] | undefined,
+): string[] | undefined {
+  for (let index = (requestCustomMessages?.length ?? 0) - 1; index >= 0; index--) {
+    const currentCustomType = requestCustomMessages?.[index]?.customType;
+    if (
+      currentCustomType === "gsd-run" ||
+      currentCustomType === "gsd-discuss" ||
+      currentCustomType === "gsd-doctor-heal" ||
+      currentCustomType === "gsd-triage"
+    ) {
+      return buildMinimalGsdWorkflowToolSet(activeToolNames);
+    }
+  }
+  return undefined;
+}
+
 export function isFullGsdToolSurfaceRequested(): boolean {
   return process.env.PI_GSD_FULL_TOOLS === "1";
 }
@@ -1037,15 +1055,17 @@ export function registerHooks(
   // Return undefined to let the built-in provider compatibility filtering proceed.
   pi.on("adjust_tool_set", async (event) => {
     if (isFullGsdToolSurfaceRequested()) return undefined;
+    const removed = new Set(event.filteredTools);
+    const providerCompatible = event.activeToolNames.filter((name) => !removed.has(name));
+    const requestScoped = buildRequestScopedGsdToolSet(providerCompatible, event.requestCustomMessages);
+    if (requestScoped) {
+      return { toolNames: requestScoped };
+    }
     const dash = getAutoRuntimeSnapshot();
     if (dash.active && dash.currentUnit) {
-      const removed = new Set(event.filteredTools);
-      const providerCompatible = event.activeToolNames.filter((name) => !removed.has(name));
       return { toolNames: buildMinimalAutoGsdToolSet(providerCompatible, dash.currentUnit.type) };
     }
     if (isGeneralGsdToolScopingRequested()) {
-      const removed = new Set(event.filteredTools);
-      const providerCompatible = event.activeToolNames.filter((name) => !removed.has(name));
       return { toolNames: buildMinimalGsdToolSet(providerCompatible) };
     }
     return undefined;

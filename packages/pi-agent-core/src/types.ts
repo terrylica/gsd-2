@@ -139,8 +139,14 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 *
 	 * Use this for runtime policy that depends on the fully active tool set.
 	 * The returned list is what token audit and the provider request both see.
+	 * Receives the post-transform AgentMessage context so policy can scope
+	 * request-local custom messages without inspecting provider payload text.
 	 */
-	filterTools?: (tools: AgentTool<any>[], signal?: AbortSignal) => AgentTool<any>[] | Promise<AgentTool<any>[]>;
+	filterTools?: (
+		tools: AgentTool<any>[],
+		signal?: AbortSignal,
+		messages?: AgentMessage[],
+	) => AgentTool<any>[] | Promise<AgentTool<any>[]>;
 
 	/**
 	 * Resolves an API key dynamically for each LLM call.
