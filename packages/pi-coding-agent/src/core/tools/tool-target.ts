@@ -30,6 +30,8 @@ export function createReadFileTarget(
 	offset?: number,
 	limit?: number,
 ): ToolTargetMetadata {
+	const effectiveOffset = Math.max(1, offset ?? 1);
+
 	return createToolTarget({
 		kind: "file",
 		action: "read",
@@ -38,8 +40,8 @@ export function createReadFileTarget(
 		range:
 			offset !== undefined || limit !== undefined
 				? {
-						start: offset ?? 1,
-						end: limit !== undefined ? (offset ?? 1) + Math.max(0, limit - 1) : undefined,
+						start: effectiveOffset,
+						end: limit !== undefined ? effectiveOffset + Math.max(0, limit - 1) : undefined,
 					}
 				: undefined,
 	});

@@ -30,6 +30,14 @@ test("read metadata records resolved path without changing output text", async (
 		assert.equal(result.content[0]?.type, "text");
 		assert.match(result.content[0]?.text ?? "", /^two/);
 		assert.equal((result.content[0]?.text ?? "").includes(filePath), false);
+
+		const zeroOffsetResult = await createReadTool(cwd).execute("read-zero-offset", {
+			path: "fixture.txt",
+			offset: 0,
+			limit: 1,
+		});
+
+		assert.deepEqual(zeroOffsetResult.details?.target?.range, { start: 1, end: 1 });
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
