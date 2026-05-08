@@ -426,6 +426,41 @@ export function findUnmergedCompletedMilestone(
 }
 
 /**
+ * Run `mergeAndExit` for a milestone whose worktree/branch finalization
+ * never completed in a prior session — the active-milestone in phase
+ * `complete` with a survivor `milestone/<id>` branch still around.
+ *
+ * Wraps the call in try/catch so a thrown error from `_mergeBranchMode`
+ * (made fail-loud in commit 68ef58a3c) is converted into a user-facing
+ * error notify instead of an unhandled exception that propagates through
+ * `bootstrapAutoSession` to the slash-command caller's `.catch` block.
+ *
+ * Returns `{ merged: true }` on success; `{ merged: false, error }` on
+ * throw — caller decides whether to abort bootstrap.
+ */
+export function _finalizeSurvivorBranch(
+  resolver: WorktreeResolver,
+  milestoneId: string,
+  ui: { notify: (msg: string, level?: "info" | "warning" | "error" | "success") => void },
+): { merged: boolean; error?: unknown } {
+  ui.notify(
+    `Milestone ${milestoneId} is complete but branch/worktree was not finalized. Running merge now.`,
+    "info",
+  );
+  try {
+    resolver.mergeAndExit(milestoneId, { notify: ui.notify.bind(ui) });
+    return { merged: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    ui.notify(
+      `Survivor-branch finalization for ${milestoneId} failed: ${msg}. Resolve manually and re-run /gsd auto.`,
+      "error",
+    );
+    return { merged: false, error: err };
+  }
+}
+
+/**
  * Merge a milestone whose DB row is `complete` but whose branch is still
  * unmerged into the integration branch. Called from `bootstrapAutoSession`
  * for orphans surfaced by `findUnmergedCompletedMilestone`.
@@ -807,14 +842,15 @@ export async function bootstrapAutoSession(
     // hasSurvivorBranch after a successful promotion.
     if (decideSurvivorAction(hasSurvivorBranch, state.phase) === "finalize") {
       const mid = state.activeMilestone!.id;
-      ctx.ui.notify(
-        `Milestone ${mid} is complete but branch/worktree was not finalized. Running merge now.`,
-        "info",
-      );
-      const resolver = buildResolver();
-      resolver.mergeAndExit(mid, {
-        notify: ctx.ui.notify.bind(ctx.ui),
-      });
+      // Commit 68ef58a3c made `_mergeBranchMode` throw on wrong-branch
+      // instead of returning false silently. Wrap the call so the throw is
+      // converted into an error notify + clean bootstrap abort, not an
+      // unhandled exception propagating to the slash-command caller (#5549
+      // post-merge audit, R2).
+      const finalize = _finalizeSurvivorBranch(buildResolver(), mid, ctx.ui);
+      if (!finalize.merged) {
+        return releaseLockAndReturn();
+      }
       invalidateAllCaches();
       state = await deriveState(base);
       // Clear survivor flag — finalization is done
