@@ -16,9 +16,6 @@ import {
   executeMemoryQuery,
 } from "../tools/memory-tools.js";
 
-function toolWorkspaceRoot(ctx: unknown): string {
-  return resolveCtxCwd(ctx);
-}
 
 export function registerMemoryTools(pi: ExtensionAPI): void {
   // ─── capture_thought ────────────────────────────────────────────────────
@@ -63,7 +60,7 @@ export function registerMemoryTools(pi: ExtensionAPI): void {
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const ok = await ensureDbOpen(toolWorkspaceRoot(_ctx));
+      const ok = await ensureDbOpen(resolveCtxCwd(_ctx));
       if (!ok) {
         return {
           content: [{ type: "text" as const, text: "Error: GSD database is not available. Cannot capture memory." }],
@@ -114,7 +111,7 @@ export function registerMemoryTools(pi: ExtensionAPI): void {
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const ok = await ensureDbOpen(toolWorkspaceRoot(_ctx));
+      const ok = await ensureDbOpen(resolveCtxCwd(_ctx));
       if (!ok) {
         return {
           content: [{ type: "text" as const, text: "Error: GSD database is not available. Cannot query memory." }],
@@ -155,7 +152,7 @@ export function registerMemoryTools(pi: ExtensionAPI): void {
       ], { description: "Only include edges with this relation type" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const ok = await ensureDbOpen(toolWorkspaceRoot(_ctx));
+      const ok = await ensureDbOpen(resolveCtxCwd(_ctx));
       if (!ok) {
         return {
           content: [{ type: "text" as const, text: "Error: GSD database is not available." }],

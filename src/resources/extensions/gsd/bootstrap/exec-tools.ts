@@ -10,9 +10,6 @@ import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 
 import { resolveCtxCwd } from "./dynamic-tools.js";
 
-function toolWorkspaceRoot(ctx: unknown): string {
-  return resolveCtxCwd(ctx);
-}
 
 async function loadContextModePreferences(baseDir: string) {
   const [{ loadEffectiveGSDPreferences }, { logWarning }] = await Promise.all([
@@ -62,7 +59,7 @@ export function registerExecTools(pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { executeGsdExec } = await import("../tools/exec-tool.js");
-      const baseDir = toolWorkspaceRoot(_ctx);
+      const baseDir = resolveCtxCwd(_ctx);
       return executeGsdExec(params as Parameters<typeof executeGsdExec>[0], {
         baseDir,
         preferences: await loadContextModePreferences(baseDir),
@@ -93,7 +90,7 @@ export function registerExecTools(pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { executeExecSearch } = await import("../tools/exec-search-tool.js");
-      const baseDir = toolWorkspaceRoot(_ctx);
+      const baseDir = resolveCtxCwd(_ctx);
       return executeExecSearch(params as Parameters<typeof executeExecSearch>[0], {
         baseDir,
         preferences: await loadContextModePreferences(baseDir),
@@ -116,7 +113,7 @@ export function registerExecTools(pi: ExtensionAPI): void {
     parameters: Type.Object({}),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { executeResume } = await import("../tools/resume-tool.js");
-      const baseDir = toolWorkspaceRoot(_ctx);
+      const baseDir = resolveCtxCwd(_ctx);
       return executeResume(params as Parameters<typeof executeResume>[0], {
         baseDir,
         preferences: await loadContextModePreferences(baseDir),

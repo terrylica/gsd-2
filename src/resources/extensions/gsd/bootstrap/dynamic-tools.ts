@@ -29,10 +29,6 @@ export function resolveCtxCwd(ctx?: unknown): string {
   return safeWorkspaceCwd();
 }
 
-function resolveToolWorkspaceRoot(ctx?: unknown): string {
-  return resolveCtxCwd(ctx);
-}
-
 /**
  * Resolve the correct DB path for the current working directory.
  * If `basePath` is inside a `.gsd/worktrees/<MID>/` directory, returns
@@ -88,7 +84,7 @@ export function registerDynamicTools(pi: ExtensionAPI): void {
       onUpdate?: unknown,
       ctx?: unknown,
     ) => {
-      const basePath = resolveToolWorkspaceRoot(ctx);
+      const basePath = resolveCtxCwd(ctx);
       const fresh = createBashTool(basePath, {
         spawnHook: (spawnCtx) => ({ ...spawnCtx, cwd: basePath }),
       });
@@ -111,7 +107,7 @@ export function registerDynamicTools(pi: ExtensionAPI): void {
       onUpdate?: unknown,
       ctx?: unknown,
     ) => {
-      const fresh = createWriteTool(resolveToolWorkspaceRoot(ctx));
+      const fresh = createWriteTool(resolveCtxCwd(ctx));
       return (fresh as any).execute(toolCallId, params, signal, onUpdate, ctx);
     },
   } as any);
@@ -126,7 +122,7 @@ export function registerDynamicTools(pi: ExtensionAPI): void {
       onUpdate?: unknown,
       ctx?: unknown,
     ) => {
-      const fresh = createReadTool(resolveToolWorkspaceRoot(ctx));
+      const fresh = createReadTool(resolveCtxCwd(ctx));
       return (fresh as any).execute(toolCallId, params, signal, onUpdate, ctx);
     },
   } as any);
@@ -141,7 +137,7 @@ export function registerDynamicTools(pi: ExtensionAPI): void {
       onUpdate?: unknown,
       ctx?: unknown,
     ) => {
-      const fresh = createEditTool(resolveToolWorkspaceRoot(ctx));
+      const fresh = createEditTool(resolveCtxCwd(ctx));
       return (fresh as any).execute(toolCallId, params, signal, onUpdate, ctx);
     },
   } as any);

@@ -6,9 +6,6 @@ import { Type } from "@sinclair/typebox";
 import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import { ensureDbOpen, resolveCtxCwd } from "./dynamic-tools.js";
 
-function toolWorkspaceRoot(ctx: unknown): string {
-  return resolveCtxCwd(ctx);
-}
 
 export function registerQueryTools(pi: ExtensionAPI): void {
   pi.registerTool({
@@ -26,7 +23,7 @@ export function registerQueryTools(pi: ExtensionAPI): void {
       milestoneId: Type.String({ description: "Milestone ID to query (e.g. M001)" }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const dbAvailable = await ensureDbOpen(toolWorkspaceRoot(_ctx));
+      const dbAvailable = await ensureDbOpen(resolveCtxCwd(_ctx));
       if (!dbAvailable) {
         return {
           content: [{ type: "text", text: "Error: GSD database is not available. Cannot read milestone status." }],
@@ -53,7 +50,7 @@ export function registerQueryTools(pi: ExtensionAPI): void {
     ],
     parameters: Type.Object({}),
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
-      const dbAvailable = await ensureDbOpen(toolWorkspaceRoot(_ctx));
+      const dbAvailable = await ensureDbOpen(resolveCtxCwd(_ctx));
       if (!dbAvailable) {
         return {
           content: [{ type: "text", text: "Error: GSD database is not available. Cannot checkpoint." }],

@@ -433,6 +433,18 @@ export const isSafeToAutoResolve = (filePath: string): boolean =>
   filePath.startsWith(".gsd/") ||
   SAFE_AUTO_RESOLVE_PATTERNS.some((re) => re.test(filePath));
 
+function removeMergeStateFiles(basePath: string, contextLabel: string): void {
+  try {
+    const gitDir_ = resolveGitDir(basePath);
+    for (const f of ["SQUASH_MSG", "MERGE_MSG", "MERGE_HEAD"]) {
+      const p = join(gitDir_, f);
+      if (existsSync(p)) unlinkSync(p);
+    }
+  } catch (err) {
+    logError("worktree", `${contextLabel} merge state cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 function cleanupSquashConflictState(basePath: string): void {
   // `git merge --squash` conflicts can leave unmerged index entries without
   // MERGE_HEAD, so merge-abort alone is not enough. Reset the merge index, then
@@ -454,15 +466,7 @@ function cleanupSquashConflictState(basePath: string): void {
   } catch (err) {
     logError("worktree", `git reset --merge failed after squash conflict: ${err instanceof Error ? err.message : String(err)}`);
   }
-  try {
-    const gitDir_ = resolveGitDir(basePath);
-    for (const f of ["SQUASH_MSG", "MERGE_MSG", "MERGE_HEAD"]) {
-      const p = join(gitDir_, f);
-      if (existsSync(p)) unlinkSync(p);
-    }
-  } catch (err) {
-    logError("worktree", `merge state file cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  removeMergeStateFiles(basePath, "squash conflict");
 }
 
 // ─── Dispatch-Level Sync (project root ↔ worktree) ──────────────────────────
@@ -2145,15 +2149,7 @@ export function mergeMilestoneToMain(
   // or interrupted operation) causes `git merge --squash` to refuse with
   // "fatal: You have not concluded your merge (MERGE_HEAD exists)".
   // Defensively remove merge artifacts before starting.
-  try {
-    const gitDir_ = resolveGitDir(originalBasePath_);
-    for (const f of ["SQUASH_MSG", "MERGE_MSG", "MERGE_HEAD"]) {
-      const p = join(gitDir_, f);
-      if (existsSync(p)) unlinkSync(p);
-    }
-  } catch (err) { /* best-effort */
-    logError("worktree", `merge state cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  removeMergeStateFiles(originalBasePath_, "pre-merge");
 
   // 8. Squash merge — auto-resolve .gsd/ state file conflicts (#530)
   const mergeResult = nativeMergeSquash(originalBasePath_, milestoneBranch);
@@ -2165,15 +2161,7 @@ export function mergeMilestoneToMain(
     if (mergeResult.conflicts.includes("__dirty_working_tree__")) {
       // Defensively clean merge state — the native path may leave MERGE_HEAD
       // even when the merge is rejected (#2912).
-      try {
-        const gitDir_ = resolveGitDir(originalBasePath_);
-        for (const f of ["SQUASH_MSG", "MERGE_MSG", "MERGE_HEAD"]) {
-          const p = join(gitDir_, f);
-          if (existsSync(p)) unlinkSync(p);
-        }
-      } catch (err) { /* best-effort */
-        logError("worktree", `merge state cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
+      removeMergeStateFiles(originalBasePath_, "dirty-tree rejection");
 
       // Pop stash before throwing so local work is not lost.
       if (stashed) {
@@ -2269,15 +2257,7 @@ export function mergeMilestoneToMain(
   // of which trigger git's SQUASH_MSG cleanup.  MERGE_HEAD is created by
   // libgit2's merge even in squash mode and is not removed by nativeCommit.
   // If left on disk, doctor reports `corrupt_merge_state` on every subsequent run.
-  try {
-    const gitDir_ = resolveGitDir(originalBasePath_);
-    for (const f of ["SQUASH_MSG", "MERGE_MSG", "MERGE_HEAD"]) {
-      const p = join(gitDir_, f);
-      if (existsSync(p)) unlinkSync(p);
-    }
-  } catch (err) { /* best-effort */
-    logError("worktree", `post-commit merge state cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
+  removeMergeStateFiles(originalBasePath_, "post-commit");
 
   // 9a-ii. Restore stashed files now that the merge+commit is complete (#2151).
   // Pop after commit so stashed changes do not interfere with the squash merge
