@@ -24,7 +24,7 @@ describe('restore tools after discuss flow scoping (#3628)', () => {
   it('savedTools is declared before the discuss scoping block', () => {
     // savedTools must be declared before the discuss-* check
     const savedToolsDecl = src.indexOf('let savedTools')
-    const discussCheck = src.indexOf('if (unitType?.startsWith("discuss-"))')
+    const discussCheck = src.indexOf('if (unitType?.startsWith("discuss-")')
     assert.ok(savedToolsDecl !== -1, 'savedTools variable must be declared')
     assert.ok(discussCheck !== -1, 'discuss-* type check must exist')
     assert.ok(
@@ -34,39 +34,35 @@ describe('restore tools after discuss flow scoping (#3628)', () => {
   })
 
   it('savedTools captures current tools inside the discuss block', () => {
-    const discussCheck = src.indexOf('if (unitType?.startsWith("discuss-"))')
+    const discussCheck = src.indexOf('if (unitType?.startsWith("discuss-")')
     assert.ok(discussCheck !== -1)
 
     // Look for savedTools assignment within the discuss block
-    const blockAfter = extractSourceRegion(src, 'if (unitType?.startsWith("discuss-"))')
+    const blockAfter = extractSourceRegion(src, 'if (unitType?.startsWith("discuss-")')
     assert.ok(
-      blockAfter.includes('savedTools = currentTools'),
-      'savedTools must be assigned from currentTools inside the discuss block',
+      blockAfter.includes('tools: currentTools'),
+      'savedTools must capture currentTools inside the discuss block',
     )
   })
 
   it('savedTools is restored after sendMessage', () => {
     // #4573: guided-flow.ts now contains multiple `triggerTurn: true` calls
     // (ready-phrase and empty-turn recovery paths). The discuss-flow scoping
-    // sendMessage is the one that follows `savedTools = currentTools`, so
+    // sendMessage is the one that follows `tools: currentTools`, so
     // anchor the search there rather than at the first `triggerTurn: true`.
-    const savedToolsAssign = src.indexOf('savedTools = currentTools')
-    assert.ok(savedToolsAssign !== -1, 'savedTools = currentTools must exist')
+    const savedToolsAssign = src.indexOf('tools: currentTools')
+    assert.ok(savedToolsAssign !== -1, 'savedTools must capture currentTools')
 
     const sendMsg = src.indexOf('triggerTurn: true', savedToolsAssign)
     assert.ok(sendMsg !== -1, 'discuss-flow sendMessage with triggerTurn must exist after savedTools capture')
 
-    // After sendMessage, savedTools should be restored via setActiveTools.
+    // After sendMessage, savedTools should be restored via the shared helper.
     // Use fromIdx to anchor at the discuss-flow sendMessage, not the first
     // triggerTurn: true occurrence in the file.
     const afterSend = extractSourceRegion(src, 'triggerTurn: true', { fromIdx: savedToolsAssign })
     assert.ok(
-      afterSend.includes('if (savedTools)'),
-      'savedTools restoration guard must exist after sendMessage',
-    )
-    assert.ok(
-      afterSend.includes('setActiveTools(savedTools)'),
-      'setActiveTools(savedTools) must be called to restore the full tool set',
+      afterSend.includes('restoreGsdWorkflowTools(pi, savedTools)'),
+      'restoreGsdWorkflowTools(pi, savedTools) must restore the full scoped state',
     )
   })
 })
