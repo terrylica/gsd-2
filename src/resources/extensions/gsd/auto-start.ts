@@ -425,6 +425,38 @@ export function findUnmergedCompletedMilestone(
   );
 }
 
+/**
+ * Merge a milestone whose DB row is `complete` but whose branch is still
+ * unmerged into the integration branch. Called from `bootstrapAutoSession`
+ * for orphans surfaced by `findUnmergedCompletedMilestone`.
+ *
+ * Notifies the user before and after, swallowing errors so a transient git
+ * failure never blocks bootstrap. Returns `{ merged: true }` when the
+ * underlying `mergeAndExit` completes; `{ merged: false, error }` on throw.
+ *
+ * Extracted to keep `bootstrapAutoSession` testable: the merge call and the
+ * notify shape are exercised against a mock resolver in
+ * `tests/orphan-merge-bootstrap.test.ts`.
+ */
+export function _mergeOrphanCompletedMilestone(
+  resolver: WorktreeResolver,
+  orphanId: string,
+  ui: { notify: (msg: string, level?: "info" | "warning" | "error" | "success") => void },
+): { merged: boolean; error?: unknown } {
+  ui.notify(`Detected unmerged completed milestone ${orphanId}. Merging now.`, "info");
+  try {
+    resolver.mergeAndExit(orphanId, { notify: ui.notify.bind(ui) });
+    return { merged: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    ui.notify(
+      `Could not merge orphan milestone ${orphanId}: ${msg}. Resolve manually and re-run /gsd auto.`,
+      "warning",
+    );
+    return { merged: false, error: err };
+  }
+}
+
 export async function bootstrapAutoSession(
   s: AutoSession,
   ctx: ExtensionCommandContext,
@@ -703,36 +735,6 @@ export async function bootstrapAutoSession(
       );
     }
 
-    // ── Resumable milestone rederivation (#5538-followup) ──
-    // `s.currentMilestoneId` is in-memory only on AutoSession; a process
-    // restart between `complete-milestone` and `mergeAndExit` leaves the
-    // session with `currentMilestoneId === null`, which causes the
-    // transition guard at phases.ts:730 to short-circuit on the first
-    // iteration. The orphan milestone branch then survives indefinitely.
-    //
-    // Seed `currentMilestoneId` from the most-recent completed-but-unmerged
-    // milestone branch so the next loop iteration triggers the merge. Only
-    // overrides `null` — never touches a session that already has the field
-    // set (paused-resume, in-loop call paths, etc).
-    if (s.currentMilestoneId === null) {
-      try {
-        const resumable = findUnmergedCompletedMilestone(base, getIsolationMode(base));
-        if (resumable) {
-          s.currentMilestoneId = resumable;
-          debugLog("currentMilestoneId-rederive", { milestoneId: resumable });
-          ctx.ui.notify(
-            `Detected unmerged completed milestone ${resumable}. Auto-mode will merge it before advancing.`,
-            "info",
-          );
-        }
-      } catch (err) {
-        logWarning(
-          "bootstrap",
-          `currentMilestoneId rederivation failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-
     let state = await deriveState(base);
 
     // Stale worktree state recovery (#654)
@@ -817,6 +819,33 @@ export async function bootstrapAutoSession(
       state = await deriveState(base);
       // Clear survivor flag — finalization is done
       hasSurvivorBranch = false;
+    }
+
+    // ── Orphan-completed-milestone merge (#5538-followup) ──
+    // A process killed between `complete-milestone` (DB flip + SUMMARY write)
+    // and the loop's transition-guard merge strands the milestone branch
+    // forever: `s.currentMilestoneId` is in-memory only, so on the next
+    // bootstrap the guard at phases.ts:730 sees `mid === s.currentMilestoneId`
+    // and short-circuits.
+    //
+    // The earlier attempt at this fix seeded `s.currentMilestoneId` to the
+    // orphan id pre-state-derivation, but the unconditional assignment at
+    // line 948 (`s.currentMilestoneId = state.activeMilestone?.id ?? null`)
+    // immediately overwrote the seed. Active-merge is the more durable fix:
+    // call `mergeAndExit` directly during bootstrap, then re-derive state so
+    // the loop's normal flow continues without an in-memory hint.
+    //
+    // Mirrors the survivor-finalize block above. Failures degrade to a
+    // warning notify so a transient git error doesn't block bootstrap.
+    {
+      const orphan = findUnmergedCompletedMilestone(base, getIsolationMode(base));
+      if (orphan && orphan !== state.activeMilestone?.id) {
+        const result = _mergeOrphanCompletedMilestone(buildResolver(), orphan, ctx.ui);
+        if (result.merged) {
+          invalidateAllCaches();
+          state = await deriveState(base);
+        }
+      }
     }
 
     const effectivePrefs = loadEffectiveGSDPreferences(base)?.preferences;
