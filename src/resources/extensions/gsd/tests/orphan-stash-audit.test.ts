@@ -9,7 +9,10 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { auditOrphanedPreflightStashes } from "../orphan-stash-audit.js";
+import {
+  auditOrphanedPreflightStashes,
+  _isAlreadyRestoredApplyError,
+} from "../orphan-stash-audit.js";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, {
@@ -138,4 +141,56 @@ describe("auditOrphanedPreflightStashes", () => {
       rmSync(nonRepo, { recursive: true, force: true });
     }
   });
+
+  test("repeat run is a silent no-op when files were already restored (peer-review regression)", () => {
+    // Codex peer review caught: the first audit applies the stash and the
+    // file appears in the working tree. The stash entry stays in `git stash
+    // list` (apply, not pop). On the next audit, `git stash apply` exits
+    // non-zero with "already exists, no checkout" because the untracked file
+    // already exists. The original code surfaced that as a warning every
+    // startup. The fix detects that error and treats it as the idempotent
+    // steady state.
+    pushPreflightStash(repo, "M002", "leftover.txt", "lost work\n");
+
+    const first = auditOrphanedPreflightStashes(repo, () => true);
+    assert.equal(first.applied.length, 1, "first run applies");
+    assert.equal(first.warnings.length, 0);
+
+    const second = auditOrphanedPreflightStashes(repo, () => true);
+    assert.equal(second.applied.length, 0, "second run skips silently");
+    assert.equal(
+      second.warnings.length,
+      0,
+      "second run must NOT warn — files are already restored from first run",
+    );
+  });
+});
+
+test("_isAlreadyRestoredApplyError detects the git stash apply already-exists error", () => {
+  // Real-world stderr produced by git when an --include-untracked stash is
+  // applied while the file already exists in the working tree.
+  const realError: { stderr: string } = {
+    stderr: "leftover.txt already exists, no checkout\nCould not restore untracked files from stash entry\n",
+  };
+  assert.equal(_isAlreadyRestoredApplyError(realError), true);
+
+  // Buffer-form stderr (when encoding is not set explicitly).
+  const bufErr = { stderr: Buffer.from("foo.ts already exists, no checkout\n") };
+  assert.equal(_isAlreadyRestoredApplyError(bufErr), true);
+
+  // Some Node versions surface the message in err.message.
+  const messageOnly = new Error("Command failed: git stash apply\nfoo.ts already exists, no checkout");
+  assert.equal(_isAlreadyRestoredApplyError(messageOnly), true);
+
+  // Unrelated errors must NOT be classified as already-restored.
+  const realConflict: { stderr: string } = {
+    stderr: "CONFLICT (content): Merge conflict in lib/models.ts\n",
+  };
+  assert.equal(_isAlreadyRestoredApplyError(realConflict), false);
+
+  // Defensive null/undefined handling.
+  assert.equal(_isAlreadyRestoredApplyError(null), false);
+  assert.equal(_isAlreadyRestoredApplyError(undefined), false);
+  assert.equal(_isAlreadyRestoredApplyError("not an error"), false);
+  assert.equal(_isAlreadyRestoredApplyError({}), false);
 });

@@ -11,6 +11,29 @@ export interface OrphanPreflightStashAuditResult {
 }
 
 /**
+ * Recognize the "already restored" failure mode of `git stash apply`.
+ *
+ * When a preflight stash captured untracked files via `--include-untracked`
+ * and those files are now present in the working tree (e.g. a prior audit
+ * run already applied this stash), `git stash apply` aborts with
+ * `<path> already exists, no checkout` and exits non-zero. That is the
+ * idempotent steady state for this audit, not a recovery failure — treat
+ * it as a no-op so repeated GSD startups stop spamming the user with
+ * warnings about stashes that have already been restored (#5538-followup
+ * peer-review feedback).
+ */
+function _isAlreadyRestoredApplyError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const stderr = (err as { stderr?: unknown }).stderr;
+  const stderrText = typeof stderr === "string" ? stderr : stderr instanceof Uint8Array ? Buffer.from(stderr).toString("utf-8") : "";
+  if (stderrText && /already exists, no checkout/i.test(stderrText)) return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return /already exists, no checkout/i.test(message);
+}
+
+export { _isAlreadyRestoredApplyError };
+
+/**
  * Audit `git stash list` for orphaned `gsd-preflight-stash:M00x:*` entries.
  *
  * The matching merge code in `phases.ts` previously skipped the postflight
@@ -79,6 +102,10 @@ export function auditOrphanedPreflightStashes(
       });
       result.applied.push({ milestoneId, stashRef: ref });
     } catch (err) {
+      // Idempotent steady state: stash was already applied in a prior audit
+      // run; the files exist and `git stash apply` refuses to overwrite.
+      // Skip silently so repeat runs are no-ops.
+      if (_isAlreadyRestoredApplyError(err)) continue;
       result.warnings.push(
         `Could not apply orphaned preflight stash ${ref} (milestone ${milestoneId}): ${err instanceof Error ? err.message : String(err)}. ` +
           `Run \`git stash apply ${ref}\` manually to restore your pre-merge changes.`,
