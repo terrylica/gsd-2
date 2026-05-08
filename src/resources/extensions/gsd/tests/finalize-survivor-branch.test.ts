@@ -12,7 +12,7 @@ import type { WorktreeResolver } from "../worktree-resolver.js";
 
 interface FakeResolverState {
   mergeCalls: Array<{ milestoneId: string }>;
-  shouldThrow?: Error;
+  shouldThrow?: unknown;
 }
 
 function fakeResolver(state: FakeResolverState): WorktreeResolver {
@@ -92,7 +92,7 @@ test("regression: thrown error from mergeAndExit (e.g. wrong-branch) is caught a
 test("non-Error thrown values are stringified into the user-facing message", () => {
   const resolverState: FakeResolverState = {
     mergeCalls: [],
-    shouldThrow: "git lock contention" as unknown as Error,
+    shouldThrow: "git lock contention",
   };
   const uiState: FakeUiState = { notifications: [] };
 

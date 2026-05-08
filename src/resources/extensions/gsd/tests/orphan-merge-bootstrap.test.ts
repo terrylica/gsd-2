@@ -11,7 +11,7 @@ import type { WorktreeResolver } from "../worktree-resolver.js";
 
 interface FakeResolverState {
   mergeCalls: Array<{ milestoneId: string }>;
-  shouldThrow?: Error;
+  shouldThrow?: unknown;
 }
 
 function fakeResolver(state: FakeResolverState): WorktreeResolver {
@@ -90,8 +90,8 @@ test("non-Error thrown values are still captured and notified", () => {
   // Defensive: thrown strings, numbers, etc. must not crash the formatter.
   const resolverState: FakeResolverState = {
     mergeCalls: [],
-    // mimic a thrown non-Error by hijacking shouldThrow with a plain object cast
-    shouldThrow: "git lock held" as unknown as Error,
+    // mimic a thrown non-Error value
+    shouldThrow: "git lock held",
   };
   const uiState: FakeUiState = { notifications: [] };
 
