@@ -433,6 +433,38 @@ export const isSafeToAutoResolve = (filePath: string): boolean =>
   filePath.startsWith(".gsd/") ||
   SAFE_AUTO_RESOLVE_PATTERNS.some((re) => re.test(filePath));
 
+function cleanupSquashConflictState(basePath: string): void {
+  // `git merge --squash` conflicts can leave unmerged index entries without
+  // MERGE_HEAD, so merge-abort alone is not enough. Reset the merge index, then
+  // remove merge message files that native/libgit2 paths may have created.
+  try {
+    nativeMergeAbort(basePath);
+  } catch (err) {
+    // Expected for squash conflicts when MERGE_HEAD was never written.
+    debugLog("squash-conflict-cleanup:merge-abort-skipped", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  try {
+    execFileSync("git", ["reset", "--merge"], {
+      cwd: basePath,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+    });
+  } catch (err) {
+    logError("worktree", `git reset --merge failed after squash conflict: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  try {
+    const gitDir_ = resolveGitDir(basePath);
+    for (const f of ["SQUASH_MSG", "MERGE_MSG", "MERGE_HEAD"]) {
+      const p = join(gitDir_, f);
+      if (existsSync(p)) unlinkSync(p);
+    }
+  } catch (err) {
+    logError("worktree", `merge state file cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 // ─── Dispatch-Level Sync (project root ↔ worktree) ──────────────────────────
 
 /**
@@ -1797,10 +1829,12 @@ export function mergeMilestoneToMain(
       .map(s => ({
         id: s.id,
         title: stripGsdDisplayPrefix(s.title, s.id) ?? s.id,
-        tasks: getSliceTasks(milestoneId, s.id).map((task) => ({
-          id: task.id,
-          title: stripGsdDisplayPrefix(task.title, task.id) ?? task.id,
-        })),
+        tasks: getSliceTasks(milestoneId, s.id)
+          .filter((task) => task.status === "complete")
+          .map((task) => ({
+            id: task.id,
+            title: stripGsdDisplayPrefix(task.title, task.id) ?? task.id,
+          })),
       }));
   }
   // Fallback: parse roadmap content when DB is unavailable
@@ -2197,21 +2231,7 @@ export function mergeMilestoneToMain(
 
       // If there are still real code conflicts, escalate
       if (codeConflicts.length > 0) {
-        // Abort merge state so MERGE_HEAD is not left on disk (#2912).
-        // libgit2's merge creates MERGE_HEAD even for squash merges; if left
-        // dangling, subsequent merges fail and doctor reports corrupt state.
-        try { nativeMergeAbort(originalBasePath_); } catch (err) { /* best-effort */
-          logError("worktree", `git merge-abort failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-        try {
-          const gitDir_ = resolveGitDir(originalBasePath_);
-          for (const f of ["SQUASH_MSG", "MERGE_MSG", "MERGE_HEAD"]) {
-            const p = join(gitDir_, f);
-            if (existsSync(p)) unlinkSync(p);
-          }
-        } catch (err) { /* best-effort */
-          logError("worktree", `merge state file cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
+        cleanupSquashConflictState(originalBasePath_);
 
         // Pop stash before throwing so local work is not lost (#2151).
         if (stashed) {
