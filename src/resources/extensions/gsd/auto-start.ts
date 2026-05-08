@@ -65,6 +65,7 @@ import { snapshotSkills } from "./skill-discovery.js";
 import { isDbAvailable, getMilestone, openDatabase, getDbStatus } from "./gsd-db.js";
 import { isClosedStatus } from "./status-guards.js";
 import { classifyMilestoneSummaryContent } from "./milestone-summary-classifier.js";
+import { auditOrphanedPreflightStashes } from "./orphan-stash-audit.js";
 
 import {
   debugLog,
@@ -575,6 +576,39 @@ export async function bootstrapAutoSession(
     } catch (err) {
       // Non-fatal — the audit is defensive, never block bootstrap
       logWarning("bootstrap", `orphaned milestone branch audit failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // ── Orphaned preflight-stash audit (#5538-followup) ──
+    // Reapplies pre-merge stashes whose milestone is now complete but whose
+    // postflight pop was skipped by an interrupted merge in a prior session.
+    // Uses `git stash apply` (not pop) so the entry remains as a backup.
+    try {
+      if (isDbAvailable()) {
+        const stashAudit = auditOrphanedPreflightStashes(base, (milestoneId) => {
+          const row = getMilestone(milestoneId);
+          return !!row && isClosedStatus(row.status);
+        });
+        for (const entry of stashAudit.applied) {
+          ctx.ui.notify(
+            `Orphan audit: applied preflight stash ${entry.stashRef} for completed milestone ${entry.milestoneId}. The stash entry is preserved as a backup.`,
+            "info",
+          );
+        }
+        for (const msg of stashAudit.warnings) {
+          ctx.ui.notify(`Orphan audit: ${msg}`, "warning");
+        }
+        if (stashAudit.applied.length > 0) {
+          debugLog("orphan-stash-audit", {
+            applied: stashAudit.applied,
+            warnings: stashAudit.warnings,
+          });
+        }
+      }
+    } catch (err) {
+      logWarning(
+        "bootstrap",
+        `orphaned preflight-stash audit failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     let state = await deriveState(base);
