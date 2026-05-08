@@ -1,3 +1,5 @@
+// Project/App: GSD-2
+// File Purpose: Auto-mode bootstrap, worktree recovery, and fresh-start initialization.
 /**
  * Auto-mode bootstrap — fresh-start initialization path.
  *
@@ -898,7 +900,25 @@ export async function bootstrapAutoSession(
     {
       const orphan = findUnmergedCompletedMilestone(base, getIsolationMode(base));
       if (orphan && orphan !== state.activeMilestone?.id) {
+        const priorBasePath = s.basePath;
+        const priorOriginalBasePath = s.originalBasePath;
+        s.originalBasePath = base;
+        s.basePath = getAutoWorktreePath(base, orphan) ?? base;
         const result = _mergeOrphanCompletedMilestone(buildResolver(), orphan, ctx.ui);
+        if (!result.merged) {
+          s.basePath = base;
+          s.originalBasePath = base;
+          try {
+            process.chdir(base);
+          } catch (err) {
+            logWarning("bootstrap", `could not restore cwd after orphan merge failure: ${err instanceof Error ? err.message : String(err)}`);
+          }
+          return releaseLockAndReturn();
+        }
+        if (!s.active) {
+          s.basePath = priorBasePath || base;
+          s.originalBasePath = priorOriginalBasePath || base;
+        }
         if (result.merged) {
           invalidateAllCaches();
           state = await deriveState(base);

@@ -1,3 +1,5 @@
+// Project/App: GSD-2
+// File Purpose: Auto-mode orchestration, session lifecycle, and stop handling.
 /**
  * GSD Auto Mode — Fresh Session Per Unit
  *
@@ -969,7 +971,23 @@ function handleLostSessionLock(
  * the stale unit state, progress widget, status badge, and restores CWD so
  * the dashboard does not show an orphaned timer and the shell is usable.
  */
-function cleanupAfterLoopExit(ctx: ExtensionContext): void {
+export async function rerootCommandSession(
+  cmdCtx: Pick<ExtensionCommandContext, "newSession"> | null | undefined,
+  workspaceRoot: string,
+): Promise<{ status: "skipped" | "ok" | "cancelled" | "failed"; error?: string }> {
+  if (!cmdCtx || !workspaceRoot) return { status: "skipped" };
+  try {
+    const result = await cmdCtx.newSession({ workspaceRoot });
+    return result.cancelled ? { status: "cancelled" } : { status: "ok" };
+  } catch (err) {
+    return {
+      status: "failed",
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export async function cleanupAfterLoopExit(ctx: ExtensionContext): Promise<void> {
   s.currentUnit = null;
   s.active = false;
   deactivateGSD();
@@ -1007,10 +1025,19 @@ function cleanupAfterLoopExit(ctx: ExtensionContext): void {
       logWarning("engine", `chdir failed: ${err instanceof Error ? err.message : String(err)}`, { file: "auto.ts" });
     }
   }
+
+  if (s.originalBasePath && s.cmdCtx) {
+    const result = await rerootCommandSession(s.cmdCtx, s.basePath);
+    if (result.status === "cancelled") {
+      logWarning("engine", "post-loop session re-root was cancelled", { file: "auto.ts", basePath: s.basePath });
+    } else if (result.status === "failed") {
+      logWarning("engine", `post-loop session re-root failed: ${result.error ?? "unknown"}`, { file: "auto.ts", basePath: s.basePath });
+    }
+  }
 }
 
-export function _cleanupAfterLoopExitForTest(ctx: ExtensionContext): void {
-  cleanupAfterLoopExit(ctx);
+export function _cleanupAfterLoopExitForTest(ctx: ExtensionContext): Promise<void> {
+  return cleanupAfterLoopExit(ctx);
 }
 
 export type AutoWorktreeExitAction = "skip" | "merge" | "preserve";
@@ -1175,11 +1202,11 @@ export async function stopAuto(
           logWarning("engine", `milestone summary check failed: ${err instanceof Error ? err.message : String(err)}`, { file: "auto.ts" });
         }
 
-        const exitAction = _resolveAutoWorktreeExitActionForTest(
-          s.currentMilestoneId,
-          s.milestoneMergedInPhases,
+        const exitAction = _selectStopAutoWorktreeExit({
+          currentMilestoneId: s.currentMilestoneId,
           milestoneComplete,
-        );
+          milestoneMergedInPhases: s.milestoneMergedInPhases,
+        });
 
         if (exitAction === "merge") {
           // Milestone is complete — merge worktree branch back to main
@@ -1192,6 +1219,10 @@ export async function stopAuto(
         }
       }
     } catch (e) {
+      ctx?.ui.notify(
+        `Worktree cleanup failed for ${s.currentMilestoneId ?? "current milestone"}: ${e instanceof Error ? e.message : String(e)}. Resolve the preserved branch/worktree and run /gsd auto to resume.`,
+        "warning",
+      );
       debugLog("stop-cleanup-worktree", { error: e instanceof Error ? e.message : String(e) });
     }
 
@@ -1242,13 +1273,11 @@ export async function stopAuto(
     // its own cwd for tools and system prompt; refresh it before returning to the
     // user so follow-up commands do not target a removed milestone worktree.
     if (s.originalBasePath && ctx && s.cmdCtx) {
-      try {
-        const result = await s.cmdCtx.newSession({ workspaceRoot: s.basePath });
-        if (result.cancelled) {
-          logWarning("engine", "post-stop session re-root was cancelled", { file: "auto.ts", basePath: s.basePath });
-        }
-      } catch (err) {
-        logWarning("engine", `post-stop session re-root failed: ${err instanceof Error ? err.message : String(err)}`, { file: "auto.ts", basePath: s.basePath });
+      const result = await rerootCommandSession(s.cmdCtx, s.basePath);
+      if (result.status === "cancelled") {
+        logWarning("engine", "post-stop session re-root was cancelled", { file: "auto.ts", basePath: s.basePath });
+      } else if (result.status === "failed") {
+        logWarning("engine", `post-stop session re-root failed: ${result.error ?? "unknown"}`, { file: "auto.ts", basePath: s.basePath });
       }
     }
 
@@ -1378,6 +1407,17 @@ export async function stopAuto(
     // Reset all session state in one call
     s.reset();
   }
+}
+
+export type StopAutoWorktreeExitAction = "none" | "merge" | "preserve";
+
+export function _selectStopAutoWorktreeExit(args: {
+  currentMilestoneId: string | null;
+  milestoneComplete: boolean;
+  milestoneMergedInPhases: boolean;
+}): StopAutoWorktreeExitAction {
+  if (!args.currentMilestoneId || args.milestoneMergedInPhases) return "none";
+  return args.milestoneComplete ? "merge" : "preserve";
 }
 
 /**
@@ -2182,7 +2222,7 @@ export async function startAuto(
       runKernelLoop: runUokKernelLoop,
       runLegacyLoop: runLegacyAutoLoop,
     });
-    cleanupAfterLoopExit(ctx);
+    await cleanupAfterLoopExit(ctx);
     return;
   }
 
@@ -2242,7 +2282,7 @@ export async function startAuto(
     runKernelLoop: runUokKernelLoop,
     runLegacyLoop: runLegacyAutoLoop,
   });
-  cleanupAfterLoopExit(ctx);
+  await cleanupAfterLoopExit(ctx);
 }
 
 // describeNextUnit is imported from auto-dashboard.ts and re-exported
