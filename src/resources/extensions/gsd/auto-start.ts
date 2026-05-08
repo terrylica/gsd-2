@@ -342,6 +342,7 @@ export function auditOrphanedMilestoneBranches(
  * "M001") whose branch is unmerged AND has commits ahead of main AND whose
  * status is `complete`. Lex-ordering matches the project's M00x convention,
  * which is the most-recently-completed milestone in practice.
+ * `isComplete` errors propagate; `commitsAhead` errors are treated as 0.
  */
 export function _selectResumableMilestone(
   branchNames: readonly string[],
@@ -945,7 +946,7 @@ export async function bootstrapAutoSession(
     s.resourceVersionOnStart = readResourceVersion();
     s.pendingQuickTasks = [];
     s.currentUnit = null;
-    s.currentMilestoneId = deepProjectStagePending ? null : state.activeMilestone?.id ?? null;
+    s.currentMilestoneId ??= deepProjectStagePending ? null : state.activeMilestone?.id ?? null;
     s.originalModelId = startModelSnapshot?.id ?? ctx.model?.id ?? null;
     s.originalModelProvider = startModelSnapshot?.provider ?? ctx.model?.provider ?? null;
     s.originalThinkingLevel = startThinkingSnapshot ?? null;

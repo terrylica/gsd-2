@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
   fastForwardReusedMilestoneBranchIfSafe,
@@ -134,7 +134,7 @@ describe("fastForwardReusedMilestoneBranchIfSafe", () => {
     const m001Initial = rev(repo, "milestone/M001");
 
     // Add a linked worktree that checks out milestone/M001.
-    const wtPath = join(repo, "..", `${repo.split("/").pop()}-wt`);
+    const wtPath = join(repo, "..", `${basename(repo)}-wt`);
     git(repo, "worktree", "add", wtPath, "milestone/M001");
 
     // Advance main so a fast-forward would otherwise apply.
@@ -176,7 +176,7 @@ describe("_isBranchCheckedOutElsewhere", () => {
 
   test("returns true when branch is checked out in a linked worktree", () => {
     git(repo, "branch", "milestone/M001");
-    const wtPath = join(repo, "..", `${repo.split("/").pop()}-wt`);
+    const wtPath = join(repo, "..", `${basename(repo)}-wt`);
     git(repo, "worktree", "add", wtPath, "milestone/M001");
     try {
       assert.equal(_isBranchCheckedOutElsewhere(repo, "milestone/M001"), true);

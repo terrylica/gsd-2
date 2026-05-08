@@ -40,6 +40,16 @@ function isSamePath(a: string, b: string): boolean {
   return normalizeWorktreePathForCompare(a) === normalizeWorktreePathForCompare(b);
 }
 
+class UserNotifiedError extends Error {
+  readonly cause?: unknown;
+
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = "UserNotifiedError";
+    this.cause = cause;
+  }
+}
+
 // ─── Dependency Interface ──────────────────────────────────────────────────
 
 export interface WorktreeResolverDeps {
@@ -854,7 +864,7 @@ export class WorktreeResolver {
             `Cannot merge milestone ${milestoneId}: working tree is on ${currentBranch} and checkout to ${milestoneBranch} failed (${checkoutMsg}). Resolve manually and run /gsd auto to resume.`,
             "error",
           );
-          throw checkoutErr;
+          throw new UserNotifiedError(checkoutMsg, checkoutErr);
         }
 
         const reverify = this.deps.getCurrentBranch(this.s.basePath);
@@ -864,7 +874,7 @@ export class WorktreeResolver {
             `Cannot merge milestone ${milestoneId}: ${reverifyMsg}. Resolve manually and run /gsd auto to resume.`,
             "error",
           );
-          throw new Error(reverifyMsg);
+          throw new UserNotifiedError(reverifyMsg);
         }
       }
 
@@ -922,7 +932,9 @@ export class WorktreeResolver {
         result: "error",
         error: msg,
       });
-      ctx.notify(`Milestone merge failed (branch mode): ${msg}`, "warning");
+      if (!(err instanceof UserNotifiedError)) {
+        ctx.notify(`Milestone merge failed (branch mode): ${msg}`, "warning");
+      }
       // Re-throw all errors so callers can apply their own recovery logic (#4380).
       throw err;
     }

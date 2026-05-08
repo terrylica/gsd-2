@@ -130,6 +130,9 @@ describe("auditOrphanedPreflightStashes", () => {
     assert.match(result.warnings[0], /Could not apply orphaned preflight stash/);
     assert.match(result.warnings[0], /M005/);
     assert.match(result.warnings[0], /git stash apply/);
+
+    const list = git(repo, "stash", "list");
+    assert.match(list, /gsd-preflight-stash:M005:/);
   });
 
   test("returns empty result when basePath is not a git repo", () => {

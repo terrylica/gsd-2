@@ -862,6 +862,11 @@ test("mergeAndExit in branch mode throws when checkout fails", () => {
   assert.ok(errorNotify, "an error notification must be emitted");
   assert.match(errorNotify!.msg, /milestone\/M001 failed/);
   assert.match(errorNotify!.msg, /Resolve manually/);
+  assert.equal(
+    ctx.messages.some((m) => m.level === "warning" && m.msg.includes("Milestone merge failed")),
+    false,
+    "checkout failures with explicit recovery guidance must not emit a duplicate warning",
+  );
 });
 
 test("mergeAndExit in branch mode throws when checkout reports success but HEAD is still wrong", () => {
