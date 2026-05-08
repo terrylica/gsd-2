@@ -1,3 +1,5 @@
+// Project/App: GSD-2
+// File Purpose: Auto-loop pipeline phases, merge closeout, and finalize handling.
 /**
  * auto/phases.ts — Pipeline phases for the auto-loop.
  *
@@ -343,6 +345,21 @@ export async function _runMilestoneMergeWithStashRestore(
     return stopOnPostflightRecoveryNeeded(ic, stashResult, milestoneId);
   }
   return null;
+}
+
+export async function _runMilestoneMergeOnceWithStashRestore(
+  ic: IterationContext,
+  milestoneId: string,
+): Promise<{ action: "break"; reason: string } | null> {
+  if (ic.s.milestoneMergedInPhases) {
+    debugLog("autoLoop", {
+      phase: "milestone-merge-skip",
+      reason: "already-merged-in-phases",
+      milestoneId,
+    });
+    return null;
+  }
+  return _runMilestoneMergeWithStashRestore(ic, milestoneId);
 }
 
 async function emitCancelledUnitEnd(
@@ -784,7 +801,7 @@ export async function runPreDispatch(
     // Worktree lifecycle on milestone transition — merge current, enter next.
     // #2909 / #5538-followup: preflight stash + always-on postflight pop.
     {
-      const stop = await _runMilestoneMergeWithStashRestore(ic, s.currentMilestoneId!);
+      const stop = await _runMilestoneMergeOnceWithStashRestore(ic, s.currentMilestoneId!);
       if (stop) return stop;
     }
 
@@ -866,7 +883,7 @@ export async function runPreDispatch(
       // All milestones complete — merge milestone branch before stopping.
       if (s.currentMilestoneId) {
         // #2909 / #5538-followup: preflight stash + always-on postflight pop.
-        const stop = await _runMilestoneMergeWithStashRestore(ic, s.currentMilestoneId);
+        const stop = await _runMilestoneMergeOnceWithStashRestore(ic, s.currentMilestoneId);
         if (stop) return stop;
         // PR creation (auto_pr) is handled inside mergeMilestoneToMain (#2302)
       }
@@ -961,7 +978,7 @@ export async function runPreDispatch(
     // Milestone merge on complete (before closeout so branch state is clean).
     if (s.currentMilestoneId) {
       // #2909 / #5538-followup: preflight stash + always-on postflight pop.
-      const stop = await _runMilestoneMergeWithStashRestore(ic, s.currentMilestoneId);
+      const stop = await _runMilestoneMergeOnceWithStashRestore(ic, s.currentMilestoneId);
       if (stop) return stop;
       // PR creation (auto_pr) is handled inside mergeMilestoneToMain (#2302)
     }
@@ -2346,6 +2363,11 @@ export async function runFinalize(
     // Step mode — exit the loop (caller handles wizard)
     debugLog("autoLoop", { phase: "exit", reason: "step-wizard" });
     return { action: "break", reason: "step-wizard" };
+  }
+
+  if (preUnitSnapshot?.type === "complete-milestone" && s.currentMilestoneId) {
+    const stop = await _runMilestoneMergeOnceWithStashRestore(ic, s.currentMilestoneId);
+    if (stop) return stop;
   }
 
   // Both pre and post verification completed without timeout — reset counter

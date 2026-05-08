@@ -1,3 +1,5 @@
+// Project/App: GSD-2
+// File Purpose: Git operations, commit-message formatting, and turn git actions.
 /**
  * GSD Git Service
  *
@@ -129,6 +131,11 @@ export interface TurnGitActionResult {
 export interface TaskCommitContext {
   taskId: string;
   taskTitle: string;
+  milestoneId?: string;
+  milestoneTitle?: string;
+  sliceId?: string;
+  sliceTitle?: string;
+  taskDisplayId?: string;
   /** The one-liner from the task summary (e.g. "Added retry-aware worker status logging") */
   oneLiner?: string;
   /** Files modified by this task (from task summary frontmatter) */
@@ -170,6 +177,11 @@ export function buildTaskCommitMessage(ctx: TaskCommitContext): string {
     bodyParts.push(fileLines);
   }
 
+  const contextLines = buildTaskCommitContextLines(ctx);
+  if (contextLines.length > 0) {
+    bodyParts.push(`GSD context:\n${contextLines.join("\n")}`);
+  }
+
   // Trailers: GSD-Task first, then Resolves
   bodyParts.push(`GSD-Task: ${ctx.taskId}`);
 
@@ -178,6 +190,28 @@ export function buildTaskCommitMessage(ctx: TaskCommitContext): string {
   }
 
   return `${subject}\n\n${bodyParts.join("\n\n")}`;
+}
+
+function buildTaskCommitContextLines(ctx: TaskCommitContext): string[] {
+  const lines: string[] = [];
+  const milestone = formatNamedContext(ctx.milestoneId, ctx.milestoneTitle);
+  const slice = formatNamedContext(ctx.sliceId, ctx.sliceTitle);
+  const taskId = ctx.taskDisplayId ?? ctx.taskId.split("/").pop();
+  const task = formatNamedContext(taskId, ctx.taskTitle);
+
+  if (milestone) lines.push(`- Milestone: ${milestone}`);
+  if (slice) lines.push(`- Slice: ${slice}`);
+  if (task) lines.push(`- Task: ${task}`);
+  return lines;
+}
+
+function formatNamedContext(id: string | undefined, title: string | undefined): string | null {
+  const cleanId = id?.trim();
+  const cleanTitle = title?.trim();
+  if (!cleanId && !cleanTitle) return null;
+  if (!cleanId) return cleanTitle ?? null;
+  if (!cleanTitle || cleanTitle === cleanId) return cleanId;
+  return `${cleanId} - ${cleanTitle}`;
 }
 
 function sanitizeCommitSubjectDescription(value: string): string {

@@ -28,6 +28,7 @@ import {
   isDbAvailable,
   getMilestone,
   getMilestoneSlices,
+  getSliceTasks,
   closeDatabase,
   openDatabase,
   getDbPath,
@@ -225,6 +226,15 @@ export function _isExpectedWorktreeUnlinkErrorForTest(
   code: string | undefined,
 ): boolean {
   return code === "ENOENT" || code === "EISDIR";
+}
+
+function stripGsdDisplayPrefix(value: string | undefined | null, id: string): string | undefined {
+  const raw = String(value ?? "").trim();
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  const idLower = id.toLowerCase();
+  if (lower.startsWith(`${idLower}:`)) return raw.slice(id.length + 1).trim() || undefined;
+  return raw;
 }
 
 // ─── ASSESSMENT Force-Sync Helper (#2821) ─────────────────────────────────
@@ -1780,18 +1790,25 @@ export function mergeMilestoneToMain(
   }
 
   // 2. Get completed slices for commit message
-  let completedSlices: { id: string; title: string }[] = [];
+  let completedSlices: { id: string; title: string; tasks: Array<{ id: string; title: string }> }[] = [];
   if (isDbAvailable()) {
     completedSlices = getMilestoneSlices(milestoneId)
       .filter(s => s.status === "complete")
-      .map(s => ({ id: s.id, title: s.title }));
+      .map(s => ({
+        id: s.id,
+        title: stripGsdDisplayPrefix(s.title, s.id) ?? s.id,
+        tasks: getSliceTasks(milestoneId, s.id).map((task) => ({
+          id: task.id,
+          title: stripGsdDisplayPrefix(task.title, task.id) ?? task.id,
+        })),
+      }));
   }
   // Fallback: parse roadmap content when DB is unavailable
   if (completedSlices.length === 0 && roadmapContent) {
     const sliceRe = /- \[x\] \*\*(\w+):\s*(.+?)\*\*/gi;
     let m: RegExpExecArray | null;
     while ((m = sliceRe.exec(roadmapContent)) !== null) {
-      completedSlices.push({ id: m[1], title: m[2] });
+      completedSlices.push({ id: m[1], title: m[2], tasks: [] });
     }
   }
 
@@ -1864,8 +1881,7 @@ export function mergeMilestoneToMain(
 
   // 6. Build rich commit message
   const dbMilestone = getMilestone(milestoneId);
-  let milestoneTitle =
-    (dbMilestone?.title ?? "").replace(/^M\d+:\s*/, "").trim();
+  let milestoneTitle = stripGsdDisplayPrefix(dbMilestone?.title, milestoneId) ?? "";
   // Fallback: parse title from roadmap content header (e.g. "# M020: Backend foundation")
   if (!milestoneTitle && roadmapContent) {
     const titleMatch = roadmapContent.match(new RegExp(`^#\\s+${milestoneId}:\\s*(.+)`, "m"));
@@ -1873,14 +1889,21 @@ export function mergeMilestoneToMain(
   }
   milestoneTitle = milestoneTitle || milestoneId;
   const subject = `feat: ${milestoneTitle}`;
+  const milestoneContext = milestoneTitle === milestoneId
+    ? `Milestone: ${milestoneId}`
+    : `Milestone: ${milestoneId} - ${milestoneTitle}`;
   let body = "";
   if (completedSlices.length > 0) {
     const sliceLines = completedSlices
       .map((s) => `- ${s.id}: ${s.title}`)
       .join("\n");
-    body = `\n\nCompleted slices:\n${sliceLines}\n\nGSD-Milestone: ${milestoneId}\nBranch: ${milestoneBranch}`;
+    const taskLines = completedSlices
+      .flatMap((s) => s.tasks.map((task) => `- ${s.id}/${task.id}: ${task.title}`))
+      .join("\n");
+    const taskBlock = taskLines ? `\n\nCompleted tasks:\n${taskLines}` : "";
+    body = `\n\nCompleted slices:\n${sliceLines}${taskBlock}\n\n${milestoneContext}\nGSD-Milestone: ${milestoneId}\nBranch: ${milestoneBranch}`;
   } else {
-    body = `\n\nGSD-Milestone: ${milestoneId}\nBranch: ${milestoneBranch}`;
+    body = `\n\n${milestoneContext}\nGSD-Milestone: ${milestoneId}\nBranch: ${milestoneBranch}`;
   }
   const commitMessage = subject + body;
 
