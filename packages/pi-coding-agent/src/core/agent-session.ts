@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type {
 	Agent,
+	AgentAbortOrigin,
 	AgentEvent,
 	AgentMessage,
 	AgentState,
@@ -350,7 +351,7 @@ export class AgentSession {
 			emit: (event) => this._emit(event),
 			disconnectFromAgent: () => this._disconnectFromAgent(),
 			reconnectToAgent: () => this._reconnectToAgent(),
-			abort: () => this.abort(),
+			abort: () => this.abort({ origin: "user" }),
 		});
 
 		// Always subscribe to agent events for internal handling
@@ -657,11 +658,21 @@ export class AgentSession {
 
 		if (event.type === "agent_start") {
 			this._turnIndex = 0;
-			await extensionRunner.emit({ type: "agent_start" });
+			await extensionRunner.emit({
+				type: "agent_start",
+				sessionId: event.sessionId,
+				turnId: event.turnId,
+			});
 		} else if (event.type === "agent_end") {
 			this._processingAgentEnd = true;
 			try {
-				await extensionRunner.emit({ type: "agent_end", messages: event.messages });
+				await extensionRunner.emit({
+					type: "agent_end",
+					messages: event.messages,
+					sessionId: event.sessionId,
+					turnId: event.turnId,
+					abortOrigin: event.abortOrigin,
+				});
 				// `stop` fires on true quiescence: the agent cleanly completed and is now
 				// waiting for the user. Use the last assistant message's stopReason to
 				// distinguish clean completion from error/cancellation.
@@ -674,7 +685,13 @@ export class AgentSession {
 								? "error"
 								: "completed"
 						: "completed";
-				await extensionRunner.emitStop({ reason: stopReason, lastMessage: last });
+				await extensionRunner.emitStop({
+					reason: stopReason,
+					lastMessage: last,
+					sessionId: event.sessionId,
+					turnId: event.turnId,
+					abortOrigin: event.abortOrigin,
+				});
 			} finally {
 				this._processingAgentEnd = false;
 			}
@@ -683,6 +700,8 @@ export class AgentSession {
 				type: "turn_start",
 				turnIndex: this._turnIndex,
 				timestamp: Date.now(),
+				sessionId: event.sessionId,
+				turnId: event.turnId,
 			};
 			await extensionRunner.emit(extensionEvent);
 		} else if (event.type === "turn_end") {
@@ -691,6 +710,8 @@ export class AgentSession {
 				turnIndex: this._turnIndex,
 				message: event.message,
 				toolResults: event.toolResults,
+				sessionId: event.sessionId,
+				turnId: event.turnId,
 			};
 			await extensionRunner.emit(extensionEvent);
 			this._turnIndex++;
@@ -698,6 +719,8 @@ export class AgentSession {
 			const extensionEvent: MessageStartEvent = {
 				type: "message_start",
 				message: event.message,
+				sessionId: event.sessionId,
+				turnId: event.turnId,
 			};
 			await extensionRunner.emit(extensionEvent);
 		} else if (event.type === "message_update") {
@@ -705,12 +728,16 @@ export class AgentSession {
 				type: "message_update",
 				message: event.message,
 				assistantMessageEvent: event.assistantMessageEvent,
+				sessionId: event.sessionId,
+				turnId: event.turnId,
 			};
 			await extensionRunner.emit(extensionEvent);
 		} else if (event.type === "message_end") {
 			const extensionEvent: MessageEndEvent = {
 				type: "message_end",
 				message: event.message,
+				sessionId: event.sessionId,
+				turnId: event.turnId,
 			};
 			await extensionRunner.emit(extensionEvent);
 		} else if (event.type === "tool_execution_start") {
@@ -1596,9 +1623,9 @@ export class AgentSession {
 	/**
 	 * Abort current operation and wait for agent to become idle.
 	 */
-	async abort(): Promise<void> {
+	async abort(options?: { origin?: AgentAbortOrigin }): Promise<void> {
 		this._retryHandler.abortRetry();
-		this.agent.abort();
+		this.agent.abort(options?.origin);
 		await this.agent.waitForIdle();
 		// Ensure agent_end is emitted even when abort interrupts a tool call (#1414).
 		// The agent may go idle without emitting agent_end if the abort happens
@@ -1612,6 +1639,8 @@ export class AgentSession {
 				await this._extensionRunner.emit({
 					type: "agent_end",
 					messages,
+					sessionId: this.sessionId,
+					abortOrigin: options?.origin,
 				});
 				const last = messages[messages.length - 1];
 				const stopReason: "completed" | "cancelled" | "error" | "blocked" =
@@ -1622,7 +1651,12 @@ export class AgentSession {
 								? "error"
 								: "completed"
 						: "cancelled";
-				await this._extensionRunner.emitStop({ reason: stopReason, lastMessage: last });
+				await this._extensionRunner.emitStop({
+					reason: stopReason,
+					lastMessage: last,
+					sessionId: this.sessionId,
+					abortOrigin: options?.origin,
+				});
 			} finally {
 				this._processingAgentEnd = wasProcessingAgentEnd;
 			}
@@ -1655,7 +1689,7 @@ export class AgentSession {
 			await this.agent.waitForIdle();
 			return;
 		}
-		await this.abort();
+		await this.abort({ origin: "session-transition" });
 	}
 
 	/**
@@ -2229,7 +2263,7 @@ export class AgentSession {
 			{
 				getModel: () => this.model,
 				isIdle: () => !this.isStreaming,
-				abort: () => this.abort(),
+				abort: () => this.abort({ origin: "user" }),
 				hasPendingMessages: () => this.pendingMessageCount > 0,
 				shutdown: () => {
 					this._extensionShutdownHandler?.();
