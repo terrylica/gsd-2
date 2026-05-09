@@ -240,6 +240,10 @@ import { resolveUokFlags } from "./uok/flags.js";
 import { validateDirectory } from "./validate-directory.js";
 import { createAutoOrchestrator } from "./auto/orchestrator.js";
 import type { AutoOrchestrationModule, AutoOrchestratorDeps } from "./auto/contracts.js";
+import { reconcileBeforeDispatch } from "./state-reconciliation.js";
+import { compileUnitToolContract } from "./tool-contract.js";
+import { prepareUnitRoot } from "./worktree-safety.js";
+import { classifyFailure } from "./recovery-classification.js";
 // Slice-level parallelism (#2340)
 import { getEligibleSlices } from "./slice-parallel-eligibility.js";
 import { startSliceParallel } from "./slice-parallel-orchestrator.js";
@@ -1629,9 +1633,26 @@ export function createWiredAutoOrchestrationModule(
   let seq = 0;
 
   const deps: AutoOrchestratorDeps = {
+    stateReconciliation: {
+      async reconcileBeforeDispatch() {
+        const result = await reconcileBeforeDispatch(dispatchBasePath);
+        if (!result.ok) {
+          return {
+            ok: false,
+            reason: result.reason,
+            stateSnapshot: result.stateSnapshot,
+          };
+        }
+        return {
+          ok: true,
+          reason: result.repaired.join(", "),
+          stateSnapshot: result.stateSnapshot,
+        };
+      },
+    },
     dispatch: {
-      async decideNextUnit() {
-        const state = await deriveState(dispatchBasePath);
+      async decideNextUnit(input) {
+        const state = input.stateSnapshot;
         const active = state.activeMilestone;
         if (!active) return null;
 
@@ -1655,12 +1676,23 @@ export function createWiredAutoOrchestrationModule(
     },
     recovery: {
       async classifyAndRecover(input) {
-        const reason = input.error instanceof Error ? input.error.message : String(input.error ?? "unknown auto error");
-        return { action: "escalate" as const, reason };
+        const recovery = classifyFailure(input);
+        return { action: recovery.action, reason: recovery.reason };
+      },
+    },
+    toolContract: {
+      async compileUnitToolContract(unitType) {
+        const result = compileUnitToolContract(unitType);
+        if (!result.ok) return { ok: false, reason: result.detail };
+        return { ok: true, reason: result.contract.validationRules.join(", ") };
       },
     },
     worktree: {
-      async prepareForUnit() {},
+      async prepareForUnit(unitType, unitId) {
+        const result = prepareUnitRoot(unitType, unitId, { basePath: dispatchBasePath });
+        if (!result.ok) return { ok: false, reason: result.detail };
+        return { ok: true, reason: result.reason };
+      },
       async syncAfterUnit() {},
       async cleanupOnStop() {},
     },
