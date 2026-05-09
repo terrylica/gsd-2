@@ -817,7 +817,7 @@ export async function runPreDispatch(
       if (deps.getIsolationMode(s.basePath) !== "none") {
         deps.captureIntegrationBranch(s.basePath, mid);
       }
-      deps.resolver.enterMilestone(mid, ctx.ui);
+      deps.lifecycle.enterMilestone(mid, ctx.ui);
     } else {
       // mid is undefined — no milestone to capture integration branch for
     }

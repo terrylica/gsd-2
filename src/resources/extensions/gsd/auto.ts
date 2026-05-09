@@ -247,6 +247,10 @@ import {
   WorktreeResolver,
   type WorktreeResolverDeps,
 } from "./worktree-resolver.js";
+import {
+  WorktreeLifecycle,
+  type WorktreeLifecycleDeps,
+} from "./worktree-lifecycle.js";
 import { reorderForCaching } from "./prompt-ordering.js";
 import { initTokenCounter } from "./token-counter.js";
 
@@ -1583,6 +1587,23 @@ function buildResolver(): WorktreeResolver {
 }
 
 /**
+ * Build a WorktreeLifecycle Module wrapping the current session.
+ *
+ * Per ADR-016, the Lifecycle Module is the typed-Interface owner of milestone
+ * entry/exit verbs. Phase 1 (issue #5585) ships only `enterMilestone`; the
+ * remaining verbs migrate from `WorktreeResolver` in subsequent slices.
+ *
+ * `WorktreeLifecycleDeps` is structurally a subset of `WorktreeResolverDeps`,
+ * so we can reuse `buildResolverDeps()` directly.
+ */
+function buildLifecycle(): WorktreeLifecycle {
+  return new WorktreeLifecycle(
+    s,
+    buildResolverDeps() as unknown as WorktreeLifecycleDeps,
+  );
+}
+
+/**
  * Thin entry glue for the new Auto Orchestration module.
  *
  * This intentionally wires only dispatch + error notification today, with
@@ -1826,6 +1847,9 @@ function buildLoopDeps(pi: ExtensionAPI): LoopDeps {
 
     // WorktreeResolver
     resolver: buildResolver(),
+
+    // Worktree Lifecycle Module (ADR-016)
+    lifecycle: buildLifecycle(),
 
     // Post-unit processing
     postUnitPreVerification,
@@ -2130,7 +2154,7 @@ export async function startAuto(
       !detectWorktreeName(s.basePath) &&
       !detectWorktreeName(s.originalBasePath)
     ) {
-      buildResolver().enterMilestone(s.currentMilestoneId, {
+      buildLifecycle().enterMilestone(s.currentMilestoneId, {
         notify: ctx.ui.notify.bind(ctx.ui),
       });
       // s.basePath may have been updated to a worktree path by enterMilestone.
@@ -2236,6 +2260,7 @@ export async function startAuto(
     registerSigtermHandler,
     lockBase,
     buildResolver,
+    buildLifecycle,
   };
 
   // Register the worker before bootstrap enters a milestone worktree.

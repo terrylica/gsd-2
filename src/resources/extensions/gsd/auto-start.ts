@@ -96,6 +96,7 @@ import {
   resolveDynamicRoutingConfig,
 } from "./preferences-models.js";
 import type { WorktreeResolver } from "./worktree-resolver.js";
+import type { WorktreeLifecycle } from "./worktree-lifecycle.js";
 import { getSessionModelOverride } from "./session-model-override.js";
 
 export interface BootstrapDeps {
@@ -103,6 +104,7 @@ export interface BootstrapDeps {
   registerSigtermHandler: (basePath: string) => void;
   lockBase: () => string;
   buildResolver: () => WorktreeResolver;
+  buildLifecycle: () => WorktreeLifecycle;
 }
 
 export function resolveIsolationNoneBranchCheckout(
@@ -531,6 +533,7 @@ export async function bootstrapAutoSession(
     registerSigtermHandler,
     lockBase,
     buildResolver,
+    buildLifecycle,
   } = deps;
 
   const dirCheck = validateDirectory(base);
@@ -1115,7 +1118,7 @@ export async function bootstrapAutoSession(
       !detectWorktreeName(base) &&
       !isUnderGsdWorktrees(base)
     ) {
-      buildResolver().enterMilestone(s.currentMilestoneId, {
+      buildLifecycle().enterMilestone(s.currentMilestoneId, {
         notify: ctx.ui.notify.bind(ctx.ui),
       });
       if (s.basePath !== base) {
