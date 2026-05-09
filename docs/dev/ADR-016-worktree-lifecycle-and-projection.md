@@ -75,6 +75,8 @@ Lifecycle calls Projection. Projection has no Lifecycle dependency. Lifecycle in
 - `Projection.projectRootToWorktree(scope)` from `enterMilestone` after a successful create or enter, before any Unit dispatches.
 - `Projection.finalizeProjectionForMerge(scope)` from `exitMilestone` after a successful merge, before teardown.
 
+Lifecycle entry/exit paths (`enterMilestone` and `exitMilestone`) construct the `MilestoneScope` from the active `milestoneId` and session root state before invoking `Projection.projectRootToWorktree(scope)` or `Projection.finalizeProjectionForMerge(scope)`; callers do not pass a pre-built `s.scope` into Lifecycle.
+
 `Projection.projectWorktreeToRoot(scope)` is called by callers outside Lifecycle (post-unit pipeline; pre-merge sync paths). Lifecycle does not own that verb's invocation.
 
 ## Why this decision
