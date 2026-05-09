@@ -76,13 +76,6 @@ function makeDeps(
     },
     ...overrides,
   };
-  if (overrides) {
-    for (const [k, v] of Object.entries(overrides)) {
-      if (k !== "calls") {
-        (deps as unknown as Record<string, unknown>)[k] = v;
-      }
-    }
-  }
   return deps;
 }
 
