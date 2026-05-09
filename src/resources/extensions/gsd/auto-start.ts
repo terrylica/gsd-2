@@ -1040,7 +1040,10 @@ export async function bootstrapAutoSession(
     s.stepMode = requestedStepMode;
     s.verbose = verboseMode;
     s.cmdCtx = ctx;
-    s.basePath = base;
+    // ADR-016 phase 2 / B2 (#5620): single owner of bootstrap basePath
+    // mutation. Sets s.basePath = base and s.originalBasePath = base
+    // (originalBasePath is empty on a fresh bootstrap).
+    buildLifecycle().adoptSessionRoot(base);
     s.unitDispatchCount.clear();
     s.unitRecoveryCount.clear();
     s.lastBudgetAlertLevel = 0;
@@ -1098,7 +1101,9 @@ export async function bootstrapAutoSession(
     }
 
     // ── Auto-worktree setup ──
-    s.originalBasePath = base;
+    // s.originalBasePath was set to `base` by `adoptSessionRoot(base)` above
+    // (ADR-016 phase 2 / B2, #5620). The redundant assignment that used to
+    // live here is gone.
 
     const isUnderGsdWorktrees = (p: string): boolean => {
       // Direct layout: /.gsd/worktrees/
