@@ -13,7 +13,7 @@ If any of these files don't exist, **proceed silently**. Don't flag their absenc
 
 Single-context layout (this repo):
 
-```
+```text
 /
 ├── CONTEXT.md
 ├── docs/adr/

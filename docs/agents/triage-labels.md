@@ -14,7 +14,7 @@ When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the 
 
 `needs-triage` and `needs-info` already exist on `gsd-build/gsd-2`. The other three (`ready-for-agent`, `ready-for-human`, `wontfix`) will be created on first use:
 
-```
+```bash
 gh label create ready-for-agent -R gsd-build/gsd-2 --description "Fully specified, ready for an AFK agent" --color 0E8A16
 gh label create ready-for-human -R gsd-build/gsd-2 --description "Requires human implementation" --color 1D76DB
 gh label create wontfix         -R gsd-build/gsd-2 --description "Will not be actioned"          --color CCCCCC
