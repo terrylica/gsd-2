@@ -691,13 +691,10 @@ export async function runPreDispatch(
   if (
     s.originalBasePath &&
     !isSamePathLocal(s.basePath, s.originalBasePath) &&
-    s.currentMilestoneId
+    s.currentMilestoneId &&
+    s.scope
   ) {
-    deps.syncProjectRootToWorktree(
-      s.originalBasePath,
-      s.basePath,
-      s.currentMilestoneId,
-    );
+    deps.worktreeProjection.projectRootToWorktree(s.scope);
   }
 
   // Derive state — use canonical project root so the cache key is stable

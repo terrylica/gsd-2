@@ -166,8 +166,6 @@ import {
   mergeMilestoneToMain,
   autoWorktreeBranch,
   syncWorktreeStateBack,
-  syncProjectRootToWorktree,
-  syncStateToProjectRoot,
   readResourceVersion,
   checkResourcesStale,
   escapeStaleWorktree,
@@ -256,6 +254,7 @@ import {
   WorktreeLifecycle,
   type WorktreeLifecycleDeps,
 } from "./worktree-lifecycle.js";
+import { WorktreeStateProjection } from "./worktree-state-projection.js";
 import { reorderForCaching } from "./prompt-ordering.js";
 import { initTokenCounter } from "./token-counter.js";
 
@@ -1820,6 +1819,7 @@ function buildLoopDeps(pi: ExtensionAPI): LoopDeps {
   initRegistry(convertDispatchRules(DISPATCH_RULES));
 
   const cmux = makeCmuxEmitters(pi);
+  const worktreeProjection = new WorktreeStateProjection();
 
   return {
     lockBase,
@@ -1843,8 +1843,8 @@ function buildLoopDeps(pi: ExtensionAPI): LoopDeps {
     // Pre-dispatch health gate
     preDispatchHealthGate,
 
-    // Worktree sync
-    syncProjectRootToWorktree,
+    // Worktree state projection (ADR-016 — single Module Interface)
+    worktreeProjection,
 
     // Resource version guard
     checkResourcesStale,
