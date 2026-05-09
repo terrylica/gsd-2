@@ -60,13 +60,13 @@ Constructor takes a small dep set (notify, leaseStore, gitServiceFactory, journa
 interface WorktreeStateProjection {
   projectRootToWorktree(scope: MilestoneScope): void;
   projectWorktreeToRoot(scope: MilestoneScope): void;
-  finalizeProjectionForMerge(scope: MilestoneScope): void;
+  finalizeProjectionForMerge(scope: MilestoneScope): { synced: string[] };
 }
 ```
 
 All verbs are `MilestoneScope`-typed only. The legacy path-string variants (`syncProjectRootToWorktree(projectRoot, worktreePath, milestoneId)` and equivalents) and their `*ByScope` aliases are retired together with the helpers they wrap.
 
-Each verb's Implementation owns its direction's bug-hardened rules. `projectRootToWorktree` owns: identity-key safety check, additive milestone copy (#1886), ASSESSMENT verdict force-overwrite (#2821), `completed-units.json` forward-sync, WAL/SHM cleanup (#2478), `.gsd` symlink edge case (#2184). `projectWorktreeToRoot` owns the worktree → root rules (project root authoritative for diagnostics; markdown projections do not flow back; non-fatal sync). `finalizeProjectionForMerge` owns the post-merge final-capture rules.
+Each verb's Implementation owns its direction's bug-hardened rules. `projectRootToWorktree` owns: identity-key safety check, additive milestone copy (#1886), ASSESSMENT verdict force-overwrite (#2821), `completed-units.json` forward-sync, WAL/SHM cleanup (#2478), `.gsd` symlink edge case (#2184). `projectWorktreeToRoot` owns the worktree → root rules (project root authoritative for diagnostics; markdown projections do not flow back; non-fatal sync). `finalizeProjectionForMerge` owns the post-merge final-capture rules and returns `{ synced: string[] }`, where `synced` lists the file classes captured during the final projection.
 
 ### Dependency direction
 

@@ -27,6 +27,11 @@ import { loadEffectiveGSDPreferences } from "./preferences.js";
 import { resolveWorktreeProjectRoot, normalizeWorktreePathForCompare } from "./worktree-root.js";
 import { _enterMilestoneCore, type EnterResult } from "./worktree-lifecycle.js";
 
+export interface MergeAndExitResult {
+  merged: boolean;
+  codeFilesChanged: boolean;
+}
+
 // ─── Path Comparison Helper ────────────────────────────────────────────────
 /**
  * Compare two paths for physical identity, tolerating trailing slashes,
@@ -465,7 +470,10 @@ export class WorktreeResolver {
 
   /** Worktree-mode merge: read roadmap, merge, teardown, reset paths.
    *  Returns merge metadata when a squash-merge actually ran. */
-  private _mergeWorktreeMode(milestoneId: string, ctx: NotifyCtx): MergeAndExitResult {
+  private _mergeWorktreeMode(
+    milestoneId: string,
+    ctx: NotifyCtx,
+  ): MergeAndExitResult {
     const originalBase = this.s.originalBasePath;
     if (!originalBase) {
       debugLog("WorktreeResolver", {
@@ -638,7 +646,10 @@ export class WorktreeResolver {
 
   /** Branch-mode merge: check current branch, merge if on milestone branch.
    *  Returns merge metadata when a merge actually ran. */
-  private _mergeBranchMode(milestoneId: string, ctx: NotifyCtx): MergeAndExitResult {
+  private _mergeBranchMode(
+    milestoneId: string,
+    ctx: NotifyCtx,
+  ): MergeAndExitResult {
     try {
       const currentBranch = this.deps.getCurrentBranch(this.s.basePath);
       const milestoneBranch = this.deps.autoWorktreeBranch(milestoneId);
@@ -773,6 +784,20 @@ export class WorktreeResolver {
       // the current one unmerged.
       if (this.s.basePath !== this.projectRoot) throw err;
     }
-    return _enterMilestoneCore(this.s, this.deps, nextMilestoneId, ctx);
+    const enterResult = _enterMilestoneCore(
+      this.s,
+      this.deps,
+      nextMilestoneId,
+      ctx,
+    );
+    if (!enterResult.ok) {
+      this.restoreToProjectRoot();
+      throw enterResult.cause instanceof Error
+        ? enterResult.cause
+        : new Error(
+            `Failed to enter milestone ${nextMilestoneId}: ${enterResult.reason}`,
+          );
+    }
+    return enterResult;
   }
 }
