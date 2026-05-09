@@ -105,9 +105,13 @@ test("bootstrap aborts before starting next milestone when completed orphan merg
             throw new Error("synthetic merge failure");
           },
         }) as any,
+<<<<<<< HEAD
         buildLifecycle: () => ({
           enterMilestone: () => ({ ok: true }),
         }) as any,
+=======
+        buildLifecycle: () => ({}) as any,
+>>>>>>> 0c5221c2c (Apply babysitter fixes for PR #5601)
       },
       {
         classification: "none",
@@ -138,4 +142,3 @@ test("bootstrap aborts before starting next milestone when completed orphan merg
     rmSync(base, { recursive: true, force: true });
   }
 });
-
