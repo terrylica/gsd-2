@@ -26,7 +26,10 @@
  * Module's full Interface.
  */
 
-import { syncProjectRootToWorktreeByScope } from "./auto-worktree.js";
+import {
+  syncProjectRootToWorktreeByScope,
+  syncStateToProjectRootByScope,
+} from "./auto-worktree.js";
 import type { MilestoneScope } from "./workspace.js";
 
 /**
@@ -54,5 +57,23 @@ export class WorktreeStateProjection {
    */
   projectRootToWorktree(scope: MilestoneScope): void {
     syncProjectRootToWorktreeByScope(scope, scope);
+  }
+
+  /**
+   * Project state from the auto-worktree back onto the project root for `scope`.
+   * Called by the post-unit pipeline between Units, and by Lifecycle's exit
+   * path before merge.
+   *
+   * Owns the rules: identity-key safety check, project-root authoritative
+   * for diagnostics, markdown projections do NOT flow back to project root,
+   * non-fatal — sync failure must not block the caller.
+   *
+   * Issue #5589 delegates to `syncStateToProjectRootByScope` to ship the
+   * typed `MilestoneScope`-only Interface without re-implementing the
+   * non-fatal-on-failure contract mid-flight. The body extraction joins
+   * the legacy helper retirement in #5590.
+   */
+  projectWorktreeToRoot(scope: MilestoneScope): void {
+    syncStateToProjectRootByScope(scope, scope);
   }
 }

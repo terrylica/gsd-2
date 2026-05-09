@@ -59,3 +59,40 @@ test("projectRootToWorktree is idempotent — repeated calls do not throw", () =
     cleanup();
   }
 });
+
+// ─── projectWorktreeToRoot — Module contract ────────────────────────────────
+
+test("projectWorktreeToRoot exists and accepts a MilestoneScope", () => {
+  const projection = new WorktreeStateProjection();
+  assert.equal(typeof projection.projectWorktreeToRoot, "function");
+});
+
+test("projectWorktreeToRoot is non-fatal on same-path scope (project-only mode)", () => {
+  const { dir, cleanup } = makeProjectRoot();
+  try {
+    const workspace = createWorkspace(dir);
+    const scope = scopeMilestone(workspace, "M001");
+    const projection = new WorktreeStateProjection();
+
+    // Same project root on both sides — sync helper fast-paths to no-op.
+    // Module must accept and complete silently.
+    assert.doesNotThrow(() => projection.projectWorktreeToRoot(scope));
+  } finally {
+    cleanup();
+  }
+});
+
+test("projectWorktreeToRoot is idempotent on repeated calls", () => {
+  const { dir, cleanup } = makeProjectRoot();
+  try {
+    const workspace = createWorkspace(dir);
+    const scope = scopeMilestone(workspace, "M001");
+    const projection = new WorktreeStateProjection();
+
+    projection.projectWorktreeToRoot(scope);
+    projection.projectWorktreeToRoot(scope);
+    assert.ok(true, "two calls did not throw");
+  } finally {
+    cleanup();
+  }
+});
