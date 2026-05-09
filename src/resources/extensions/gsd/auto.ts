@@ -1835,7 +1835,6 @@ function buildLoopDeps(pi: ExtensionAPI): LoopDeps {
     pruneQueueOrder,
     isInAutoWorktree,
     shouldUseWorktreeIsolation,
-    mergeMilestoneToMain,
     teardownAutoWorktree,
     createAutoWorktree,
     captureIntegrationBranch,
