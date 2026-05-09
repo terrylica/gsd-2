@@ -17,6 +17,7 @@ export type WorktreeSafetyFailureKind =
   | "worktree-missing"
   | "worktree-git-marker-missing"
   | "worktree-git-marker-not-file"
+  | "worktree-git-probe-failed"
   | "worktree-unregistered"
   | "branch-mismatch"
   | "lease-lost"
@@ -113,6 +114,10 @@ function failure(
   return { ok: false, kind, reason, remediation, details };
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export function createWorktreeSafetyModule(
   deps: WorktreeSafetyDeps = defaultDeps,
 ): WorktreeSafetyModule {
@@ -174,7 +179,19 @@ export function createWorktreeSafetyModule(
         );
       }
 
-      if (!deps.lstatSync(gitMarker).isFile()) {
+      let gitMarkerStat: Pick<Stats, "isFile">;
+      try {
+        gitMarkerStat = deps.lstatSync(gitMarker);
+      } catch (error) {
+        return failure(
+          "worktree-git-probe-failed",
+          `Unable to inspect .git marker for worktree root ${unitRoot}.`,
+          "Recover or recreate the milestone worktree before dispatching the source-writing Unit.",
+          { gitMarker, error: errorMessage(error) },
+        );
+      }
+
+      if (!gitMarkerStat.isFile()) {
         return failure(
           "worktree-git-marker-not-file",
           `Worktree root ${unitRoot} has a .git directory, not a registered worktree .git file.`,
@@ -205,7 +222,16 @@ export function createWorktreeSafetyModule(
       const expectedBranch = input.expectedBranch?.trim();
       let branch: string | undefined;
       if (expectedBranch && deps.getCurrentBranch) {
-        branch = deps.getCurrentBranch(unitRoot);
+        try {
+          branch = deps.getCurrentBranch(unitRoot);
+        } catch (error) {
+          return failure(
+            "worktree-git-probe-failed",
+            `Unable to resolve current branch for worktree root ${unitRoot}.`,
+            "Recover or recreate the milestone worktree before dispatching the source-writing Unit.",
+            { unitRoot, expectedBranch, error: errorMessage(error) },
+          );
+        }
         if (branch !== expectedBranch) {
           return failure(
             "branch-mismatch",

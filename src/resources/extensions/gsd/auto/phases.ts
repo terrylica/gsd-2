@@ -92,9 +92,9 @@ export function shouldDegradeEmptyWorktreeToProjectRoot(
   );
 }
 
-function unitWritesSource(unitType: string): boolean {
+function unitWritesSource(unitType: string): boolean | null {
   const manifest = resolveManifest(unitType);
-  if (!manifest) return false;
+  if (!manifest) return null;
   return manifest.tools.mode === "all" || manifest.tools.mode === "docs";
 }
 
@@ -121,7 +121,24 @@ async function validateSourceWriteWorktreeSafety(
   phase: string,
 ): Promise<{ action: "break"; reason: string } | null> {
   const { ctx, pi, s, deps } = ic;
-  if (!s.basePath || !unitWritesSource(unitType)) return null;
+  if (!s.basePath) return null;
+
+  const writesSource = unitWritesSource(unitType);
+  if (writesSource === null) {
+    const msg = `Worktree Safety failed (missing-tool-contract): missing Tool Contract for ${unitType}. Add a UnitContextManifest entry before dispatching this Unit.`;
+    debugLog("worktreeSafety", {
+      phase,
+      unitType,
+      unitId,
+      milestoneId,
+      result: { ok: false, kind: "missing-tool-contract", reason: msg },
+      basePath: s.basePath,
+    });
+    ctx.ui.notify(msg, "error");
+    await deps.stopAuto(ctx, pi, msg);
+    return { action: "break", reason: "missing-tool-contract" };
+  }
+  if (!writesSource) return null;
 
   const projectRoot = s.canonicalProjectRoot ?? resolveWorktreeProjectRoot(s.basePath, s.originalBasePath);
   if (deps.getIsolationMode(projectRoot) !== "worktree") return null;

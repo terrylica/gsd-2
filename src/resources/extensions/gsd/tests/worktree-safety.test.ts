@@ -121,6 +121,28 @@ describe("Worktree Safety module", () => {
     assert.equal(result.kind, "worktree-git-marker-not-file");
   });
 
+  test("converts .git marker stat failures into typed failures", () => {
+    const safety = createWorktreeSafetyModule({
+      existsSync: () => true,
+      lstatSync: () => {
+        throw new Error("marker disappeared");
+      },
+    });
+
+    const result = safety.validateUnitRoot({
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      writeScope: "source-writing",
+      projectRoot,
+      unitRoot,
+      milestoneId: "M001",
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "worktree-git-probe-failed");
+    assert.equal(result.details?.error, "marker disappeared");
+  });
+
   test("rejects an unregistered worktree path", () => {
     const safety = createWorktreeSafetyModule({
       existsSync: () => true,
@@ -162,6 +184,32 @@ describe("Worktree Safety module", () => {
     assert.equal(result.ok, false);
     assert.equal(result.kind, "branch-mismatch");
     assert.equal(result.details?.branch, "feature/unexpected");
+  });
+
+  test("converts branch resolution failures into typed failures", () => {
+    const safety = createWorktreeSafetyModule({
+      existsSync: () => true,
+      lstatSync: () => ({ isFile: () => true }),
+      listRegisteredWorktrees: () => [{ path: unitRoot, branch: "milestone/M001" }],
+      getCurrentBranch: () => {
+        throw new Error("branch unreadable");
+      },
+    });
+
+    const result = safety.validateUnitRoot({
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      writeScope: "source-writing",
+      projectRoot,
+      unitRoot,
+      milestoneId: "M001",
+      expectedBranch: "milestone/M001",
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "worktree-git-probe-failed");
+    assert.equal(result.details?.expectedBranch, "milestone/M001");
+    assert.equal(result.details?.error, "branch unreadable");
   });
 
   test("rejects an empty worktree when the project root has content", () => {

@@ -1169,7 +1169,7 @@ test("autoLoop dequeues sidecar item before session-lock break (mid-session, #53
       deps.callLog.push("postUnitPostVerification");
       s.sidecarQueue.push({
         kind: "hook" as const,
-        unitType: "hook/review",
+        unitType: "run-uat",
         unitId: "M001/S01/T01/review",
         prompt: "review the code",
       });
@@ -1656,7 +1656,7 @@ test("autoLoop drains sidecar queue after postUnitPostVerification enqueues item
       // First call (main unit): enqueue a sidecar item
       s.sidecarQueue.push({
         kind: "hook" as const,
-        unitType: "hook/review",
+        unitType: "run-uat",
         unitId: "M001/S01/T01/review",
         prompt: "review the code",
       });
@@ -1678,11 +1678,17 @@ test("autoLoop drains sidecar queue after postUnitPostVerification enqueues item
   const loopPromise = autoLoop(ctx, pi, s, deps);
 
   // Wait for main unit's runUnit to be awaiting
-  await new Promise((r) => setTimeout(r, 50));
+  for (let i = 0; !_hasPendingResolveForTest() && i < 100; i++) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  assert.equal(_hasPendingResolveForTest(), true, "main unit should be awaiting agent_end");
   resolveAgentEnd(makeEvent()); // resolve main unit
 
   // Wait for the sidecar unit's runUnit to be awaiting
-  await new Promise((r) => setTimeout(r, 50));
+  for (let i = 0; !_hasPendingResolveForTest() && postVerCallCount < 2 && i < 100; i++) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  assert.equal(_hasPendingResolveForTest(), true, "sidecar unit should be awaiting agent_end");
   resolveAgentEnd(makeEvent()); // resolve sidecar unit
 
   await loopPromise;
@@ -2101,7 +2107,7 @@ test("autoLoop lifecycle: advances through research → plan → execute → ver
     { unitType: "research-slice", unitId: "M001/S01", prompt: "research" },
     { unitType: "plan-slice", unitId: "M001/S01", prompt: "plan" },
     { unitType: "execute-task", unitId: "M001/S01/T01", prompt: "execute" },
-    { unitType: "verify-slice", unitId: "M001/S01", prompt: "verify" },
+    { unitType: "run-uat", unitId: "M001/S01", prompt: "verify" },
     { unitType: "complete-slice", unitId: "M001/S01", prompt: "complete" },
   ];
 
@@ -2171,8 +2177,8 @@ test("autoLoop lifecycle: advances through research → plan → execute → ver
     `should have dispatched execute-task, got: ${dispatchedUnitTypes.join(", ")}`,
   );
   assert.ok(
-    dispatchedUnitTypes.includes("verify-slice"),
-    `should have dispatched verify-slice, got: ${dispatchedUnitTypes.join(", ")}`,
+    dispatchedUnitTypes.includes("run-uat"),
+    `should have dispatched run-uat, got: ${dispatchedUnitTypes.join(", ")}`,
   );
   assert.ok(
     dispatchedUnitTypes.includes("complete-slice"),
@@ -2204,7 +2210,7 @@ test("autoLoop lifecycle: advances through research → plan → execute → ver
       "research-slice",
       "plan-slice",
       "execute-task",
-      "verify-slice",
+      "run-uat",
       "complete-slice",
     ],
     "dispatched unit types should follow the full lifecycle sequence",
@@ -2818,6 +2824,75 @@ test("dispatch Worktree Safety wins before stuck detection for execute-task with
   );
 });
 
+test("dispatch Worktree Safety stops unknown unit types with missing Tool Contract", async (t) => {
+  _resetPendingResolve();
+
+  const ctx = makeMockCtx();
+  const pi = makeMockPi();
+  const notifications: string[] = [];
+  ctx.ui.notify = (msg: string) => { notifications.push(msg); };
+
+  const projectRoot = mkdtempSync(join(tmpdir(), "gsd-wt-safety-missing-contract-"));
+  const worktreeRoot = join(projectRoot, ".gsd", "worktrees", "M001");
+  mkdirSync(worktreeRoot, { recursive: true });
+  t.after(() => rmSync(projectRoot, { recursive: true, force: true }));
+
+  const s = makeLoopSession({
+    basePath: worktreeRoot,
+    originalBasePath: projectRoot,
+    canonicalProjectRoot: projectRoot,
+  });
+  const deps = makeMockDeps({
+    resolveDispatch: async () => {
+      deps.callLog.push("resolveDispatch");
+      return {
+        action: "dispatch" as const,
+        unitType: "new-source-writing-unit-without-manifest",
+        unitId: "M001/S01/T01",
+        prompt: "do the thing",
+      };
+    },
+  });
+
+  const result = await runDispatch(
+    {
+      ctx,
+      pi,
+      s,
+      deps,
+      prefs: undefined,
+      iteration: 1,
+      flowId: "test-flow",
+      nextSeq: () => 1,
+    },
+    {
+      state: {
+        phase: "executing",
+        activeMilestone: { id: "M001", title: "Test", status: "active" },
+        activeSlice: { id: "S01", title: "Slice 1" },
+        activeTask: { id: "T01" },
+        registry: [{ id: "M001", status: "active" }],
+        blockers: [],
+      } as any,
+      mid: "M001",
+      midTitle: "Test",
+    },
+    {
+      recentUnits: [],
+      stuckRecoveryAttempts: 0,
+      consecutiveFinalizeTimeouts: 0,
+    },
+  );
+
+  assert.equal(result.action, "break");
+  assert.equal(result.reason, "missing-tool-contract");
+  assert.ok(deps.callLog.includes("stopAuto"), "should stop when the Tool Contract is missing");
+  assert.ok(
+    notifications.some((n) => n.includes("missing Tool Contract for new-source-writing-unit-without-manifest")),
+    "should notify with an actionable missing Tool Contract reason",
+  );
+});
+
 test("pre-dispatch skip resolves before dispatch health and stuck accounting", async () => {
   _resetPendingResolve();
 
@@ -2893,7 +2968,7 @@ test("pre-dispatch replace resolves final unit before dispatch health and stuck 
     runPreDispatchHooks: () => ({
       firedHooks: ["review"],
       action: "replace",
-      unitType: "hook/review",
+      unitType: "run-uat",
       prompt: "review before executing",
       model: "review-model",
     }),
@@ -2934,7 +3009,7 @@ test("pre-dispatch replace resolves final unit before dispatch health and stuck 
   );
 
   assert.equal(result.action, "next");
-  assert.equal(result.data?.unitType, "hook/review");
+  assert.equal(result.data?.unitType, "run-uat");
   assert.equal(result.data?.finalPrompt, "review before executing");
   assert.equal(result.data?.hookModelOverride, "review-model");
   assert.ok(!deps.callLog.includes("stopAuto"), "replace hook should not stop on execute-task health");
@@ -2943,7 +3018,7 @@ test("pre-dispatch replace resolves final unit before dispatch health and stuck 
     [
       "execute-task/M001/S01/T01",
       "execute-task/M001/S01/T01",
-      "hook/review/M001/S01/T01",
+      "run-uat/M001/S01/T01",
     ],
     "stuck accounting should record the final replaced unit",
   );
