@@ -979,23 +979,6 @@ export function mergeMilestoneStandalone(
   const inWorktree =
     deps.isInAutoWorktree(worktreeBasePath) && Boolean(originalBasePath);
 
-  // Anchor cwd at the project root only for non-worktree merge paths. Branch-
-  // mode and mode-none do not need the live worktree cwd, and anchoring avoids
-  // ENOENT after teardown. Worktree mode must preserve the real worktree cwd.
-  if (originalBasePath && mode !== "worktree" && !inWorktree) {
-    try {
-      process.chdir(originalBasePath);
-    } catch (err) {
-      debugLog("WorktreeLifecycle", {
-        action: "mergeAndExit",
-        phase: "pre-merge-chdir-failed",
-        milestoneId,
-        originalBasePath,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
   if (mode === "none" && !inWorktree) {
     debugLog("WorktreeLifecycle", {
       action: "mergeAndExit",
@@ -1003,12 +986,43 @@ export function mergeMilestoneStandalone(
       skipped: true,
       reason: "mode-none",
     });
+    // Anchor cwd at project root before the early return so subsequent
+    // process.cwd() calls after the skip don't ENOENT if we were inside a
+    // worktree directory that gets torn down later. Best-effort.
+    if (originalBasePath) {
+      try {
+        process.chdir(originalBasePath);
+      } catch {
+        /* best-effort */
+      }
+    }
     return {
       merged: false,
       mode: "skipped",
       codeFilesChanged: false,
       pushed: false,
     };
+  }
+
+  // Set cwd to the correct anchor before dispatching to mode implementations.
+  // Worktree mode / in-worktree override must run from the live worktree so
+  // mergeMilestoneToMain can find worktree-local state; branch mode runs from
+  // the original project root. Best-effort for synthetic test paths.
+  const targetCwd = mode === "worktree" || inWorktree
+    ? worktreeBasePath
+    : originalBasePath;
+  if (targetCwd) {
+    try {
+      process.chdir(targetCwd);
+    } catch (err) {
+      debugLog("WorktreeLifecycle", {
+        action: "mergeAndExit",
+        phase: "pre-merge-chdir-failed",
+        milestoneId,
+        targetCwd,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   if (mode === "worktree" || inWorktree) {
