@@ -747,6 +747,9 @@ function makeMockDeps(
       mergeAndExit: () => {},
       mergeAndEnterNext: () => {},
     } as any,
+    lifecycle: {
+      enterMilestone: () => ({ ok: true, mode: "worktree", path: "/tmp/project" }),
+    } as any,
     postUnitPreVerification: async () => {
       callLog.push("postUnitPreVerification");
       return "continue" as const;
