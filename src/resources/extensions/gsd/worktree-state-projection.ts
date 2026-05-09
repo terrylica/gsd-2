@@ -11,9 +11,9 @@
  *     verdict overwrite #2821, completed-units forward-sync, WAL/SHM
  *     cleanup #2478, .gsd symlink edge case #2184)
  *
- * Phase 1 of the migration ships only `projectRootToWorktree`. The remaining
- * verbs (`projectWorktreeToRoot`, `finalizeProjectionForMerge`) are added in
- * subsequent slices (#5589, #5590).
+ * Phase 1 shipped `projectRootToWorktree`; this slice also introduces
+ * `projectWorktreeToRoot` as a delegating wrapper. `finalizeProjectionForMerge`
+ * remains for a subsequent slice (#5590).
  *
  * Issue #5588 ships this as a delegating wrapper around the existing
  * `syncProjectRootToWorktree*` helpers in `auto-worktree.ts`. The full body
