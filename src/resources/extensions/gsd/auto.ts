@@ -458,15 +458,10 @@ export function _synthesizePausedSessionRecoveryForTest(
   return synthesizePausedSessionRecovery(basePath, unitType, unitId, sessionFile);
 }
 
-export function _resolvePausedResumeBasePathForTest(
-  basePath: string,
-  pausedWorktreePath: string | null | undefined,
-  pathExists: (path: string) => boolean = existsSync,
-): string {
-  return pausedWorktreePath && pathExists(pausedWorktreePath)
-    ? pausedWorktreePath
-    : basePath;
-}
+// `_resolvePausedResumeBasePathForTest` was retired in ADR-016 phase 2 / B3
+// (#5621). Production callers go through
+// `WorktreeLifecycle.resumeFromPausedSession`; the pure helper for tests is
+// `resolvePausedResumeBasePath` exported from `worktree-lifecycle.ts`.
 
 const DETACHED_AUTO_KEEPALIVE_INTERVAL_MS = 30_000;
 
@@ -2302,7 +2297,8 @@ export async function startAuto(
         { file: "auto.ts", milestoneId: s.currentMilestoneId ?? "" },
       );
     }
-    s.basePath = _resolvePausedResumeBasePathForTest(base, resumeWorktreePath);
+    // ADR-016 phase 2 / B3 (#5621): paused-resume worktree-path adoption.
+    buildLifecycle().resumeFromPausedSession(base, resumeWorktreePath);
     // Rebuild scope now that s.basePath reflects the actual worktree (or project root).
     rebuildScope(s.basePath, s.currentMilestoneId);
     // Ensure the workflow-logger audit log is pinned to the project root

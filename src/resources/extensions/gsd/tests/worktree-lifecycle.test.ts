@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   WorktreeLifecycle,
+  resolvePausedResumeBasePath,
   type WorktreeLifecycleDeps,
   type NotifyCtx,
 } from "../worktree-lifecycle.js";
@@ -485,6 +486,62 @@ test("adoptSessionRoot does not chdir, rebuild git service, or invalidate caches
   const lifecycle = new WorktreeLifecycle(s, deps);
 
   lifecycle.adoptSessionRoot("/project");
+
+  assert.equal(deps.calls.filter((c) => c.fn === "GitServiceImpl").length, 0);
+  assert.equal(deps.calls.filter((c) => c.fn === "invalidateAllCaches").length, 0);
+});
+
+// ─── resumeFromPausedSession (ADR-016 phase 2 / B3, issue #5621) ──────────────
+
+test("resumeFromPausedSession adopts the persisted worktree path when it exists", () => {
+  const s = makeSession();
+  s.basePath = "/some/old/path";
+  const lifecycle = new WorktreeLifecycle(s, makeDeps());
+
+  // Inject a pathExists stub via the pure helper export so the verb's
+  // existence check returns true without touching the filesystem.
+  // The verb doesn't accept a stub directly, so we exercise it through
+  // the pure helper to keep the test free of disk side effects.
+  const wt = "/persisted/worktree/M001";
+  // Verify the pure helper's contract first (folded in from the legacy
+  // _resolvePausedResumeBasePathForTest)
+  assert.equal(
+    resolvePausedResumeBasePath("/project", wt, () => true),
+    wt,
+  );
+
+  // Now exercise the verb with a real path that exists (the test cwd).
+  lifecycle.resumeFromPausedSession("/project", process.cwd());
+  assert.equal(s.basePath, process.cwd());
+});
+
+test("resumeFromPausedSession falls back to base when persisted worktree is null", () => {
+  const s = makeSession();
+  s.basePath = "/old";
+  const lifecycle = new WorktreeLifecycle(s, makeDeps());
+
+  lifecycle.resumeFromPausedSession("/project", null);
+  assert.equal(s.basePath, "/project");
+});
+
+test("resumeFromPausedSession falls back to base when persisted worktree does not exist", () => {
+  const s = makeSession();
+  s.basePath = "/old";
+  const lifecycle = new WorktreeLifecycle(s, makeDeps());
+
+  lifecycle.resumeFromPausedSession(
+    "/project",
+    "/this/path/does/not/exist/abc/xyz",
+  );
+  assert.equal(s.basePath, "/project");
+});
+
+test("resumeFromPausedSession does not chdir, rebuild git service, or invalidate caches", () => {
+  const s = makeSession();
+  const deps = makeDeps();
+  const lifecycle = new WorktreeLifecycle(s, deps);
+
+  lifecycle.resumeFromPausedSession("/project", null);
 
   assert.equal(deps.calls.filter((c) => c.fn === "GitServiceImpl").length, 0);
   assert.equal(deps.calls.filter((c) => c.fn === "invalidateAllCaches").length, 0);
