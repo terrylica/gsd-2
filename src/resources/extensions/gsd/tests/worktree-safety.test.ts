@@ -6,23 +6,27 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 import { createWorktreeSafetyModule } from "../worktree-safety.ts";
 import { createWorktree, worktreePath } from "../worktree-manager.ts";
 
-function run(command: string, cwd: string): string {
-  return execSync(command, { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf-8" }).trim();
+function runGit(args: string[], cwd: string): string {
+  return execFileSync("git", args, {
+    cwd,
+    stdio: ["ignore", "pipe", "pipe"],
+    encoding: "utf-8",
+  }).trim();
 }
 
 function makeBaseRepo(): string {
   const base = mkdtempSync(join(tmpdir(), "gsd-wt-safety-repo-"));
-  run("git init -b main", base);
-  run('git config user.name "Test User"', base);
-  run('git config user.email "test@example.com"', base);
+  runGit(["init", "-b", "main"], base);
+  runGit(["config", "user.name", "Test User"], base);
+  runGit(["config", "user.email", "test@example.com"], base);
   writeFileSync(join(base, "README.md"), "# Test Project\n", "utf-8");
-  run("git add .", base);
-  run('git commit -m "chore: init"', base);
+  runGit(["add", "."], base);
+  runGit(["commit", "-m", "chore: init"], base);
   return base;
 }
 
@@ -103,6 +107,28 @@ describe("Worktree Safety module", () => {
     assert.match(result.remediation, /Create or recover/);
   });
 
+  test("rejects a source-writing Unit outside the expected milestone worktree root", () => {
+    const safety = createWorktreeSafetyModule({
+      existsSync: () => true,
+      lstatSync: () => ({ isFile: () => true }),
+    });
+
+    const outsideRoot = join(projectRoot, "src");
+    const result = safety.validateUnitRoot({
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      writeScope: "source-writing",
+      projectRoot,
+      unitRoot: outsideRoot,
+      milestoneId: "M001",
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "invalid-root");
+    assert.equal(result.details?.unitRoot, outsideRoot);
+    assert.equal(result.details?.expectedRoot, unitRoot);
+  });
+
   test("rejects a standalone repository masquerading as a worktree", () => {
     unlinkSync(join(unitRoot, ".git"));
     mkdirSync(join(unitRoot, ".git"), { recursive: true });
@@ -163,6 +189,29 @@ describe("Worktree Safety module", () => {
     assert.equal(result.kind, "worktree-unregistered");
   });
 
+  test("converts registered worktree list failures into typed failures", () => {
+    const safety = createWorktreeSafetyModule({
+      existsSync: () => true,
+      lstatSync: () => ({ isFile: () => true }),
+      listRegisteredWorktrees: () => {
+        throw new Error("worktree list unreadable");
+      },
+    });
+
+    const result = safety.validateUnitRoot({
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      writeScope: "source-writing",
+      projectRoot,
+      unitRoot,
+      milestoneId: "M001",
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "worktree-git-probe-failed");
+    assert.equal(result.details?.error, "worktree list unreadable");
+  });
+
   test("rejects a branch mismatch with a typed failure", () => {
     const safety = createWorktreeSafetyModule({
       existsSync: () => true,
@@ -210,6 +259,28 @@ describe("Worktree Safety module", () => {
     assert.equal(result.kind, "worktree-git-probe-failed");
     assert.equal(result.details?.expectedBranch, "milestone/M001");
     assert.equal(result.details?.error, "branch unreadable");
+  });
+
+  test("fails closed when branch verification lacks a branch probe", () => {
+    const safety = createWorktreeSafetyModule({
+      existsSync: () => true,
+      lstatSync: () => ({ isFile: () => true }),
+      listRegisteredWorktrees: () => [{ path: unitRoot, branch: "milestone/M001" }],
+    });
+
+    const result = safety.validateUnitRoot({
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      writeScope: "source-writing",
+      projectRoot,
+      unitRoot,
+      milestoneId: "M001",
+      expectedBranch: "milestone/M001",
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "worktree-git-probe-failed");
+    assert.equal(result.details?.error, "getCurrentBranch dep not provided");
   });
 
   test("rejects an empty worktree when the project root has content", () => {

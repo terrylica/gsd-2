@@ -1704,6 +1704,7 @@ export function createWiredAutoOrchestrationModule(
         const safety = createWorktreeSafetyModule();
         const snapshot = await deriveState(dispatchBasePath);
         const milestoneId = snapshot.activeMilestone?.id ?? null;
+        const expectedBranch = milestoneId ? autoWorktreeBranch(milestoneId) : null;
         const result = safety.validateUnitRoot({
           unitType,
           unitId,
@@ -1711,6 +1712,7 @@ export function createWiredAutoOrchestrationModule(
           projectRoot: runtimeBasePath,
           unitRoot: dispatchBasePath,
           milestoneId,
+          expectedBranch,
         });
         if (!result.ok) {
           return { ok: false, reason: `${result.kind}: ${result.reason}` };

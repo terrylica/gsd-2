@@ -85,14 +85,10 @@ const fsOnlyDeps: WorktreeSafetyDeps = {
 const defaultDeps: WorktreeSafetyDeps = {
   ...fsOnlyDeps,
   listRegisteredWorktrees(projectRoot) {
-    try {
-      return listWorktrees(projectRoot).map((worktree) => ({
-        path: worktree.path,
-        branch: worktree.branch,
-      }));
-    } catch {
-      return [];
-    }
+    return listWorktrees(projectRoot).map((worktree) => ({
+      path: worktree.path,
+      branch: worktree.branch,
+    }));
   },
   getCurrentBranch,
 };
@@ -200,7 +196,17 @@ export function createWorktreeSafetyModule(
         );
       }
 
-      const registered = deps.listRegisteredWorktrees?.(projectRoot);
+      let registered: readonly RegisteredWorktree[] | undefined;
+      try {
+        registered = deps.listRegisteredWorktrees?.(projectRoot);
+      } catch (error) {
+        return failure(
+          "worktree-git-probe-failed",
+          `Unable to list registered worktrees for project root ${projectRoot}.`,
+          "Recover or recreate the milestone worktree before dispatching the source-writing Unit.",
+          { projectRoot, error: errorMessage(error) },
+        );
+      }
       if (registered && !registered.some((worktree) => samePath(worktree.path, unitRoot))) {
         return failure(
           "worktree-unregistered",
@@ -221,7 +227,15 @@ export function createWorktreeSafetyModule(
 
       const expectedBranch = input.expectedBranch?.trim();
       let branch: string | undefined;
-      if (expectedBranch && deps.getCurrentBranch) {
+      if (expectedBranch) {
+        if (!deps.getCurrentBranch) {
+          return failure(
+            "worktree-git-probe-failed",
+            `Branch verification requested for ${unitRoot} but no getCurrentBranch dependency is configured.`,
+            "Recover or recreate the milestone worktree before dispatching the source-writing Unit.",
+            { unitRoot, expectedBranch, error: "getCurrentBranch dep not provided" },
+          );
+        }
         try {
           branch = deps.getCurrentBranch(unitRoot);
         } catch (error) {
