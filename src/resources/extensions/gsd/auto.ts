@@ -1561,8 +1561,15 @@ export async function pauseAuto(
  * deps bag is intentionally focused — Lifecycle does not see the wider auto-
  * mode dependency graph.
  */
-function buildLifecycle(): WorktreeLifecycle {
-  const lifecycleDeps = {
+/**
+ * Construct a `WorktreeLifecycleDeps` bag without binding to any session.
+ *
+ * Exported so session-less callers (currently `parallel-merge.ts`) can build
+ * the same deps and call `mergeMilestoneStandalone` through the Worktree
+ * Lifecycle Module instead of bypassing it (ADR-016 phase 2 / A2).
+ */
+export function buildWorktreeLifecycleDeps(): WorktreeLifecycleDeps {
+  return {
     enterAutoWorktree,
     createAutoWorktree,
     enterBranchModeForMilestone,
@@ -1583,7 +1590,10 @@ function buildLifecycle(): WorktreeLifecycle {
     readFileSync: (path: string, encoding: string) =>
       readFileSync(path, encoding as BufferEncoding),
   } as unknown as WorktreeLifecycleDeps;
-  return new WorktreeLifecycle(s, lifecycleDeps);
+}
+
+function buildLifecycle(): WorktreeLifecycle {
+  return new WorktreeLifecycle(s, buildWorktreeLifecycleDeps());
 }
 
 /**
