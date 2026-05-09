@@ -246,9 +246,6 @@ function makeMockDeps(overrides?: Partial<LoopDeps>): LoopDeps & { callLog: stri
       },
     } as any,
     lifecycle: {
-      enterMilestone: () => ({ ok: true, mode: "worktree", path: "/tmp/project" }),
-    } as any,
-    lifecycle: {
       enterMilestone: () => ({ ok: true, mode: "none", path: "/tmp/project" }),
       exitMilestone: (_mid: string, opts: { merge: boolean }) => ({
         ok: true,
