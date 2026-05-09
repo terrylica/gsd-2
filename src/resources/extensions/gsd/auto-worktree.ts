@@ -413,40 +413,10 @@ function cleanupSquashConflictState(basePath: string): void {
  * Non-fatal — sync failure should never block dispatch.
  */
 /**
- * Scope-typed variant of syncProjectRootToWorktree.
- *
- * Takes an explicit (rootScope, worktreeScope) pair where rootScope is the
- * project root and worktreeScope is the auto-worktree. Direction is encoded
- * in argument order. Asserts both scopes belong to the same workspace identity
- * to prevent silent mismatch bugs.
- */
-export function syncProjectRootToWorktreeByScope(
-  rootScope: MilestoneScope,
-  worktreeScope: MilestoneScope,
-): void {
-  if (rootScope.workspace.identityKey !== worktreeScope.workspace.identityKey) {
-    throw new Error(
-      `syncProjectRootToWorktreeByScope: scope identity mismatch — ` +
-      `rootScope.identityKey="${rootScope.workspace.identityKey}" ` +
-      `worktreeScope.identityKey="${worktreeScope.workspace.identityKey}"`,
-    );
-  }
-  if (rootScope.milestoneId !== worktreeScope.milestoneId) {
-    throw new Error(
-      `syncProjectRootToWorktreeByScope: milestoneId mismatch — ` +
-      `rootScope.milestoneId="${rootScope.milestoneId}" worktreeScope.milestoneId="${worktreeScope.milestoneId}"`,
-    );
-  }
-  const projectRoot = rootScope.workspace.projectRoot;
-  const worktreePath_ = worktreeScope.workspace.worktreeRoot ?? worktreeScope.workspace.projectRoot;
-  const milestoneId = rootScope.milestoneId;
-  syncProjectRootToWorktree(projectRoot, worktreePath_, milestoneId);
-}
-
-/**
- * @deprecated Use WorktreeStateProjection.projectRootToWorktree(scope) — this
- * thin wrapper exists to keep one or two legacy callers alive during the
- * slice-7 migration window and is removed in the legacy-helper cleanup step.
+ * Path-string entry point to WorktreeStateProjection.projectRootToWorktree.
+ * Production code goes through the Module class; this delegator survives so
+ * the projection-invariant tests (#1886, #2184, #2478, #2821) can exercise
+ * the bodies with raw paths.
  */
 export function syncProjectRootToWorktree(
   projectRoot: string,
@@ -457,44 +427,9 @@ export function syncProjectRootToWorktree(
 }
 
 /**
- * Scope-typed variant of syncStateToProjectRoot.
- *
- * Takes an explicit (worktreeScope, rootScope) pair. Direction is encoded in
- * argument order (worktree → root). Asserts both scopes belong to the same
- * workspace identity to prevent silent mismatch bugs.
- */
-export function syncStateToProjectRootByScope(
-  worktreeScope: MilestoneScope,
-  rootScope: MilestoneScope,
-): void {
-  if (worktreeScope.workspace.identityKey !== rootScope.workspace.identityKey) {
-    throw new Error(
-      `syncStateToProjectRootByScope: scope identity mismatch — ` +
-      `worktreeScope.identityKey="${worktreeScope.workspace.identityKey}" ` +
-      `rootScope.identityKey="${rootScope.workspace.identityKey}"`,
-    );
-  }
-  if (worktreeScope.milestoneId !== rootScope.milestoneId) {
-    throw new Error(
-      `syncStateToProjectRootByScope: milestoneId mismatch — ` +
-      `worktreeScope.milestoneId="${worktreeScope.milestoneId}" rootScope.milestoneId="${rootScope.milestoneId}"`,
-    );
-  }
-  const worktreePath_ = worktreeScope.workspace.worktreeRoot ?? worktreeScope.workspace.projectRoot;
-  const projectRoot = rootScope.workspace.projectRoot;
-  const milestoneId = worktreeScope.milestoneId;
-  syncStateToProjectRoot(worktreePath_, projectRoot, milestoneId);
-}
-
-/**
- * Sync worktree diagnostics from worktree to project root.
- * Only runs when inside an auto-worktree (worktreePath differs from projectRoot).
- * DB/project-root state remains authoritative; markdown projections are not
- * copied from the worktree back to the project root.
- * Non-fatal — sync failure should never block dispatch.
- * @deprecated Use WorktreeStateProjection.projectWorktreeToRoot(scope) — this
- * thin wrapper exists to keep one or two legacy callers alive during the
- * slice-7 migration window and is removed in the legacy-helper cleanup step.
+ * Path-string entry point to WorktreeStateProjection.projectWorktreeToRoot.
+ * Production code goes through the Module class; this delegator survives so
+ * the projection-invariant tests can exercise the body with raw paths.
  */
 export function syncStateToProjectRoot(
   worktreePath_: string,
