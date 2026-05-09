@@ -1234,7 +1234,7 @@ test("mergeAndEnterNext halts when mergeAndExit preserves branch without merging
     resolveMilestoneFile: () => null,
   });
   const ctx = makeNotifyCtx();
-  const resolver = new WorktreeResolver(s, deps);
+  const resolver = makeResolver(s, deps);
 
   assert.throws(
     () => resolver.mergeAndEnterNext("M001", "M002", ctx),

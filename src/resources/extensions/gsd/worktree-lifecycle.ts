@@ -608,10 +608,13 @@ export class WorktreeLifecycle {
       currentMilestoneId,
       nextMilestoneId,
     });
+    let merged = false;
+    let mergeThrew = false;
     try {
-      this._mergeAndExit(currentMilestoneId, ctx);
+      merged = this._mergeAndExit(currentMilestoneId, ctx);
     } catch (err) {
       if (err instanceof UserNotifiedError) throw err;
+      mergeThrew = true;
       // _mergeAndExit emits a warning and restores state on failure during
       // merge/cleanup. If it throws before recovery runs (e.g. validation,
       // emitJournalEvent), basePath isn't restored — re-throw so we don't
@@ -621,6 +624,24 @@ export class WorktreeLifecycle {
         this.s.originalBasePath,
       );
       if (this.s.basePath !== projectRoot) throw err;
+      // Otherwise: merge attempted, failed cleanly with state restored.
+      // The loop intentionally continues to the next milestone — the
+      // failed milestone's branch is preserved for manual recovery.
+    }
+    if (!merged && !mergeThrew && !this.s.isolationDegraded) {
+      // _mergeAndExit returned without attempting a merge (no roadmap
+      // → preserveBranch path) and state is restored. The current
+      // milestone was deliberately NOT merged; halt before entering the
+      // next so we don't silently strand commits on the preserved
+      // branch. (#5602 halt-on-no-merge regression coverage.)
+      //
+      // mergeThrew=true means a merge was attempted but failed — that
+      // path proceeds (existing test "enters next even if merge fails").
+      // isolationDegraded=true means the loop intentionally continues
+      // without merging — that path proceeds too.
+      throw new Error(
+        `Cannot enter milestone ${nextMilestoneId} because ${currentMilestoneId} was not merged`,
+      );
     }
     _enterMilestoneCore(this.s, this.deps, nextMilestoneId, ctx);
   }
