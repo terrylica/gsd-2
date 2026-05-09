@@ -178,12 +178,16 @@ function invalidMilestoneIdError(milestoneId: string): Error {
   );
 }
 
+/**
+ * Throwing variant used by the merge/exit paths that surface failures via
+ * the typed `ExitResult` (callers wrap the throw → cause). The enter path
+ * uses `isValidMilestoneId` + the typed result directly.
+ */
 function validateMilestoneId(milestoneId: string): void {
   if (!isValidMilestoneId(milestoneId)) {
     throw invalidMilestoneIdError(milestoneId);
   }
 }
-
 
 // ─── Implementation core ─────────────────────────────────────────────────
 
