@@ -1622,7 +1622,7 @@ function buildLifecycle(): WorktreeLifecycle {
     ...baseDeps,
     worktreeProjection: new WorktreeStateProjection(),
   };
-  return new WorktreeLifecycle(s, lifecycleDeps, () => buildResolver());
+  return new WorktreeLifecycle(s, lifecycleDeps);
 }
 
 /**

@@ -642,7 +642,10 @@ test("mergeAndExit in worktree mode reads roadmap and merges", () => {
 
   resolver.mergeAndExit("M001", ctx);
 
-  assert.equal(findCalls(deps.calls, "syncWorktreeStateBack").length, 1);
+  // ADR-016 / slice 7 step D: the worktree → root state flow moved from the
+  // injected deps.syncWorktreeStateBack to WorktreeStateProjection
+  // .finalizeProjectionForMerge inside WorktreeLifecycle. The remaining
+  // assertions still cover the merge behaviour end-to-end.
   assert.equal(findCalls(deps.calls, "resolveMilestoneFile").length, 1);
   assert.equal(findCalls(deps.calls, "readFileSync").length, 1);
   assert.equal(findCalls(deps.calls, "mergeMilestoneToMain").length, 1);

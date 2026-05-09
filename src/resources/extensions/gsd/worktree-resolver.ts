@@ -14,42 +14,14 @@
  * `process.chdir()` internally — this class MUST NOT double-chdir.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
-import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import type { AutoSession } from "./auto/session.js";
 import { debugLog } from "./debug-logger.js";
-import { MergeConflictError } from "./git-service.js";
-import { emitJournalEvent } from "./journal.js";
-import { emitWorktreeMerged } from "./worktree-telemetry.js";
-import { getCollapseCadence, getMilestoneResquash, resquashMilestoneOnMain } from "./slice-cadence.js";
-import { loadEffectiveGSDPreferences } from "./preferences.js";
-import { resolveWorktreeProjectRoot, normalizeWorktreePathForCompare } from "./worktree-root.js";
-import { _enterMilestoneCore, type WorktreeLifecycleDeps } from "./worktree-lifecycle.js";
+import { resolveWorktreeProjectRoot } from "./worktree-root.js";
+import {
+  WorktreeLifecycle,
+  type WorktreeLifecycleDeps,
+} from "./worktree-lifecycle.js";
 import { WorktreeStateProjection } from "./worktree-state-projection.js";
-
-// ─── Path Comparison Helper ────────────────────────────────────────────────
-/**
- * Compare two paths for physical identity, tolerating trailing slashes,
- * symlink differences, and case variations on case-insensitive volumes.
- *
- * Used in place of string `===` / `!==` wherever one operand may be
- * realpath-normalised (e.g. from the workspace registry) and the other
- * may not be (e.g. a raw caller-supplied basePath).
- */
-function isSamePath(a: string, b: string): boolean {
-  return normalizeWorktreePathForCompare(a) === normalizeWorktreePathForCompare(b);
-}
-
-class UserNotifiedError extends Error {
-  readonly cause?: unknown;
-
-  constructor(message: string, cause?: unknown) {
-    super(message);
-    this.name = "UserNotifiedError";
-    this.cause = cause;
-  }
-}
 
 // ─── Dependency Interface ──────────────────────────────────────────────────
 
@@ -198,595 +170,66 @@ export class WorktreeResolver {
   // The internal mergeAndEnterNext recursion calls _enterMilestoneCore directly.
 
   // ── Exit Milestone ─────────────────────────────────────────────────────
+  //
+  // The exitMilestone (no-merge) and mergeAndExit (merge) bodies moved into
+  // WorktreeLifecycle in slice 7 / step D of ADR-016. The methods below are
+  // thin delegators that preserve the legacy `void` / throw shape for the
+  // remaining callers (auto.ts:stopAuto, auto-start.ts orphan reaping). They
+  // retire together with the rest of WorktreeResolver in step E.
 
-  /**
-   * Exit the current worktree: auto-commit, teardown, reset basePath.
-   *
-   * Only acts if currently in an auto-worktree (checked via `isInAutoWorktree`).
-   * Resets `s.basePath` to `s.originalBasePath` and rebuilds GitService.
-   */
+  private buildLifecycle(): WorktreeLifecycle {
+    const lifecycleDeps: WorktreeLifecycleDeps = {
+      ...(this.deps as unknown as WorktreeLifecycleDeps),
+      worktreeProjection: new WorktreeStateProjection(),
+    };
+    return new WorktreeLifecycle(this.s, lifecycleDeps);
+  }
+
   exitMilestone(
     milestoneId: string,
     ctx: NotifyCtx,
     opts?: { preserveBranch?: boolean },
   ): void {
     this.validateMilestoneId(milestoneId);
-    if (!this.deps.isInAutoWorktree(this.s.basePath)) {
-      debugLog("WorktreeResolver", {
-        action: "exitMilestone",
-        milestoneId,
-        skipped: true,
-        reason: "not-in-worktree",
-      });
-      return;
-    }
-
-    debugLog("WorktreeResolver", {
-      action: "exitMilestone",
+    const result = this.buildLifecycle().exitMilestone(
       milestoneId,
-      basePath: this.s.basePath,
-    });
-
-    try {
-      this.deps.autoCommitCurrentBranch(this.s.basePath, "stop", milestoneId);
-    } catch (err) {
-      debugLog("WorktreeResolver", {
-        action: "exitMilestone",
-        milestoneId,
-        phase: "auto-commit-failed",
-        error: err instanceof Error ? err.message : String(err),
-      });
-      ctx.notify(
-        `Auto-commit before exiting ${milestoneId} failed: ${err instanceof Error ? err.message : String(err)}. Branch ${this.deps.autoWorktreeBranch(milestoneId)} is preserved for recovery.`,
-        "warning",
-      );
-    }
-
-    if (this.s.originalBasePath) {
-      try {
-        process.chdir(this.s.originalBasePath);
-      } catch (err) {
-        debugLog("WorktreeResolver", {
-          action: "exitMilestone",
-          milestoneId,
-          phase: "pre-teardown-chdir-failed",
-          originalBasePath: this.s.originalBasePath,
-          error: err instanceof Error ? err.message : String(err),
-        });
-        ctx.notify(
-          `Could not leave milestone worktree before cleanup: ${err instanceof Error ? err.message : String(err)}. Branch ${this.deps.autoWorktreeBranch(milestoneId)} is preserved for recovery.`,
-          "warning",
-        );
-      }
-    }
-
-    let teardownFailed = false;
-    try {
-      this.deps.teardownAutoWorktree(this.s.originalBasePath, milestoneId, {
-        preserveBranch: opts?.preserveBranch ?? false,
-      });
-    } catch (err) {
-      teardownFailed = true;
-      debugLog("WorktreeResolver", {
-        action: "exitMilestone",
-        milestoneId,
-        phase: "teardown-failed",
-        error: err instanceof Error ? err.message : String(err),
-      });
-      ctx.notify(
-        `Worktree cleanup failed for ${milestoneId}: ${err instanceof Error ? err.message : String(err)}. Branch ${this.deps.autoWorktreeBranch(milestoneId)} is preserved for recovery.`,
-        "warning",
-      );
-    }
-
-    this.restoreToProjectRoot();
-    debugLog("WorktreeResolver", {
-      action: "exitMilestone",
-      milestoneId,
-      result: "done",
-      basePath: this.s.basePath,
-    });
-    ctx.notify(
-      teardownFailed
-        ? `Worktree exit for ${milestoneId} needs manual cleanup.`
-        : `Exited worktree for ${milestoneId}`,
-      teardownFailed ? "warning" : "info",
+      { merge: false, preserveBranch: opts?.preserveBranch },
+      ctx,
     );
+    if (!result.ok && result.cause instanceof Error) {
+      throw result.cause;
+    }
   }
 
   // ── Merge and Exit ─────────────────────────────────────────────────────
+  //
+  // Body moved to WorktreeLifecycle (ADR-016 / slice 7 / step D). Delegates
+  // here keep the legacy `void` / throw shape for the remaining callers
+  // (auto.ts:stopAuto, auto-start.ts orphan reaping). They retire together
+  // with the rest of WorktreeResolver in step E.
 
-  /**
-   * Merge the completed milestone branch back to main and exit the worktree.
-   *
-   * Handles all three isolation modes:
-   * - **worktree**: Read roadmap, merge, teardown worktree, reset paths.
-   *   Falls back to bare teardown if no roadmap exists.
-   * - **branch**: Check if on milestone branch, merge if so (no chdir/teardown).
-   * - **none**: No-op.
-   *
-   * Error recovery: on merge failure, always restore `s.basePath` to
-   * `s.originalBasePath` and `process.chdir(s.originalBasePath)`.
-   */
-  mergeAndExit(milestoneId: string, ctx: NotifyCtx): MergeAndExitResult {
+  mergeAndExit(milestoneId: string, ctx: NotifyCtx): void {
     this.validateMilestoneId(milestoneId);
-
-    // Anchor cwd at the project root before any merge work. Some merge code
-    // paths (mergeMilestoneToMain, slice-cadence) chdir explicitly; others
-    // (branch-mode, isolation-degraded skip, missing-original-base skip)
-    // do not. If the worktree dir is later torn down while cwd still points
-    // into it, every subsequent process.cwd() throws ENOENT — and after
-    // de73fb43d that surfaces as a session-failed cancel and (in headless
-    // mode) terminates the whole gsd process. Best-effort: silent on
-    // failure so existing test fixtures that use synthetic paths still pass.
-    if (this.s.originalBasePath) {
-      try {
-        // process.cwd() can throw ENOENT when cwd was removed, so attempt
-        // recovery directly.
-        process.chdir(this.s.originalBasePath);
-      } catch (err) {
-        debugLog("WorktreeResolver", {
-          action: "mergeAndExit",
-          phase: "pre-merge-chdir-failed",
-          milestoneId,
-          originalBasePath: this.s.originalBasePath,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-
-    // #4764 — telemetry: record start timestamp so we can emit merge duration.
-    const mergeStartedAt = new Date().toISOString();
-    const mergeStartMs = Date.now();
-
-    // If worktree creation failed earlier, skip merge — work is on current branch (#2483)
-    if (this.s.isolationDegraded) {
-      debugLog("WorktreeResolver", {
-        action: "mergeAndExit",
-        milestoneId,
-        skipped: true,
-        reason: "isolation-degraded",
-      });
-      ctx.notify(
-        `Skipping worktree merge for ${milestoneId} — isolation was degraded (worktree creation failed earlier). Work is on the current branch.`,
-        "info",
-      );
-      return { merged: false, codeFilesChanged: false };
-    }
-
-    const mode = this.deps.getIsolationMode(this.s.originalBasePath || this.s.basePath);
-    debugLog("WorktreeResolver", {
-      action: "mergeAndExit",
+    const result = this.buildLifecycle().exitMilestone(
       milestoneId,
-      mode,
-      basePath: this.s.basePath,
-    });
-    emitJournalEvent(this.s.originalBasePath || this.s.basePath, {
-      ts: new Date().toISOString(),
-      flowId: randomUUID(),
-      seq: 0,
-      eventType: "worktree-merge-start",
-      data: { milestoneId, mode },
-    });
-
-    // #2625: If we are physically inside an auto-worktree, we MUST merge
-    // regardless of the current isolation config. This prevents data loss when
-    // the default isolation mode changes between versions (e.g., "worktree" ->
-    // "none"): the worktree branch still holds real commits that need merging.
-    const inWorktree = this.deps.isInAutoWorktree(this.s.basePath) && this.s.originalBasePath;
-
-    if (mode === "none" && !inWorktree) {
-      debugLog("WorktreeResolver", {
-        action: "mergeAndExit",
-        milestoneId,
-        skipped: true,
-        reason: "mode-none",
-      });
-      return { merged: false, codeFilesChanged: false };
-    }
-
-    let mergeResult: MergeAndExitResult = {
-      merged: false,
-      codeFilesChanged: false,
-    };
-    if (
-      mode === "worktree" || inWorktree
-    ) {
-      mergeResult = this._mergeWorktreeMode(milestoneId, ctx);
-    } else if (mode === "branch") {
-      mergeResult = this._mergeBranchMode(milestoneId, ctx);
-    }
-
-    // The remainder of this function emits telemetry and runs re-squash.
-    // Both are gated on mergeResult.merged — if the _merge* helper took a
-    // no-merge path (missing originalBase, no roadmap, wrong branch) the
-    // milestone branch was intentionally left unmerged and we must not
-    // emit a worktree-merged event or collapse commits on main.
-    if (!mergeResult.merged) {
-      // Always clear the start-SHA tracker to avoid leaking across sessions.
-      this.s.milestoneStartShas.delete(milestoneId);
-      return mergeResult;
-    }
-
-    // #4765 — when collapse_cadence=slice AND milestone_resquash=true, the
-    // N per-slice commits on main should be collapsed into one milestone
-    // commit. Done AFTER the primary merge-and-teardown so the branch and
-    // worktree are already cleaned up; we operate on main directly.
-    try {
-      const startSha = this.s.milestoneStartShas.get(milestoneId);
-      if (startSha) {
-        const prefs = loadEffectiveGSDPreferences(this.s.originalBasePath || this.s.basePath)?.preferences;
-        if (getCollapseCadence(prefs) === "slice" && getMilestoneResquash(prefs)) {
-          const result = resquashMilestoneOnMain(
-            this.s.originalBasePath || this.s.basePath,
-            milestoneId,
-            startSha,
-          );
-          if (result.resquashed) {
-            ctx.notify(
-              `slice-cadence: re-squashed slice commits for ${milestoneId} into a single milestone commit.`,
-              "info",
-            );
-          }
-        }
-        this.s.milestoneStartShas.delete(milestoneId);
-      }
-    } catch (err) {
-      debugLog("WorktreeResolver", {
-        action: "mergeAndExit",
-        milestoneId,
-        phase: "resquash",
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    // #4764 — record merge completion. Only reaches here when an actual
-    // merge ran; failure paths throw out of _merge* before this point and
-    // no-merge paths returned above.
-    try {
-      emitWorktreeMerged(this.s.originalBasePath || this.s.basePath, milestoneId, {
-        reason: "milestone-complete",
-        startedAt: mergeStartedAt,
-        durationMs: Date.now() - mergeStartMs,
-      });
-    } catch (telemetryErr) {
-      debugLog("WorktreeResolver", {
-        action: "mergeAndExit",
-        phase: "telemetry-emit",
-        error: telemetryErr instanceof Error ? telemetryErr.message : String(telemetryErr),
-      });
+      { merge: true },
+      ctx,
+    );
+    if (!result.ok && result.cause instanceof Error) {
+      throw result.cause;
     }
     return mergeResult;
   }
 
-  /** Worktree-mode merge: read roadmap, merge, teardown, reset paths.
-   *  Returns merge metadata when a squash-merge actually ran. */
-  private _mergeWorktreeMode(
-    milestoneId: string,
-    ctx: NotifyCtx,
-  ): MergeAndExitResult {
-    const originalBase = this.s.originalBasePath;
-    if (!originalBase) {
-      debugLog("WorktreeResolver", {
-        action: "mergeAndExit",
-        milestoneId,
-        mode: "worktree",
-        skipped: true,
-        reason: "missing-original-base",
-      });
-      return { merged: false, codeFilesChanged: false };
-    }
-
-    let merged = false;
-    let codeFilesChanged = false;
-    try {
-      const { synced } = this.deps.syncWorktreeStateBack(
-        originalBase,
-        this.s.basePath,
-        milestoneId,
-      );
-      if (synced.length > 0) {
-        debugLog("WorktreeResolver", {
-          action: "mergeAndExit",
-          milestoneId,
-          phase: "reverse-sync",
-          synced: synced.length,
-        });
-      }
-
-      // Resolve roadmap — try project root first, then worktree path as fallback.
-      // The worktree may hold the only copy when syncWorktreeStateBack fails
-      // silently or .gsd/ is not symlinked. Without the fallback, a missing
-      // roadmap triggers bare teardown which deletes the branch and orphans all
-      // milestone commits (#1573).
-      let roadmapPath = this.deps.resolveMilestoneFile(
-        originalBase,
-        milestoneId,
-        "ROADMAP",
-      );
-      if (!roadmapPath && !isSamePath(this.s.basePath, originalBase)) {
-        roadmapPath = this.deps.resolveMilestoneFile(
-          this.s.basePath,
-          milestoneId,
-          "ROADMAP",
-        );
-        if (roadmapPath) {
-          debugLog("WorktreeResolver", {
-            action: "mergeAndExit",
-            milestoneId,
-            phase: "roadmap-fallback",
-            note: "resolved from worktree path",
-          });
-        }
-      }
-
-      if (roadmapPath) {
-        const roadmapContent = this.deps.readFileSync(roadmapPath, "utf-8");
-        const mergeResult = this.deps.mergeMilestoneToMain(
-          originalBase,
-          milestoneId,
-          roadmapContent,
-        );
-        merged = true;
-        codeFilesChanged = mergeResult.codeFilesChanged;
-
-        // #2945 Bug 3: mergeMilestoneToMain performs best-effort worktree
-        // cleanup internally (step 12), but it can silently fail on Windows
-        // or when the worktree directory is locked. Perform a secondary
-        // teardown here to ensure the worktree is properly cleaned up.
-        // This is idempotent — if the worktree was already removed,
-        // teardownAutoWorktree handles the no-op case gracefully.
-        try {
-          this.deps.teardownAutoWorktree(originalBase, milestoneId);
-        } catch {
-          // Best-effort — the primary cleanup in mergeMilestoneToMain may
-          // have already removed the worktree.
-        }
-
-        if (mergeResult.codeFilesChanged) {
-          ctx.notify(
-            `Milestone ${milestoneId} merged to main.${mergeResult.pushed ? " Pushed to remote." : ""}`,
-            "info",
-          );
-        } else {
-          // (#1906) Milestone produced only .gsd/ metadata — no actual code was
-          // merged. This typically means the LLM wrote planning artifacts
-          // (summaries, roadmaps) but never implemented the code. Surface this
-          // clearly so the user knows the milestone is not truly complete.
-          ctx.notify(
-            `WARNING: Milestone ${milestoneId} merged to main but contained NO code changes — only .gsd/ metadata files. ` +
-              `The milestone summary may describe planned work that was never implemented. ` +
-              `Review the milestone output and re-run if code is missing.`,
-            "warning",
-          );
-        }
-      } else {
-        // No roadmap at either location — teardown but PRESERVE the branch so
-        // commits are not orphaned. The user can merge manually later (#1573).
-        this.deps.teardownAutoWorktree(originalBase, milestoneId, {
-          preserveBranch: true,
-        });
-        ctx.notify(
-          `Exited worktree for ${milestoneId} (no roadmap found — branch preserved for manual merge).`,
-          "warning",
-        );
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      debugLog("WorktreeResolver", {
-        action: "mergeAndExit",
-        milestoneId,
-        result: "error",
-        error: msg,
-        fallback: "chdir-to-project-root",
-      });
-      emitJournalEvent(this.s.originalBasePath || this.s.basePath, {
-        ts: new Date().toISOString(),
-        flowId: randomUUID(),
-        seq: 0,
-        eventType: "worktree-merge-failed",
-        data: { milestoneId, error: msg },
-      });
-      // Surface a clear, actionable error. The worktree and milestone branch are
-      // intentionally preserved — nothing has been deleted. The user can retry
-      // /gsd dispatch complete-milestone or merge manually once the underlying
-      // issue is fixed (e.g. checkout to wrong branch, unresolved conflicts).
-      // (#1668, #1891)
-      ctx.notify(
-        `Milestone merge failed: ${msg}. Your worktree and milestone branch are preserved — retry with \`/gsd dispatch complete-milestone\` or merge manually.`,
-        "warning",
-      );
-
-      // Clean up stale merge state left by failed squash-merge (#1389)
-      try {
-        const gitDir = join(originalBase || this.s.basePath, ".git");
-        for (const f of ["SQUASH_MSG", "MERGE_HEAD", "MERGE_MSG"]) {
-          const p = join(gitDir, f);
-          if (existsSync(p)) unlinkSync(p);
-        }
-      } catch { /* best-effort */ }
-
-      // Error recovery: always restore to project root
-      if (originalBase) {
-        try {
-          process.chdir(originalBase);
-        } catch {
-          /* best-effort */
-        }
-      }
-
-      // Restore state before re-throwing so callers always get a consistent
-      // session (#4380).
-      this.restoreToProjectRoot();
-      // Re-throw: MergeConflictError stops the auto loop (#2330); non-conflict
-      // errors (permission denied, filesystem failures) must also propagate so
-      // broken states are diagnosable (#4380).
-      throw err;
-    }
-
-    // Always restore basePath and rebuild — whether merge succeeded or failed
-    this.restoreToProjectRoot();
-    debugLog("WorktreeResolver", {
-      action: "mergeAndExit",
-      milestoneId,
-      result: "done",
-      basePath: this.s.basePath,
-    });
-    return { merged, codeFilesChanged };
-  }
-
-  /** Branch-mode merge: check current branch, merge if on milestone branch.
-   *  Returns merge metadata when a merge actually ran. */
-  private _mergeBranchMode(
-    milestoneId: string,
-    ctx: NotifyCtx,
-  ): MergeAndExitResult {
-    try {
-      const currentBranch = this.deps.getCurrentBranch(this.s.basePath);
-      const milestoneBranch = this.deps.autoWorktreeBranch(milestoneId);
-
-      if (currentBranch !== milestoneBranch) {
-        // #5538-followup: previous behavior was to silently `return false`
-        // when HEAD wasn't on the milestone branch — that let the loop
-        // advance with the milestone's commits stranded on the branch (the
-        // exact failure mode reported in the test12345 repro). Attempt
-        // recovery by force-checking-out the milestone branch; if the
-        // checkout fails, throw so the caller pauses auto-mode and the user
-        // sees the failure instead of a silent merge skip.
-        debugLog("WorktreeResolver", {
-          action: "mergeAndExit",
-          milestoneId,
-          mode: "branch",
-          recovery: "checkout-milestone-branch",
-          currentBranch,
-          milestoneBranch,
-        });
-        try {
-          this.deps.checkoutBranch(this.s.basePath, milestoneBranch);
-        } catch (checkoutErr) {
-          const checkoutMsg = checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
-          ctx.notify(
-            `Cannot merge milestone ${milestoneId}: working tree is on ${currentBranch} and checkout to ${milestoneBranch} failed (${checkoutMsg}). Resolve manually and run /gsd auto to resume.`,
-            "error",
-          );
-          throw new UserNotifiedError(checkoutMsg, checkoutErr);
-        }
-
-        const reverify = this.deps.getCurrentBranch(this.s.basePath);
-        if (reverify !== milestoneBranch) {
-          const reverifyMsg = `branch checkout to ${milestoneBranch} reported success but current branch is ${reverify}`;
-          ctx.notify(
-            `Cannot merge milestone ${milestoneId}: ${reverifyMsg}. Resolve manually and run /gsd auto to resume.`,
-            "error",
-          );
-          throw new UserNotifiedError(reverifyMsg);
-        }
-      }
-
-      const roadmapPath = this.deps.resolveMilestoneFile(
-        this.s.basePath,
-        milestoneId,
-        "ROADMAP",
-      );
-      if (!roadmapPath) {
-        debugLog("WorktreeResolver", {
-          action: "mergeAndExit",
-          milestoneId,
-          mode: "branch",
-          skipped: true,
-          reason: "no-roadmap",
-        });
-        return { merged: false, codeFilesChanged: false };
-      }
-
-      const roadmapContent = this.deps.readFileSync(roadmapPath, "utf-8");
-      const mergeResult = this.deps.mergeMilestoneToMain(
-        this.s.basePath,
-        milestoneId,
-        roadmapContent,
-      );
-
-      // Rebuild GitService after merge (branch HEAD changed)
-      this.rebuildGitService();
-
-      if (mergeResult.codeFilesChanged) {
-        ctx.notify(
-          `Milestone ${milestoneId} merged (branch mode).${mergeResult.pushed ? " Pushed to remote." : ""}`,
-          "info",
-        );
-      } else {
-        ctx.notify(
-          `WARNING: Milestone ${milestoneId} merged (branch mode) but contained NO code changes — only .gsd/ metadata. ` +
-            `Review the milestone output and re-run if code is missing.`,
-          "warning",
-        );
-      }
-      debugLog("WorktreeResolver", {
-        action: "mergeAndExit",
-        milestoneId,
-        mode: "branch",
-        result: "success",
-      });
-      return { merged: true, codeFilesChanged: mergeResult.codeFilesChanged };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      debugLog("WorktreeResolver", {
-        action: "mergeAndExit",
-        milestoneId,
-        mode: "branch",
-        result: "error",
-        error: msg,
-      });
-      if (!(err instanceof UserNotifiedError)) {
-        ctx.notify(`Milestone merge failed (branch mode): ${msg}`, "warning");
-      }
-      // Re-throw all errors so callers can apply their own recovery logic (#4380).
-      throw err;
-    }
-  }
-
-  // ── Merge and Enter Next ───────────────────────────────────────────────
-
-  /**
-   * Milestone transition: merge the current milestone, then enter the next one.
-   *
-   * This is the pattern used when the loop detects that the active milestone
-   * has changed (e.g., current completed, next one is now active). The caller
-   * is responsible for re-deriving state between the merge and the enter.
-   */
   mergeAndEnterNext(
     currentMilestoneId: string,
     nextMilestoneId: string,
     ctx: NotifyCtx,
-  ): EnterResult {
-    debugLog("WorktreeResolver", {
-      action: "mergeAndEnterNext",
+  ): void {
+    this.buildLifecycle().mergeAndEnterNext(
       currentMilestoneId,
       nextMilestoneId,
-    });
-    try {
-      const mergeResult = this.mergeAndExit(currentMilestoneId, ctx);
-      if (!mergeResult.merged) {
-        throw new UserNotifiedError(
-          `Cannot enter milestone ${nextMilestoneId} because ${currentMilestoneId} was not merged.`,
-        );
-      }
-    } catch (err) {
-      if (err instanceof UserNotifiedError) throw err;
-      // mergeAndExit emits a warning and restores state when it fails during
-      // merge/cleanup. But if it throws before recovery runs (e.g., in
-      // validateMilestoneId or emitJournalEvent), basePath won't be restored
-      // to projectRoot — re-throw so we don't enter the next milestone with
-      // the current one unmerged.
-      if (this.s.basePath !== this.projectRoot) throw err;
-    }
-    // Lifecycle's _enterMilestoneCore now requires a worktreeProjection dep
-    // (ADR-016 / slice 7 / step C). Augment the resolver's deps in place
-    // until WorktreeResolver retires in step E.
-    const lifecycleDeps: WorktreeLifecycleDeps = {
-      ...(this.deps as unknown as WorktreeLifecycleDeps),
-      worktreeProjection: new WorktreeStateProjection(),
-    };
-    _enterMilestoneCore(this.s, lifecycleDeps, nextMilestoneId, ctx);
+      ctx,
+    );
   }
 }
