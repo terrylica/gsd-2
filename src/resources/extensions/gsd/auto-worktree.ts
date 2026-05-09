@@ -193,11 +193,11 @@ function isSamePath(a: string, b: string): boolean {
   }
 }
 
-export function _isSamePathForTest(a: string, b: string): boolean {
+export function _isSamePath(a: string, b: string): boolean {
   return isSamePath(a, b);
 }
 
-export function _resolveAutoWorktreeStartPointForTest(
+export function _resolveAutoWorktreeStartPoint(
   integrationBranch: string | null | undefined,
   gitMainBranch: string | null | undefined,
   branchExists: (branch: string) => boolean,
@@ -211,7 +211,7 @@ export function _resolveAutoWorktreeStartPointForTest(
     : undefined;
 }
 
-export function _shouldReconcileWorktreeDbForTest(
+export function _shouldReconcileWorktreeDb(
   worktreeDbPath: string,
   mainDbPath: string,
   pathExists: (path: string) => boolean = existsSync,
@@ -220,7 +220,7 @@ export function _shouldReconcileWorktreeDbForTest(
   return pathExists(worktreeDbPath) && !samePath(worktreeDbPath, mainDbPath);
 }
 
-export function _isExpectedWorktreeUnlinkErrorForTest(
+export function _isExpectedWorktreeUnlinkError(
   code: string | undefined,
 ): boolean {
   return code === "ENOENT" || code === "EISDIR";
@@ -334,7 +334,7 @@ function clearProjectRootStateFiles(basePath: string, milestoneId: string): void
             } catch (err) {
               // ENOENT/EISDIR are expected for already-removed or directory entries (#3597)
               const code = (err as NodeJS.ErrnoException).code;
-              if (!_isExpectedWorktreeUnlinkErrorForTest(code)) {
+              if (!_isExpectedWorktreeUnlinkError(code)) {
                 logWarning("worktree", `untracked file unlink failed: ${err instanceof Error ? err.message : String(err)}`);
               }
             }
@@ -897,7 +897,7 @@ export function enterBranchModeForMilestone(
       readIntegrationBranch(basePath, milestoneId) ?? undefined;
     const gitPrefs = loadEffectiveGSDPreferences()?.preferences?.git;
     const startPoint =
-      _resolveAutoWorktreeStartPointForTest(
+      _resolveAutoWorktreeStartPoint(
         integrationBranch,
         gitPrefs?.main_branch,
         (branchName) => nativeBranchExists(basePath, branchName),
@@ -1138,7 +1138,7 @@ export function createAutoWorktree(
     const integrationBranch =
       readIntegrationBranch(basePath, milestoneId) ?? undefined;
     const gitPrefs = loadEffectiveGSDPreferences()?.preferences?.git;
-    const startPoint = _resolveAutoWorktreeStartPointForTest(
+    const startPoint = _resolveAutoWorktreeStartPoint(
       integrationBranch,
       gitPrefs?.main_branch,
       (branchName) => nativeBranchExists(basePath, branchName),
@@ -1238,7 +1238,7 @@ export function teardownAutoWorktree(
         const contract = resolveGsdPathContract(previousCwd, originalBasePath);
         const worktreeDbPath = join(contract.worktreeGsd ?? join(previousCwd, ".gsd"), "gsd.db");
         const mainDbPath = contract.projectDb;
-        if (_shouldReconcileWorktreeDbForTest(worktreeDbPath, mainDbPath)) {
+        if (_shouldReconcileWorktreeDb(worktreeDbPath, mainDbPath)) {
           reconcileWorktreeDb(mainDbPath, worktreeDbPath);
         }
       } catch (err) {
@@ -1418,6 +1418,15 @@ export function getAutoWorktreeOriginalBase(): string | null {
   return getActiveWorkspace()?.projectRoot ?? null;
 }
 
+/**
+ * Test-only — resets the module-level `activeWorkspace` registry between
+ * runs. Production code never clears the registry directly; tests call this
+ * in `beforeEach`/`afterEach` to isolate registry-mutating cases. Renaming
+ * the underscore-prefixed `_*ForTest` exports it joins (slice 7 / step G of
+ * ADR-016) was deliberate: those wrapped real production helpers and lost
+ * the suffix; this one stays as the only legitimate test-scaffolding export
+ * because it has no production caller.
+ */
 export function _resetAutoWorktreeOriginalBaseForTests(): void {
   setActiveWorkspace(null);
 }
@@ -1537,7 +1546,7 @@ export function mergeMilestoneToMain(
       const contract = resolveGsdPathContract(worktreeCwd, originalBasePath_);
       const worktreeDbPath = join(contract.worktreeGsd ?? join(worktreeCwd, ".gsd"), "gsd.db");
       const mainDbPath = contract.projectDb;
-      if (_shouldReconcileWorktreeDbForTest(worktreeDbPath, mainDbPath)) {
+      if (_shouldReconcileWorktreeDb(worktreeDbPath, mainDbPath)) {
         reconcileWorktreeDb(mainDbPath, worktreeDbPath);
       }
     } catch (err) {
