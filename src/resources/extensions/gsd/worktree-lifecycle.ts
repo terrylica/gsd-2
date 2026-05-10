@@ -17,7 +17,7 @@
  * a circular reference. Both classes share the body until the Resolver retires.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
@@ -43,6 +43,18 @@ import {
 import { loadEffectiveGSDPreferences } from "./preferences.js";
 import type { WorktreeStateProjection } from "./worktree-state-projection.js";
 import { createWorkspace, scopeMilestone } from "./workspace.js";
+// ADR-016 phase 2 / C1 (#5624): file-system + git-CLI leaf primitives
+// inlined as direct imports rather than injected through `WorktreeLifecycleDeps`.
+// These four symbols (`readFileSync` from node:fs, `getCurrentBranch` and
+// `autoCommitCurrentBranch` from `./worktree.js`, `nativeCheckoutBranch` from
+// `./native-git-bridge.js`) are leaf-level primitives — no environment varies
+// across callers — so the dependency-injection seam they used to inhabit was
+// adding type churn without enabling any test variation.
+import {
+  autoCommitCurrentBranch,
+  getCurrentBranch,
+} from "./worktree.js";
+import { nativeCheckoutBranch } from "./native-git-bridge.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -87,11 +99,6 @@ export interface WorktreeLifecycleDeps {
 
   // ── Exit / merge / teardown ──────────────────────────────────────────
   isInAutoWorktree: (basePath: string) => boolean;
-  autoCommitCurrentBranch: (
-    basePath: string,
-    reason: string,
-    milestoneId: string,
-  ) => void;
   autoWorktreeBranch: (milestoneId: string) => string;
   teardownAutoWorktree: (
     basePath: string,
@@ -117,24 +124,15 @@ export interface WorktreeLifecycleDeps {
     codeFilesChanged: boolean;
     commitMessage?: string;
   };
-  getCurrentBranch: (basePath: string) => string;
-  /**
-   * Force-checkout the named branch in `basePath`. Required by the branch-mode
-   * merge path when HEAD has been moved off the milestone branch — silently
-   * skipping the merge would strand the milestone's commits.
-   */
-  checkoutBranch: (basePath: string, branch: string) => void;
   resolveMilestoneFile: (
     basePath: string,
     milestoneId: string,
     fileType: string,
   ) => string | null;
-  /**
-   * Roadmap file reader. Injected so unit tests can substitute fixture
-   * content without touching the filesystem; production wiring passes
-   * `node:fs.readFileSync`.
-   */
-  readFileSync: (path: string, encoding: string) => string;
+  // ADR-016 phase 2 / C1 (#5624): `readFileSync`, `getCurrentBranch`,
+  // `checkoutBranch`, and `autoCommitCurrentBranch` were injected fields
+  // here. They are leaf primitives that do not vary across callers, so
+  // they have been replaced with direct module imports.
 }
 
 /**
@@ -700,7 +698,7 @@ function _mergeWorktreeModeImpl(
       };
     }
 
-    const roadmapContent = deps.readFileSync(roadmapPath, "utf-8");
+    const roadmapContent = readFileSync(roadmapPath, "utf-8");
     const mergeResult = deps.mergeMilestoneToMain(
       originalBasePath,
       milestoneId,
@@ -809,7 +807,7 @@ function _mergeBranchModeImpl(
 ): MergeStandaloneResult {
   const { worktreeBasePath, milestoneId, notify } = mctx;
   try {
-    const currentBranch = deps.getCurrentBranch(worktreeBasePath);
+    const currentBranch = getCurrentBranch(worktreeBasePath);
     const milestoneBranch = deps.autoWorktreeBranch(milestoneId);
 
     if (currentBranch !== milestoneBranch) {
@@ -828,7 +826,7 @@ function _mergeBranchModeImpl(
         milestoneBranch,
       });
       try {
-        deps.checkoutBranch(worktreeBasePath, milestoneBranch);
+        nativeCheckoutBranch(worktreeBasePath, milestoneBranch);
       } catch (checkoutErr) {
         const checkoutMsg =
           checkoutErr instanceof Error
@@ -841,7 +839,7 @@ function _mergeBranchModeImpl(
         throw new UserNotifiedError(checkoutMsg, checkoutErr);
       }
 
-      const reverify = deps.getCurrentBranch(worktreeBasePath);
+      const reverify = getCurrentBranch(worktreeBasePath);
       if (reverify !== milestoneBranch) {
         const reverifyMsg = `branch checkout to ${milestoneBranch} reported success but current branch is ${reverify}`;
         notify(
@@ -873,7 +871,7 @@ function _mergeBranchModeImpl(
       };
     }
 
-    const roadmapContent = deps.readFileSync(roadmapPath, "utf-8");
+    const roadmapContent = readFileSync(roadmapPath, "utf-8");
     const mergeResult = deps.mergeMilestoneToMain(
       worktreeBasePath,
       milestoneId,
@@ -1214,7 +1212,7 @@ export class WorktreeLifecycle {
     });
 
     try {
-      this.deps.autoCommitCurrentBranch(this.s.basePath, "stop", milestoneId);
+      autoCommitCurrentBranch(this.s.basePath, "stop", milestoneId);
     } catch (err) {
       debugLog("WorktreeLifecycle", {
         action: "exitMilestone",

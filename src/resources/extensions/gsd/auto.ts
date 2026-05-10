@@ -1696,6 +1696,10 @@ export async function pauseAuto(
  * Lifecycle Module instead of bypassing it (ADR-016 phase 2 / A2).
  */
 export function buildWorktreeLifecycleDeps(): WorktreeLifecycleDeps {
+  // ADR-016 phase 2 / C1 (#5624): readFileSync, getCurrentBranch,
+  // checkoutBranch, and autoCommitCurrentBranch are no longer injected —
+  // worktree-lifecycle.ts imports them directly. The dep bag is shrinking
+  // toward the ADR's envisioned ≤6-field shape.
   return {
     enterAutoWorktree,
     createAutoWorktree,
@@ -1707,15 +1711,10 @@ export function buildWorktreeLifecycleDeps(): WorktreeLifecycleDeps {
     loadEffectiveGSDPreferences,
     worktreeProjection: new WorktreeStateProjection(),
     isInAutoWorktree,
-    autoCommitCurrentBranch,
     autoWorktreeBranch,
     teardownAutoWorktree,
     mergeMilestoneToMain,
-    getCurrentBranch,
-    checkoutBranch: nativeCheckoutBranch,
     resolveMilestoneFile,
-    readFileSync: (path: string, encoding: string) =>
-      readFileSync(path, encoding as BufferEncoding),
   } as unknown as WorktreeLifecycleDeps;
 }
 

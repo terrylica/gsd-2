@@ -29,7 +29,7 @@
 
 import { describe, test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -133,6 +133,13 @@ describe("WorktreeResolver.mergeAndExit re-throws MergeConflictError (#2330)", (
     baseDir = mkdtempSync(join(tmpdir(), "merge-conflict-stops-loop-"));
     // Fake out a milestone directory so mergeAndExit reaches mergeMilestoneToMain.
     mkdirSync(join(baseDir, ".gsd", "milestones", "M001"), { recursive: true });
+    // ADR-016 phase 2 / C1 (#5624): worktree-lifecycle.ts now calls
+    // node:fs.readFileSync directly (the dep was retired), so the roadmap
+    // file must exist on disk for the test to reach mergeMilestoneToMain.
+    writeFileSync(
+      join(baseDir, ".gsd", "milestones", "M001", "M001-ROADMAP.md"),
+      "# M001\n",
+    );
   });
 
   afterEach(() => {
