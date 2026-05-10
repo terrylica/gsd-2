@@ -143,6 +143,7 @@ function makeNotifyCtx(): {
 
 describe("WorktreeResolver.mergeAndExit re-throws MergeConflictError (#2330)", () => {
   let baseDir: string;
+  const savedCwd = process.cwd();
 
   beforeEach(() => {
     baseDir = mkdtempSync(join(tmpdir(), "merge-conflict-stops-loop-"));
@@ -158,6 +159,11 @@ describe("WorktreeResolver.mergeAndExit re-throws MergeConflictError (#2330)", (
   });
 
   afterEach(() => {
+    // ADR-016 phase 2 / C2 (#5625): the inlined `mergeMilestoneStandalone`
+    // chdirs into the project root before the merge body runs. Restore
+    // cwd before deleting `baseDir` so the next test's `process.cwd()`
+    // doesn't fail with ENOENT.
+    try { process.chdir(savedCwd); } catch { /* best-effort */ }
     try {
       rmSync(baseDir, { recursive: true, force: true });
     } catch {

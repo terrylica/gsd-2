@@ -1696,23 +1696,20 @@ export async function pauseAuto(
  * Lifecycle Module instead of bypassing it (ADR-016 phase 2 / A2).
  */
 export function buildWorktreeLifecycleDeps(): WorktreeLifecycleDeps {
-  // ADR-016 phase 2 / C1 (#5624): readFileSync, getCurrentBranch,
-  // checkoutBranch, and autoCommitCurrentBranch are no longer injected —
-  // worktree-lifecycle.ts imports them directly. The dep bag is shrinking
-  // toward the ADR's envisioned ≤6-field shape.
+  // ADR-016 phase 2 / C1 + C2:
+  //   C1 (#5624) inlined readFileSync, getCurrentBranch, checkoutBranch,
+  //   autoCommitCurrentBranch.
+  //   C2 (#5625) inlined enterAutoWorktree, createAutoWorktree,
+  //   enterBranchModeForMilestone, getAutoWorktreePath,
+  //   teardownAutoWorktree, isInAutoWorktree, autoWorktreeBranch.
+  // Dep bag is now 7 fields. C3 (#5626) and C4 (#5627) close out the
+  // remaining four leaf primitives + the GitServiceImpl shape.
   return {
-    enterAutoWorktree,
-    createAutoWorktree,
-    enterBranchModeForMilestone,
-    getAutoWorktreePath,
     getIsolationMode,
     invalidateAllCaches,
     GitServiceImpl,
     loadEffectiveGSDPreferences,
     worktreeProjection: new WorktreeStateProjection(),
-    isInAutoWorktree,
-    autoWorktreeBranch,
-    teardownAutoWorktree,
     mergeMilestoneToMain,
     resolveMilestoneFile,
   } as unknown as WorktreeLifecycleDeps;
