@@ -27,11 +27,14 @@ function detectStaleRenderDriftFromBasePath(basePath: string): StaleRenderDrift[
 
   // detectStaleRenders may emit multiple entries for the same path (one per
   // mismatched checkbox). Dedupe by path; the repair re-renders the whole
-  // file in a single call. Match the legacy behavior of taking the first
-  // reason for each path.
+  // file in a single call. Prefer a reason the repair dispatcher can handle.
   const seen = new Map<string, string>();
   for (const entry of entries) {
-    if (!seen.has(entry.path)) {
+    const currentReason = seen.get(entry.path);
+    if (
+      currentReason === undefined ||
+      (!isRepairableStaleRenderReason(currentReason) && isRepairableStaleRenderReason(entry.reason))
+    ) {
       seen.set(entry.path, entry.reason);
     }
   }
@@ -41,6 +44,16 @@ function detectStaleRenderDriftFromBasePath(basePath: string): StaleRenderDrift[
     renderPath,
     reason,
   }));
+}
+
+function isRepairableStaleRenderReason(reason: string): boolean {
+  return (
+    reason.includes("in roadmap") ||
+    reason.includes("in plan") ||
+    (reason.includes("SUMMARY.md missing") && /^T\d+/.test(reason)) ||
+    (reason.includes("SUMMARY.md missing") && /^S\d+/.test(reason)) ||
+    reason.includes("UAT.md missing")
+  );
 }
 
 async function repairStaleRenderFromBasePath(
