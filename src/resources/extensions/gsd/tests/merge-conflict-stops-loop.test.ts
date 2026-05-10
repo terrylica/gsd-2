@@ -38,6 +38,7 @@ import {
   type WorktreeLifecycleDeps,
   type WorktreeLifecycleTestOverrides,
 } from "../worktree-lifecycle.ts";
+import { type TaskCommitContext } from "../worktree.ts";
 import { WorktreeStateProjection } from "../worktree-state-projection.ts";
 import { MergeConflictError } from "../git-service.ts";
 import type { AutoSession } from "../auto/session.ts";
@@ -106,7 +107,7 @@ function makeDeps(
       _basePath: string,
       _unitType: string,
       _unitId: string,
-      _taskContext?: unknown,
+      _taskContext?: TaskCommitContext,
     ) => null,
     getCurrentBranch: () => "worktree/M001",
     checkoutBranch: () => undefined,
