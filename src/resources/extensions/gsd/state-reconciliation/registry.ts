@@ -3,6 +3,7 @@
 // the catalog. Tests can override per-call via ReconciliationDeps.registry.
 
 import { mergeStateHandler } from "./drift/merge-state.js";
+import { unregisteredMilestoneHandler } from "./drift/project-md.js";
 import { sketchFlagHandler } from "./drift/sketch-flag.js";
 import { staleRenderHandler } from "./drift/stale-render.js";
 import { staleWorkerHandler } from "./drift/stale-worker.js";
@@ -18,4 +19,5 @@ export const DRIFT_REGISTRY: ReadonlyArray<DriftHandler<any>> = [
   mergeStateHandler,
   staleRenderHandler,
   staleWorkerHandler,
+  unregisteredMilestoneHandler,
 ];
