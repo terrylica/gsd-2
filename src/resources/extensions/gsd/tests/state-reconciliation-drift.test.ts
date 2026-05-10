@@ -1,9 +1,9 @@
 // Project/App: GSD-2
 // File Purpose: ADR-017 contract tests for drift-driven State Reconciliation.
-// Covers sketch-flag (#5700), merge-state (#5701), stale-render (#5702), and
-// stale-worker (#5703) drift end-to-end, plus the repair-throw and
-// persistent-drift error paths and Recovery Classification mapping for
-// ReconciliationFailedError.
+// Covers sketch-flag (#5700), merge-state (#5701), stale-render (#5702),
+// stale-worker (#5703), and unregistered-milestone (#5704) drift end-to-end,
+// plus the repair-throw and persistent-drift error paths and Recovery
+// Classification mapping for ReconciliationFailedError.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -19,6 +19,7 @@ import {
   insertMilestone,
   insertSlice,
   insertTask,
+  getMilestone,
   getSlice,
   setSliceSummaryMd,
 } from "../gsd-db.ts";
@@ -533,6 +534,89 @@ test("ADR-017 (#5703): live worker lock is not cleared", async (t) => {
     result.repaired.some((d) => d.kind === "stale-worker"),
     false,
     "no stale-worker drift should be reported when the lock owner is alive",
+  );
+});
+
+// ─── #5704: unregistered-milestone drift ────────────────────────────────────
+
+test("ADR-017 (#5704): unregistered-milestone drift detected and DB row inserted", async (t) => {
+  const base = mkdtempSync(join(tmpdir(), "gsd-adr017-projmd-"));
+  const milestoneDir = join(base, ".gsd", "milestones", "M042");
+  mkdirSync(milestoneDir, { recursive: true });
+  // Roadmap with one slice — meaningful content, will be picked up by importer
+  writeFileSync(
+    join(milestoneDir, "M042-ROADMAP.md"),
+    [
+      "# M042: Test Milestone",
+      "",
+      "**Vision:** Verify unregistered-milestone drift",
+      "",
+      "## Slices",
+      "",
+      "- [ ] **S01: Foundation** `risk:medium` `depends:[]`",
+      "",
+    ].join("\n"),
+  );
+  t.after(() => {
+    try { closeDatabase(); } catch { /* noop */ }
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  openDatabase(join(base, ".gsd", "gsd.db"));
+  // Pre-condition: filesystem has the milestone, DB does NOT.
+  assert.equal(getMilestone("M042"), null, "pre: DB has no row for M042");
+
+  const result = await reconcileBeforeDispatch(base, {
+    invalidateStateCache: () => {},
+    deriveState: async () => makeState(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.ok(getMilestone("M042"), "post: DB row inserted for M042");
+  const milestoneRepaired = result.repaired.find(
+    (d) => d.kind === "unregistered-milestone",
+  );
+  assert.ok(milestoneRepaired, "repaired list should include the unregistered-milestone drift");
+  if (milestoneRepaired?.kind === "unregistered-milestone") {
+    assert.equal(milestoneRepaired.milestoneId, "M042");
+  }
+});
+
+test("ADR-017 (#5704): registered milestone (DB row present) → no drift", async (t) => {
+  const base = mkdtempSync(join(tmpdir(), "gsd-adr017-projmd-clean-"));
+  const milestoneDir = join(base, ".gsd", "milestones", "M001");
+  mkdirSync(milestoneDir, { recursive: true });
+  writeFileSync(
+    join(milestoneDir, "M001-ROADMAP.md"),
+    [
+      "# M001: Test",
+      "",
+      "**Vision:** Already-registered milestone",
+      "",
+      "## Slices",
+      "",
+      "- [ ] **S01: Slice** `risk:low` `depends:[]`",
+      "",
+    ].join("\n"),
+  );
+  t.after(() => {
+    try { closeDatabase(); } catch { /* noop */ }
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  openDatabase(join(base, ".gsd", "gsd.db"));
+  insertMilestone({ id: "M001", title: "Test", status: "active" });
+
+  const result = await reconcileBeforeDispatch(base, {
+    invalidateStateCache: () => {},
+    deriveState: async () => makeState(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(
+    result.repaired.some((d) => d.kind === "unregistered-milestone"),
+    false,
+    "no drift should be reported when the milestone is already in the DB",
   );
 });
 

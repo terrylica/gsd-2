@@ -8,14 +8,15 @@ import type { GSDState } from "../types.js";
  * Discriminated union over drift kinds the State Reconciliation Module
  * recognizes. Each variant carries the identifiers its matching repair needs.
  *
- * Subsequent ADR-017 issues add variants: unregistered-milestone,
- * roadmap-divergence, missing-completion-timestamp.
+ * Subsequent ADR-017 issues add variants: roadmap-divergence,
+ * missing-completion-timestamp.
  */
 export type DriftRecord =
   | { kind: "stale-sketch-flag"; mid: string; sid: string }
   | { kind: "unmerged-merge-state"; basePath: string }
   | { kind: "stale-render"; renderPath: string; reason: string }
-  | { kind: "stale-worker"; lockPath: string; pid: number };
+  | { kind: "stale-worker"; lockPath: string; pid: number }
+  | { kind: "unregistered-milestone"; milestoneId: string };
 
 /**
  * Context threaded to detector and repair functions. Keeps handlers from
