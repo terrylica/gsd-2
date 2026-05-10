@@ -706,7 +706,10 @@ test("ADR-017 (#5705): ROADMAP declares slice missing from DB → slice inserted
   });
 
   assert.equal(result.ok, true);
-  assert.ok(getSlice("M001", "S02"), "post: S02 inserted into DB after repair");
+  const s02 = getSlice("M001", "S02");
+  assert.ok(s02, "post: S02 inserted into DB after repair");
+  assert.equal(s02?.sequence, 2, "post: S02 sequence matches ROADMAP order");
+  assert.deepEqual(s02?.depends, ["S01"], "post: S02 depends matches ROADMAP");
   const roadmapRepaired = result.repaired.find((d) => d.kind === "roadmap-divergence");
   assert.ok(roadmapRepaired, "repaired list should include the roadmap-divergence drift");
   if (roadmapRepaired?.kind === "roadmap-divergence") {
