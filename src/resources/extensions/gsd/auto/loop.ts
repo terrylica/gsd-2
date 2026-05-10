@@ -992,11 +992,6 @@ export async function autoLoop(
         ) || dispatchSettled;
       }
 
-      // Always emit iteration-end on error so the journal records iteration
-      // completion even on failure (#2344). Without this, errors in
-      // runFinalize leave the journal incomplete, making diagnosis harder.
-      finishIncompleteIteration({ status: "failed", error: msg });
-
       // ── Pre-send model-policy block: not a retryable error (#4959 / #4850) ──
       // The model-policy gate runs before the prompt is sent.  When every
       // candidate model is denied (cross-provider disabled + flat-rate
@@ -1021,6 +1016,12 @@ export async function autoLoop(
         });
         ctx.ui.notify(policyDecision.notifyMessage, "error");
         journalReporter.emit("unit-end", policyDecision.journalData);
+        finishIncompleteIteration({
+          status: "blocked",
+          reason: "model-policy-dispatch-blocked",
+          unitType: loopErr.unitType,
+          unitId: loopErr.unitId,
+        });
         // Carry the blocked unit identity into the turn-result observer:
         // the throw originated inside dispatch, so observedUnitType/Id were
         // not assigned by the success path at lines 453/631/647 — but the
@@ -1033,6 +1034,11 @@ export async function autoLoop(
         // not a transient runtime fault.
         break;
       }
+
+      // Always emit iteration-end on error so the journal records iteration
+      // completion even on failure (#2344). Without this, errors in
+      // runFinalize leave the journal incomplete, making diagnosis harder.
+      finishIncompleteIteration({ status: "failed", error: msg });
 
       // ── Infrastructure errors: immediate stop, no retry ──
       // These are unrecoverable (disk full, OOM, etc.). Retrying just burns

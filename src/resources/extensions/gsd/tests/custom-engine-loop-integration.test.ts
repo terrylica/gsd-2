@@ -711,6 +711,7 @@ describe("Custom engine loop integration", () => {
     const iterationEndIndexes = journalEvents
       .map((entry, index) => entry.eventType === "iteration-end" ? index : -1)
       .filter((index) => index >= 0);
+    assert.equal(unitEndIndexes.length, 4, "each custom verification retry/stop attempt must emit unit-end");
     assert.equal(iterationEndIndexes.length, 4, "each custom verification retry/stop iteration must close after unit-end");
     for (const [i, unitEndIndex] of unitEndIndexes.entries()) {
       assert.ok(

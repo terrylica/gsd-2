@@ -3637,6 +3637,13 @@ test("autoLoop classifies ModelPolicyDispatchBlockedError as blocked, not a retr
   );
   assert.ok(unitEnd, "should emit unit-end with status=blocked");
   assert.equal(unitEnd!.data.reason, "model-policy-dispatch-blocked");
+  const unitEndIndex = journalEvents.findIndex(
+    e => e.eventType === "unit-end" && e.data?.status === "blocked",
+  );
+  const iterationEndIndex = journalEvents.findIndex(
+    e => e.eventType === "iteration-end" && e.data?.status === "blocked",
+  );
+  assert.ok(iterationEndIndex > unitEndIndex, "blocked policy iterations must close after unit-end");
 
   // Loop must pause for manual attention, NOT retry until 3-strike hard stop.
   assert.equal(pauseAutoCalls, 1, "should pause once on policy block");

@@ -707,7 +707,7 @@ export function nativeAddTracked(basePath: string): void {
 
 export function nativeIsIgnored(basePath: string, path: string): boolean {
   try {
-    execFileSync("git", ["check-ignore", "-q", path], {
+    execFileSync("git", ["check-ignore", "-q", "--", path], {
       cwd: basePath,
       stdio: "pipe",
       env: GIT_NO_PROMPT_ENV,

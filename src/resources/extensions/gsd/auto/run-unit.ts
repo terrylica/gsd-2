@@ -234,7 +234,26 @@ export async function runUnit(
     debugLog("runUnit", { phase: "awaiting-agent-end", unitType, unitId });
     const timeoutResult = new Promise<UnitResult>((resolve) => {
       const settleOrDefer = () => {
-        const runtime = readUnitRuntimeRecord(s.basePath, unitType, unitId);
+        let runtime: AutoUnitRuntimeRecord | null;
+        try {
+          runtime = readUnitRuntimeRecord(s.basePath, unitType, unitId);
+        } catch (error) {
+          debugLog("runUnit", {
+            phase: "unit-failsafe-runtime-read-failed",
+            unitType,
+            unitId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          resolve({
+            status: "cancelled",
+            errorContext: {
+              message: "Unit hard timeout — supervision may have failed; runtime progress could not be read",
+              category: "timeout",
+              isTransient: true,
+            },
+          });
+          return;
+        }
         if (shouldDeferUnitFailsafeTimeout(runtime, {
           nowMs: Date.now(),
           currentUnitStartedAt: s.currentUnit?.startedAt,
