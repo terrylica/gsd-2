@@ -33,20 +33,12 @@ type LegacyTestDeps = WorktreeLifecycleDeps & {
   enterBranchModeForMilestone: (basePath: string, milestoneId: string) => void;
   getAutoWorktreePath: (basePath: string, milestoneId: string) => string | null;
   isInAutoWorktree: (basePath: string) => boolean;
-  autoCommitCurrentBranch: (
-    basePath: string,
-    reason: string,
-    milestoneId: string,
-  ) => void;
   autoWorktreeBranch: (milestoneId: string) => string;
   teardownAutoWorktree: (
     basePath: string,
     milestoneId: string,
     opts?: { preserveBranch?: boolean },
   ) => void;
-  getCurrentBranch: (basePath: string) => string;
-  checkoutBranch: (basePath: string, branch: string) => void;
-  readFileSync: (path: string, encoding: string) => string;
   shouldUseWorktreeIsolation?: () => boolean;
   syncWorktreeStateBack?: (
     mainBasePath: string,
@@ -56,10 +48,10 @@ type LegacyTestDeps = WorktreeLifecycleDeps & {
   captureIntegrationBranch?: (basePath: string, mid: string | undefined) => void;
   autoCommitCurrentBranch?: (
     basePath: string,
-    unitType: string,
-    unitId: string,
+    reasonOrUnitType: string,
+    milestoneOrUnitId: string,
     taskContext?: TaskCommitContext,
-  ) => string | null;
+  ) => string | null | void;
   getCurrentBranch?: (basePath: string) => string;
   checkoutBranch?: (basePath: string, branch: string) => void;
   readFileSync?: (path: string, encoding: BufferEncoding) => string;

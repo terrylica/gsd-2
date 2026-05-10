@@ -27,12 +27,23 @@ interface CallLog {
 }
 
 type LegacyTestDeps = WorktreeLifecycleDeps & {
+  getAutoWorktreePath?: (
+    basePath: string,
+    milestoneId: string,
+  ) => string | null;
+  isInAutoWorktree?: (basePath: string) => boolean;
+  autoWorktreeBranch?: (milestoneId: string) => string;
+  teardownAutoWorktree?: (
+    basePath: string,
+    milestoneId: string,
+    opts?: { preserveBranch?: boolean },
+  ) => void;
   autoCommitCurrentBranch?: (
     basePath: string,
-    unitType: string,
-    unitId: string,
+    reasonOrUnitType: string,
+    milestoneOrUnitId: string,
     taskContext?: TaskCommitContext,
-  ) => string | null;
+  ) => string | null | void;
   getCurrentBranch?: (basePath: string) => string;
   checkoutBranch?: (basePath: string, branch: string) => void;
   readFileSync?: (path: string, encoding: BufferEncoding) => string;
