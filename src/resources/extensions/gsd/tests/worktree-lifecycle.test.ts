@@ -432,3 +432,60 @@ test("restoreToProjectRoot is no-op when originalBasePath is empty", () => {
   assert.equal(s.basePath, "/some/path"); // unchanged
   assert.equal(deps.calls.filter((c) => c.fn === "GitServiceImpl").length, 0);
 });
+
+// ─── adoptSessionRoot (ADR-016 phase 2 / B2, issue #5620) ─────────────────────
+
+test("adoptSessionRoot sets basePath and seeds originalBasePath on a fresh session", () => {
+  const s = makeSession();
+  s.basePath = "";
+  s.originalBasePath = "";
+  const lifecycle = new WorktreeLifecycle(s, makeDeps());
+
+  lifecycle.adoptSessionRoot("/project");
+
+  assert.equal(s.basePath, "/project");
+  assert.equal(s.originalBasePath, "/project");
+});
+
+test("adoptSessionRoot preserves a pre-existing originalBasePath when no override is passed", () => {
+  // Resume-from-paused path (auto.ts:2148 after meta-restore at 2003/2055):
+  // s.originalBasePath was already restored from paused metadata; the verb
+  // must NOT overwrite that value.
+  const s = makeSession();
+  s.basePath = "";
+  s.originalBasePath = "/persisted/project-root";
+  const lifecycle = new WorktreeLifecycle(s, makeDeps());
+
+  lifecycle.adoptSessionRoot("/project");
+
+  assert.equal(s.basePath, "/project");
+  assert.equal(s.originalBasePath, "/persisted/project-root");
+});
+
+test("adoptSessionRoot honors an explicit originalBase override", () => {
+  const s = makeSession();
+  s.basePath = "";
+  s.originalBasePath = "/old-root";
+  const lifecycle = new WorktreeLifecycle(s, makeDeps());
+
+  lifecycle.adoptSessionRoot("/project", "/explicit-original");
+
+  assert.equal(s.basePath, "/project");
+  assert.equal(s.originalBasePath, "/explicit-original");
+});
+
+test("adoptSessionRoot does not chdir, rebuild git service, or invalidate caches", () => {
+  // The verb is a pure session-state mutation. Side effects (chdir, git
+  // service rebuild, cache invalidation) belong to other Lifecycle verbs
+  // (`enterMilestone`, `restoreToProjectRoot`).
+  const s = makeSession();
+  s.basePath = "";
+  s.originalBasePath = "";
+  const deps = makeDeps();
+  const lifecycle = new WorktreeLifecycle(s, deps);
+
+  lifecycle.adoptSessionRoot("/project");
+
+  assert.equal(deps.calls.filter((c) => c.fn === "GitServiceImpl").length, 0);
+  assert.equal(deps.calls.filter((c) => c.fn === "invalidateAllCaches").length, 0);
+});

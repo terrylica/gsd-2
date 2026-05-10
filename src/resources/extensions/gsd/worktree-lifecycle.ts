@@ -1459,6 +1459,34 @@ export class WorktreeLifecycle {
     this.deps.invalidateAllCaches();
   }
 
+  /**
+   * Adopt a session root (ADR-016 phase 2 / B2, issue #5620).
+   *
+   * Sole owner of `s.basePath` mutation for bootstrap-class transitions:
+   * initial session start, paused-resume entry (before persisted-state
+   * consultation), and hook-trigger session activation. Defensive about
+   * `s.originalBasePath`:
+   *
+   * - When `originalBase` is explicit: overwrite.
+   * - Otherwise, set `s.originalBasePath` only if it is currently empty —
+   *   resume paths that already restored `s.originalBasePath` from paused
+   *   metadata keep their value.
+   *
+   * Does NOT chdir; callers that need cwd alignment with the new basePath
+   * are responsible for it. Does NOT rebuild `s.gitService` — callers that
+   * mutate `s.basePath` to a non-project-root path (e.g. a worktree on a
+   * subsequent milestone enter) go through `enterMilestone`, which handles
+   * the rebuild.
+   */
+  adoptSessionRoot(base: string, originalBase?: string): void {
+    this.s.basePath = base;
+    if (originalBase !== undefined) {
+      this.s.originalBasePath = originalBase;
+    } else if (!this.s.originalBasePath) {
+      this.s.originalBasePath = base;
+    }
+  }
+
   /** True if `milestoneId` is the session's currently-active milestone. */
   isInMilestone(milestoneId: string): boolean {
     return this.s.currentMilestoneId === milestoneId;

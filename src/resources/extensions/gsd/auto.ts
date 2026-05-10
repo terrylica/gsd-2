@@ -2281,7 +2281,12 @@ export async function startAuto(
     s.verbose = verboseMode;
     s.stepMode = requestedStepMode;
     s.cmdCtx = ctx;
-    s.basePath = base;
+    // ADR-016 phase 2 / B2 (#5620): bootstrap basePath transition before
+    // the resume path consults persisted worktree state. Defensive about
+    // s.originalBasePath — the meta-restore above (line 2003 / 2055) may
+    // have already populated it from paused metadata; the verb preserves
+    // that value.
+    buildLifecycle().adoptSessionRoot(base);
     // ── Resume worktree: if the paused session was inside a milestone worktree,
     // apply that path as the dispatch basePath immediately (#3723).
     // This ensures the dispatch loop runs from the worktree directory even when
@@ -2599,7 +2604,12 @@ export async function dispatchHookUnit(
     s.pendingQuickTasks = [];
   }
 
-  s.basePath = targetBasePath;
+  // ADR-016 phase 2 / B2 (#5620): hook-trigger basePath transition. Treats
+  // the trigger as a bootstrap variant — if the session is fresh,
+  // `originalBasePath` gets set to `targetBasePath`; if the session was
+  // already active with an established `originalBasePath`, the verb
+  // preserves it.
+  buildLifecycle().adoptSessionRoot(targetBasePath);
   if (!s.orchestration) {
     ensureOrchestrationModule(ctx, pi, s.basePath);
   }
