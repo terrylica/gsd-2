@@ -87,6 +87,7 @@ describe("headless milestone bootstrap — parity with interactive flow", () => 
     );
     assert.ok(/Next steps:/.test(section), "single-milestone handoff must include next steps");
     assert.ok(/\/gsd auto/.test(section), "single-milestone handoff must mention /gsd auto");
+    assert.ok(/\/gsd status/.test(section), "single-milestone handoff must mention /gsd status");
     assert.ok(/\/gsd visualize/.test(section), "single-milestone handoff must mention /gsd visualize");
     assert.ok(/\/gsd notifications/.test(section), "single-milestone handoff must mention /gsd notifications");
   });
@@ -119,6 +120,7 @@ describe("headless milestone bootstrap — parity with interactive flow", () => 
     );
     assert.ok(/Next steps:/.test(multiSection), "multi-milestone handoff must include next steps");
     assert.ok(/\/gsd auto/.test(multiSection), "multi-milestone handoff must mention /gsd auto");
+    assert.ok(/\/gsd status/.test(multiSection), "multi-milestone handoff must mention /gsd status");
     assert.ok(/\/gsd visualize/.test(multiSection), "multi-milestone handoff must mention /gsd visualize");
     assert.ok(/\/gsd notifications/.test(multiSection), "multi-milestone handoff must mention /gsd notifications");
   });

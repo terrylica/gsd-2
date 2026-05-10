@@ -939,6 +939,10 @@ function lightweightHighlightLine(line: string): string {
 			let j = i + 1;
 			while (j < line.length) {
 				if (line[j] === "\\") {
+					if (j + 1 >= line.length) {
+						j = line.length;
+						break;
+					}
 					j += 2;
 					continue;
 				}

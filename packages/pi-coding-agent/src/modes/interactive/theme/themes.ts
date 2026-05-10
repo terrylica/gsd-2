@@ -20,7 +20,7 @@ import type { ThemeJson } from "./theme-schema.js";
 const dark: ThemeJson = {
 	name: "dark",
 	vars: {
-		cyan: "#8db7ff",
+		cyan: "#7fd4e8",
 		blue: "#8db7ff",
 		green: "#a8c978",
 		red: "#d98484",

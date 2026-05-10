@@ -150,13 +150,24 @@ export class BashExecutionComponent extends Container {
 		}
 
 		const output = this.outputLines.join("\n");
-		const availableLines = output ? output.split("\n") : [];
+		const contextTruncation = truncateTail(output, {
+			maxLines: DEFAULT_MAX_LINES,
+			maxBytes: DEFAULT_MAX_BYTES,
+		});
+		const truncationResult = this.truncationResult ?? contextTruncation;
+		const fullOutputPath = this.fullOutputPath;
+		const availableLines = contextTruncation.content ? contextTruncation.content.split("\n") : [];
 		const preview = this.expanded ? availableLines : availableLines.slice(-PREVIEW_LINES);
 		const hidden = Math.max(0, availableLines.length - preview.length);
+		const truncationWarning =
+			(truncationResult.truncated || contextTruncation.truncated) && fullOutputPath
+				? [theme.fg("warning", `Output truncated. Full output: ${fullOutputPath}`)]
+				: [];
 		const body = [
 			theme.fg("toolTitle", `$ ${this.command}`),
 			...preview.map((line) => theme.fg("toolOutput", line)),
 			...(hidden > 0 ? [theme.fg("muted", `... ${hidden} earlier lines`)] : []),
+			...truncationWarning,
 		];
 		return [
 			"",

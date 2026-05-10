@@ -108,7 +108,7 @@ function clampVisible(s: string, w: number): string {
   if (w <= 0) return ''
   if (visLen(s) <= w) return s
   const plain = stripAnsi(s)
-  return plain.length > w ? plain.slice(0, Math.max(0, w - 1)) + '…' : plain
+  return plain.slice(0, Math.max(0, w - 1)) + '…'
 }
 
 export function buildWelcomeScreenLines(opts: WelcomeScreenOptions): string[] {
@@ -129,6 +129,14 @@ export function buildWelcomeScreenLines(opts: WelcomeScreenOptions): string[] {
   if (process.env.CONTEXT7_API_KEY)   toolParts.push('Context7 ✓')
   if (remoteChannel)                  toolParts.push(`${remoteChannel.charAt(0).toUpperCase() + remoteChannel.slice(1)} ✓`)
 
+  const innerWidth = Math.max(1, termWidth - 2)
+  const logoWidth = Math.max(...GSD_LOGO.map((line) => visLen(line)))
+  const divider = ` ${chalk.dim('│')} `
+  const panelWidth = innerWidth - logoWidth - visLen(divider)
+  if (panelWidth < 44) {
+    return ['', `  Get Shit Done v${version}`, `  ${shortCwd}`, '']
+  }
+
   // "Welcome back" context lines — GSD state if available, else hint.
   // Intentionally avoids data already shown in the footer (model, provider,
   // pwd, branch).
@@ -139,7 +147,8 @@ export function buildWelcomeScreenLines(opts: WelcomeScreenOptions): string[] {
   if (state?.milestone) {
     const statusParts = [state.milestone, state.phase, state.slice].filter(Boolean)
     projectText = statusParts.join(' · ')
-    commandText = state.nextAction ? clampVisible(state.nextAction, 46) : '/gsd next'
+    const maxActionWidth = Math.max(10, panelWidth - 30)
+    commandText = state.nextAction ? clampVisible(state.nextAction, maxActionWidth) : '/gsd next'
     modeText = state.phase ?? 'active'
   }
 
@@ -149,14 +158,6 @@ export function buildWelcomeScreenLines(opts: WelcomeScreenOptions): string[] {
     : mcpCount > 0
       ? `${mcpCount} server${mcpCount === 1 ? '' : 's'} configured`
       : 'none configured'
-
-  const innerWidth = Math.max(1, termWidth - 2)
-  const logoWidth = Math.max(...GSD_LOGO.map((line) => visLen(line)))
-  const divider = ` ${chalk.dim('│')} `
-  const panelWidth = innerWidth - logoWidth - visLen(divider)
-  if (panelWidth < 44) {
-    return ['', `  Get Shit Done v${version}`, `  ${shortCwd}`, '']
-  }
 
   const label = (s: string) => chalk.dim(s)
   const value = (s: string) => chalk.hex('#dce4f2')(s)

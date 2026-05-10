@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { visibleWidth, truncateToWidth } from "@gsd/pi-tui";
 import { loadEffectiveGSDPreferences } from "../preferences.js";
 import { gsdHome } from "../gsd-home.js";
+import { splashPalette } from "./splash-palette.js";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -35,12 +36,12 @@ function rgb(hex: string): string {
 }
 
 const colors = {
-  accent: rgb("#8db7ff"),
-  border: rgb("#a7ba78"),
-  muted: rgb("#7d889f"),
-  dim: rgb("#4d5870"),
-  text: rgb("#dce4f2"),
-  success: rgb("#a8c978"),
+  accent: rgb(splashPalette.accent),
+  border: rgb(splashPalette.border),
+  muted: rgb(splashPalette.muted),
+  dim: rgb(splashPalette.dim),
+  text: rgb(splashPalette.text),
+  success: rgb(splashPalette.success),
 };
 
 function color(text: string, colorCode: string): string {
@@ -63,7 +64,8 @@ function rightAlign(left: string, right: string, width: number): string {
 }
 
 function frameLine(content: string, width: number): string {
-  const innerWidth = Math.max(1, width - 2);
+  if (width < 3) return truncateToWidth(content, Math.max(0, width), "");
+  const innerWidth = Math.max(0, width - 2);
   return `${color("│", colors.border)}${padVisible(content, innerWidth)}${color("│", colors.border)}`;
 }
 
@@ -232,8 +234,9 @@ export function formatMcpRow(servers: string[], width: number): string {
  * and workspace state easier to scan.
  */
 export function renderHeaderLines(data: HeaderData, width: number): string[] {
-  const outerWidth = Math.max(40, width);
-  const innerWidth = Math.max(1, outerWidth - 2);
+  const outerWidth = Math.max(1, width);
+  if (outerWidth < 40) return renderStackedHeader(data, outerWidth);
+  const innerWidth = Math.max(0, outerWidth - 2);
   const logoLines = GSD_LOGO;
   const logoWidth = Math.max(...logoLines.map((line) => visibleWidth(line)));
   const gap = ` ${color("│", colors.dim)} `;
@@ -278,13 +281,13 @@ export function renderHeaderLines(data: HeaderData, width: number): string[] {
   ];
 
   const lines = [
-    color("╭" + "─".repeat(outerWidth - 2) + "╮", colors.border),
+    color("╭" + "─".repeat(Math.max(0, outerWidth - 2)) + "╮", colors.border),
   ];
   for (let i = 0; i < logoLines.length; i++) {
     const logo = padVisible(color(logoLines[i], colors.border), logoWidth);
     lines.push(frameLine(`${logo}${gap}${panelLines[i] ?? ""}`, outerWidth));
   }
-  lines.push(color("╰" + "─".repeat(outerWidth - 2) + "╯", colors.border));
+  lines.push(color("╰" + "─".repeat(Math.max(0, outerWidth - 2)) + "╯", colors.border));
   return lines;
 }
 
@@ -292,8 +295,11 @@ export function renderHeaderLines(data: HeaderData, width: number): string[] {
  * Fallback stacked layout for narrow terminals (< 20 cols for info panel).
  */
 function renderStackedHeader(data: HeaderData, width: number): string[] {
-  const outerWidth = Math.max(40, width);
-  const lines: string[] = [color("╭" + "─".repeat(outerWidth - 2) + "╮", colors.border)];
+  const outerWidth = Math.max(1, width);
+  if (outerWidth < 3) {
+    return [color(truncateToWidth("GSD", outerWidth, ""), colors.accent)];
+  }
+  const lines: string[] = [color("╭" + "─".repeat(Math.max(0, outerWidth - 2)) + "╮", colors.border)];
 
   // Title
   lines.push(frameLine(`${color("GSD", colors.accent)} ${bold(color("Project Console", colors.text))}`, outerWidth));
@@ -305,10 +311,10 @@ function renderStackedHeader(data: HeaderData, width: number): string[] {
   lines.push(frameLine(formatInfoLine("Model", data.model, outerWidth - 2), outerWidth));
 
   // MCP
-  const mcpRow = formatMcpRow(data.mcpServers, outerWidth - 7);
+  const mcpRow = formatMcpRow(data.mcpServers, Math.max(1, outerWidth - 7));
   if (mcpRow) lines.push(frameLine(`${color("MCP", colors.muted)} ${mcpRow}`, outerWidth));
   lines.push(frameLine(`${color("/gsd to begin", colors.accent)}  ${color("/gsd help", colors.muted)}`, outerWidth));
-  lines.push(color("╰" + "─".repeat(outerWidth - 2) + "╯", colors.border));
+  lines.push(color("╰" + "─".repeat(Math.max(0, outerWidth - 2)) + "╯", colors.border));
 
   return lines;
 }

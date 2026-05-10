@@ -99,11 +99,15 @@ describe("notification overlay — wrapText", () => {
 
   test("rendered height stays within the configured overlay max height", (t) => {
     const dir = mkdtempSync(join(tmpdir(), "gsd-notification-overlay-height-"));
-    const previousRows = process.stdout.rows;
+    const originalRowsDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "rows");
     Object.defineProperty(process.stdout, "rows", { value: 40, configurable: true });
 
     t.after(() => {
-      Object.defineProperty(process.stdout, "rows", { value: previousRows, configurable: true });
+      if (originalRowsDescriptor) {
+        Object.defineProperty(process.stdout, "rows", originalRowsDescriptor);
+      } else {
+        delete (process.stdout as { rows?: number }).rows;
+      }
       _resetNotificationStore();
       rmSync(dir, { recursive: true, force: true });
     });

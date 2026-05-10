@@ -126,7 +126,7 @@ function stripAnsi(line: string): string {
 	// Remove CSI sequences. Good enough for these tests.
 	return line
 		.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
-		.replace(/\x1b\][^\x07]*\x07/g, "");
+		.replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, "");
 }
 
 describe("compositeOverlays — backdrop", () => {

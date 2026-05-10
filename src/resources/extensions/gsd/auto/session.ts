@@ -377,9 +377,7 @@ export class AutoSession {
   }
 
   resetAfterStop(options: { preserveCompletionSurface?: boolean } = {}): void {
-    const completionStopInProgress = options.preserveCompletionSurface
-      ? this.completionStopInProgress
-      : false;
+    const completionStopInProgress = options.preserveCompletionSurface ? this.completionStopInProgress : false;
     this.reset();
     this.completionStopInProgress = completionStopInProgress;
   }

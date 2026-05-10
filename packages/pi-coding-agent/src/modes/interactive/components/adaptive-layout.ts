@@ -153,8 +153,9 @@ export class AdaptiveLayoutComponent implements Component {
 	}
 
 	private basename(cwd: string): string {
-		const trimmed = cwd.replace(/\/+$/, "");
-		const slash = trimmed.lastIndexOf("/");
+		const trimmed = cwd.replace(/[\\/]+$/, "");
+		if (!trimmed) return cwd.includes("\\") ? "\\" : "/";
+		const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
 		return slash === -1 ? trimmed : trimmed.slice(slash + 1);
 	}
 }

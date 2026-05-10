@@ -250,6 +250,7 @@ test("auto-dashboard widget render output fits common terminal widths", (t) => {
       bold: (text: string) => text,
     },
   );
+  t.after(() => component.dispose?.());
 
   for (const width of [40, 80, 120]) {
     assertLinesFit(component.render(width), width);

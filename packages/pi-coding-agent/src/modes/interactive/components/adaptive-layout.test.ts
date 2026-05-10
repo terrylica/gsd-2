@@ -32,7 +32,7 @@ describe("AdaptiveLayoutComponent", () => {
 		assert.match(output, /watch tool output/);
 		assert.doesNotMatch(output, /signals/);
 		assert.doesNotMatch(output, /inspector/);
-		assert.doesNotMatch(output, /\bAUTO\b/);
+		assert.doesNotMatch(output, /\bauto\b/i);
 		assert.match(output, /^╭─+╮/m);
 	});
 
@@ -47,7 +47,7 @@ describe("AdaptiveLayoutComponent", () => {
 		const output = render(component, 68);
 		assert.match(output, /GSD compact/);
 		assert.doesNotMatch(output, /signals/);
-		assert.doesNotMatch(output, /\bAUTO\b/);
+		assert.doesNotMatch(output, /\bauto\b/i);
 	});
 
 	it("renders blocking failure context in debug mode", () => {

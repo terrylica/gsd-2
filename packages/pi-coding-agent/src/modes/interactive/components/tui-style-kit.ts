@@ -56,15 +56,20 @@ export function roundedPanel(
 		paddingX?: number;
 	} = {},
 ): string[] {
-	const outerWidth = Math.max(20, width);
-	const innerWidth = Math.max(1, outerWidth - 2);
+	const outerWidth = Math.max(1, width);
 	const paddingX = Math.max(0, opts.paddingX ?? 0);
-	const contentWidth = Math.max(1, innerWidth - paddingX * 2);
 	const borderColor = toneColor(opts.tone ?? "default");
 	const border = (text: string) => theme.fg(borderColor, text);
 	const title = opts.title ? theme.fg("borderAccent", opts.title) : "";
 	const rightTitle = opts.rightTitle ? theme.fg("dim", opts.rightTitle) : "";
 	const body = lines.length > 0 ? lines : [""];
+
+	if (outerWidth < 3) {
+		return body.map((line) => truncateToWidth(line, outerWidth, ""));
+	}
+
+	const innerWidth = Math.max(1, outerWidth - 2);
+	const contentWidth = Math.max(1, innerWidth - paddingX * 2);
 
 	const renderedBody = body.map((line) => {
 		const padded = " ".repeat(paddingX) + padRight(line, contentWidth) + " ".repeat(paddingX);

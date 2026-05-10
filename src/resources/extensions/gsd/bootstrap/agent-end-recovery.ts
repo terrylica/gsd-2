@@ -339,6 +339,11 @@ export async function handleAgentEnd(
     // errorMessage looks uninformative.
     const rawErrorMsg = ("errorMessage" in lastMsg && lastMsg.errorMessage) ? String(lastMsg.errorMessage) : "";
     if (isUserInitiatedAbortMessage(rawErrorMsg)) {
+      if (isAutoCompletionStopInProgress()) {
+        resetRetryState(retryState);
+        resolveAgentEnd(event);
+        return;
+      }
       resolveAgentEndCancelled({
         message: rawErrorMsg,
         category: "aborted",

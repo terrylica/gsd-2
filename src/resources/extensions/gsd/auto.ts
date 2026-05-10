@@ -943,12 +943,13 @@ function setLifecycleOutcome(
     detail?: string | null;
     nextAction: string;
     commands?: string[];
+    unitLabel?: string | null;
   },
 ): void {
   if (!ctx?.hasUI) return;
   setAutoOutcomeWidget(ctx, {
     ...input,
-    unitLabel: currentUnitLabel(),
+    unitLabel: input.unitLabel ?? currentUnitLabel(),
     startedAt: s.autoStartTime,
   });
 }
@@ -1682,6 +1683,8 @@ export async function pauseAuto(
     logWarning("engine", `paused-session DB write failed: ${err instanceof Error ? err.message : String(err)}`, { file: "auto.ts" });
   }
 
+  const pausedUnitLabel = currentUnitLabel();
+
   // Close out the current unit so its runtime record doesn't stay at "dispatched"
   if (s.currentUnit && ctx) {
     try {
@@ -1739,6 +1742,7 @@ export async function pauseAuto(
     detail: _errorContext?.message ?? "Paused by user request.",
     nextAction: `Type to steer, or run ${resumeCmd} to resume.`,
     commands: [resumeCmd, "/gsd status for overview", "/gsd notifications for history"],
+    unitLabel: pausedUnitLabel,
   });
   if (ctx) initHealthWidget(ctx);
   ctx?.ui.notify(

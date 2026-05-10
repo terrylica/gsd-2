@@ -1097,17 +1097,23 @@ export function setAutoOutcomeWidget(
       const icon = snapshot.status === "complete" ? "✓"
         : snapshot.status === "failed" ? "x"
           : snapshot.status === "blocked" ? "!"
-            : snapshot.status === "paused" ? "Ⅱ"
+            : snapshot.status === "paused" ? "||"
               : "●";
       const innerWidth = Math.max(8, width - 4);
+      const maxLines = 7;
       const lines: string[] = [];
       const elapsed = snapshot.startedAt ? formatAutoElapsed(snapshot.startedAt) : "";
       const heading = `${theme.fg(color, icon)} ${theme.fg("accent", theme.bold("GSD"))} ${theme.fg("text", snapshot.title)}`;
       lines.push(rightAlign(heading, elapsed ? theme.fg("dim", elapsed) : "", innerWidth));
+      const commands = snapshot.commands?.filter(Boolean) ?? [];
+      const commandLine = commands.length > 0 ? theme.fg("dim", commands.join("  ·  ")) : null;
 
       const addWrapped = (text: string, prefix = ""): void => {
+        const reserve = commandLine ? 1 : 0;
+        const remaining = Math.max(0, maxLines - reserve - lines.length);
+        if (remaining === 0) return;
         const available = Math.max(8, innerWidth - visibleWidth(prefix));
-        for (const [idx, line] of wrapVisibleText(text, available).entries()) {
+        for (const [idx, line] of wrapVisibleText(text, available).slice(0, remaining).entries()) {
           lines.push(`${idx === 0 ? prefix : " ".repeat(visibleWidth(prefix))}${line}`);
         }
       };
@@ -1120,12 +1126,11 @@ export function setAutoOutcomeWidget(
       }
       addWrapped(snapshot.nextAction, `${theme.fg("success", "Next")}   `);
 
-      const commands = snapshot.commands?.filter(Boolean) ?? [];
-      if (commands.length > 0) {
-        lines.push(theme.fg("dim", commands.join("  ·  ")));
+      if (commandLine && lines.length < maxLines) {
+        lines.push(commandLine);
       }
 
-      return renderFrame(theme, lines.slice(0, 7), width, { borderColor: color, paddingX: 1 });
+      return renderFrame(theme, lines, width, { borderColor: color, paddingX: 1 });
     },
     invalidate(): void {},
     dispose(): void {},
