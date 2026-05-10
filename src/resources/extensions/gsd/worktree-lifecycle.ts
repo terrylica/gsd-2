@@ -568,6 +568,28 @@ export function _enterMilestoneCore(
   }
 }
 
+/**
+ * Resolve the basePath to adopt on resume from a paused session.
+ *
+ * Returns `persistedWorktreePath` when the path is non-null and exists on
+ * disk; otherwise falls back to `base`. Used by
+ * `WorktreeLifecycle.resumeFromPausedSession` (#5621). Exported as a pure
+ * function so unit tests can exercise the path-resolution logic without
+ * constructing a `WorktreeLifecycle` instance.
+ *
+ * The optional `pathExists` parameter exists only for tests that need to
+ * substitute a stub for `existsSync`.
+ */
+export function resolvePausedResumeBasePath(
+  base: string,
+  persistedWorktreePath: string | null | undefined,
+  pathExists: (p: string) => boolean = existsSync,
+): string {
+  return persistedWorktreePath && pathExists(persistedWorktreePath)
+    ? persistedWorktreePath
+    : base;
+}
+
 function rebuildGitService(
   s: AutoSession,
   deps: WorktreeLifecycleDeps,
@@ -1485,6 +1507,29 @@ export class WorktreeLifecycle {
     } else if (!this.s.originalBasePath) {
       this.s.originalBasePath = base;
     }
+  }
+
+  /**
+   * Resume from a paused session (ADR-016 phase 2 / B3, issue #5621).
+   *
+   * Adopts `persistedWorktreePath` as `s.basePath` when the path is
+   * non-null and exists on disk; otherwise falls back to `base`. Mirrors
+   * the resume guard at `auto.ts:2164` — a stale or removed worktree
+   * directory must not strand the resumed session in an invalid root.
+   *
+   * Folds in the body of the legacy `_resolvePausedResumeBasePathForTest`
+   * helper (see `resolvePausedResumeBasePath` below). After this verb
+   * lands the helper is deleted from `auto.ts` per the slice-7 closure
+   * decision to retire `_*ForTest` suffixes from production paths.
+   *
+   * Like `adoptSessionRoot`, this is a pure session-state mutation — no
+   * chdir, no git service rebuild, no cache invalidation.
+   */
+  resumeFromPausedSession(
+    base: string,
+    persistedWorktreePath: string | null,
+  ): void {
+    this.s.basePath = resolvePausedResumeBasePath(base, persistedWorktreePath);
   }
 
   /** True if `milestoneId` is the session's currently-active milestone. */

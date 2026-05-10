@@ -10,7 +10,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
-import { _resolvePausedResumeBasePathForTest } from "../auto.ts";
+// ADR-016 phase 2 / B3 (#5621): the legacy `resolvePausedResumeBasePath`
+// helper was retired and folded into `WorktreeLifecycle.resumeFromPausedSession`.
+// The pure path-resolution function lives in `worktree-lifecycle.ts` for tests
+// that exercise the path-resolution invariant without constructing a session.
+import { resolvePausedResumeBasePath } from "../worktree-lifecycle.ts";
 
 function makeTmpBase(): string {
   const base = join(tmpdir(), `gsd-resume-wt-${randomUUID()}`);
@@ -59,7 +63,7 @@ test("resume base path uses paused-session worktreePath when the worktree exists
   try {
     setupWorktreeOnDisk(wt);
     assert.equal(
-      _resolvePausedResumeBasePathForTest(base, wt),
+      resolvePausedResumeBasePath(base, wt),
       wt,
     );
   } finally {
@@ -72,7 +76,7 @@ test("resume base path falls back to project root when paused worktree is missin
   const wt = makeWorktreePath(base, "M001-test");
   try {
     assert.equal(
-      _resolvePausedResumeBasePathForTest(base, wt),
+      resolvePausedResumeBasePath(base, wt),
       base,
     );
   } finally {
