@@ -44,6 +44,17 @@ import type { AutoSession } from "../auto/session.ts";
 // Permit them in test fixtures so existing override patterns keep working —
 // Lifecycle ignores the extras via structural typing.
 type LegacyTestDeps = WorktreeLifecycleDeps & {
+  enterAutoWorktree: (basePath: string, milestoneId: string) => string;
+  createAutoWorktree: (basePath: string, milestoneId: string) => string;
+  enterBranchModeForMilestone: (basePath: string, milestoneId: string) => void;
+  getAutoWorktreePath: (basePath: string, milestoneId: string) => string | null;
+  isInAutoWorktree: (basePath: string) => boolean;
+  autoWorktreeBranch: (milestoneId: string) => string;
+  teardownAutoWorktree: (
+    basePath: string,
+    milestoneId: string,
+    opts?: { preserveBranch?: boolean },
+  ) => void;
   shouldUseWorktreeIsolation?: () => boolean;
   syncWorktreeStateBack?: (
     mainBasePath: string,
@@ -143,6 +154,7 @@ function makeNotifyCtx(): {
 
 describe("WorktreeResolver.mergeAndExit re-throws MergeConflictError (#2330)", () => {
   let baseDir: string;
+  const savedCwd = process.cwd();
 
   beforeEach(() => {
     baseDir = mkdtempSync(join(tmpdir(), "merge-conflict-stops-loop-"));
@@ -155,9 +167,23 @@ describe("WorktreeResolver.mergeAndExit re-throws MergeConflictError (#2330)", (
       join(baseDir, ".gsd", "milestones", "M001", "M001-ROADMAP.md"),
       "# M001\n",
     );
+    // ADR-016 phase 2 / C3 (#5626): `getIsolationMode` is also inlined.
+    // Without explicit isolation preferences the mode defaults to "none"
+    // and the merge short-circuits before the test's mocked
+    // `mergeMilestoneToMain` is reached. Write a preferences file so the
+    // standalone routes through worktree-mode merge.
+    writeFileSync(
+      join(baseDir, ".gsd", "preferences.md"),
+      "## Git\n- isolation: worktree\n",
+    );
   });
 
   afterEach(() => {
+    // ADR-016 phase 2 / C2 (#5625): the inlined `mergeMilestoneStandalone`
+    // chdirs into the project root before the merge body runs. Restore
+    // cwd before deleting `baseDir` so the next test's `process.cwd()`
+    // doesn't fail with ENOENT.
+    try { process.chdir(savedCwd); } catch { /* best-effort */ }
     try {
       rmSync(baseDir, { recursive: true, force: true });
     } catch {
