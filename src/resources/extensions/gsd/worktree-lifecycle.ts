@@ -296,6 +296,18 @@ type WorktreeLifecyclePrimitiveOverrides = {
   createAutoWorktree?: (basePath: string, milestoneId: string) => string;
   enterAutoWorktree?: (basePath: string, milestoneId: string) => string;
   enterBranchModeForMilestone?: (basePath: string, milestoneId: string) => void;
+  // ADR-016 phase 2 / C3-inlined cache + preferences + path helpers.
+  getIsolationMode?: (basePath?: string) => "worktree" | "branch" | "none";
+  invalidateAllCaches?: () => void;
+  resolveMilestoneFile?: (
+    basePath: string,
+    milestoneId: string,
+    fileType: string,
+  ) => string | null;
+  loadEffectiveGSDPreferences?: () =>
+    | { preferences?: { git?: Record<string, unknown> } }
+    | null
+    | undefined;
 };
 
 function primitiveOverrides(
@@ -408,6 +420,52 @@ function lifecycleEnterBranchMode(
     return;
   }
   enterBranchModeForMilestone(basePath, milestoneId);
+}
+
+// ADR-016 phase 2 / C3-inlined cache + preferences + path helpers.
+function lifecycleGetIsolationMode(
+  deps: WorktreeLifecycleDeps,
+  basePath?: string,
+): "worktree" | "branch" | "none" {
+  return primitiveOverrides(deps).getIsolationMode?.(basePath) ??
+    getIsolationMode(basePath);
+}
+
+function lifecycleInvalidateAllCaches(deps: WorktreeLifecycleDeps): void {
+  const override = primitiveOverrides(deps).invalidateAllCaches;
+  if (override) {
+    override();
+    return;
+  }
+  invalidateAllCaches();
+}
+
+function lifecycleResolveMilestoneFile(
+  deps: WorktreeLifecycleDeps,
+  basePath: string,
+  milestoneId: string,
+  fileType: string,
+): string | null {
+  return primitiveOverrides(deps).resolveMilestoneFile?.(
+    basePath,
+    milestoneId,
+    fileType,
+  ) ?? resolveMilestoneFile(basePath, milestoneId, fileType);
+}
+
+function lifecycleLoadPreferences(
+  deps: WorktreeLifecycleDeps,
+  basePath?: string,
+):
+  | { preferences?: { git?: Record<string, unknown> } }
+  | null
+  | undefined {
+  const override = primitiveOverrides(deps).loadEffectiveGSDPreferences;
+  if (override) return override();
+  return loadEffectiveGSDPreferences(basePath) as
+    | { preferences?: { git?: Record<string, unknown> } }
+    | null
+    | undefined;
 }
 
 /**
@@ -568,7 +626,7 @@ export function _enterMilestoneCore(
   // Handles the case where originalBasePath is falsy and basePath is itself
   // a worktree path — prevents double-nested worktree paths (#3729).
   const basePath = resolveWorktreeProjectRoot(s.basePath, s.originalBasePath);
-  const mode = getIsolationMode(basePath);
+  const mode = lifecycleGetIsolationMode(deps, basePath);
 
   if (mode === "none") {
     debugLog("WorktreeLifecycle", {
@@ -617,7 +675,7 @@ export function _enterMilestoneCore(
       // Rebuild GitService so the new HEAD is reflected, then flush any
       // path-keyed caches that may have been populated before the checkout.
       rebuildGitService(s, deps);
-      invalidateAllCaches();
+      lifecycleInvalidateAllCaches(deps);
       debugLog("WorktreeLifecycle", {
         action: "enterMilestone",
         milestoneId,
@@ -668,7 +726,7 @@ export function _enterMilestoneCore(
 
     s.basePath = wtPath;
     rebuildGitService(s, deps);
-    invalidateAllCaches();
+    lifecycleInvalidateAllCaches(deps);
 
     // Per ADR-016: Lifecycle calls Projection on entry, before any Unit
     // dispatches. Build a temporary scope from the new basePath; callers may
@@ -774,7 +832,7 @@ function rebuildGitService(
   deps: WorktreeLifecycleDeps,
 ): void {
   const gitConfig =
-    loadEffectiveGSDPreferences()?.preferences?.git ?? {};
+    lifecycleLoadPreferences(deps)?.preferences?.git ?? {};
   s.gitService = new deps.GitServiceImpl(
     s.basePath,
     gitConfig,
@@ -837,7 +895,8 @@ function _mergeWorktreeModeImpl(
     // projection silently dropped it or .gsd/ is not symlinked. Without
     // the fallback, a missing roadmap triggers bare teardown which
     // deletes the branch and orphans all milestone commits (#1573).
-    let roadmapPath = resolveMilestoneFile(
+    let roadmapPath = lifecycleResolveMilestoneFile(
+      deps,
       originalBasePath,
       milestoneId,
       "ROADMAP",
@@ -846,7 +905,8 @@ function _mergeWorktreeModeImpl(
       !roadmapPath &&
       !isSamePathPhysical(worktreeBasePath, originalBasePath)
     ) {
-      roadmapPath = resolveMilestoneFile(
+      roadmapPath = lifecycleResolveMilestoneFile(
+        deps,
         worktreeBasePath,
         milestoneId,
         "ROADMAP",
@@ -1031,7 +1091,8 @@ function _mergeBranchModeImpl(
       }
     }
 
-    const roadmapPath = resolveMilestoneFile(
+    const roadmapPath = lifecycleResolveMilestoneFile(
+      deps,
       worktreeBasePath,
       milestoneId,
       "ROADMAP",
@@ -1159,7 +1220,7 @@ export function mergeMilestoneStandalone(
     };
   }
 
-  const mode = getIsolationMode(originalBasePath || worktreeBasePath);
+  const mode = lifecycleGetIsolationMode(deps, originalBasePath || worktreeBasePath);
   debugLog("WorktreeLifecycle", {
     action: "mergeAndExit",
     milestoneId,
@@ -1527,7 +1588,8 @@ export class WorktreeLifecycle {
     try {
       const startSha = this.s.milestoneStartShas.get(milestoneId);
       if (startSha) {
-        const prefs = loadEffectiveGSDPreferences(
+        const prefs = lifecycleLoadPreferences(
+          this.deps,
           this.s.originalBasePath || this.s.basePath,
         )?.preferences;
         if (
@@ -1629,7 +1691,7 @@ export class WorktreeLifecycle {
     try {
       lifecycleEnterBranchMode(this.deps, basePath, milestoneId);
       rebuildGitService(this.s, this.deps);
-      invalidateAllCaches();
+      lifecycleInvalidateAllCaches(this.deps);
       this.s.isolationDegraded = true;
       ctx.notify(
         `Switched to branch milestone/${milestoneId} (isolation degraded).`,
@@ -1657,7 +1719,7 @@ export class WorktreeLifecycle {
     if (!this.s.originalBasePath) return;
     this.s.basePath = this.s.originalBasePath;
     rebuildGitService(this.s, this.deps);
-    invalidateAllCaches();
+    lifecycleInvalidateAllCaches(this.deps);
   }
 
   /**
