@@ -136,6 +136,38 @@ export interface WorktreeLifecycleDeps {
   //   C3 (#5626): invalidateAllCaches, loadEffectiveGSDPreferences,
   //               getIsolationMode, resolveMilestoneFile
   // C4 (#5627) closes out the GitServiceImpl shape next.
+  /**
+   * @deprecated Compatibility-only fields for legacy WorktreeResolver test
+   * fixtures. Lifecycle ignores these at runtime because the corresponding
+   * primitives are now direct imports.
+   */
+  isInAutoWorktree?: (basePath: string) => boolean;
+  getIsolationMode?: (basePath?: string) => string;
+  teardownAutoWorktree?: (
+    basePath: string,
+    milestoneId: string,
+    opts?: { preserveBranch?: boolean },
+  ) => void;
+  createAutoWorktree?: (basePath: string, milestoneId: string) => string;
+  enterAutoWorktree?: (basePath: string, milestoneId: string) => string;
+  enterBranchModeForMilestone?: (basePath: string, milestoneId: string) => void;
+  getAutoWorktreePath?: (basePath: string, milestoneId: string) => string | null;
+  autoCommitCurrentBranch?: (
+    basePath: string,
+    reason: string,
+    milestoneId: string,
+  ) => void;
+  getCurrentBranch?: (basePath: string) => string;
+  checkoutBranch?: (basePath: string, branch: string) => void;
+  autoWorktreeBranch?: (milestoneId: string) => string;
+  resolveMilestoneFile?: (
+    basePath: string,
+    milestoneId: string,
+    fileType: string,
+  ) => string | null;
+  readFileSync?: (path: string, encoding: BufferEncoding) => string;
+  loadEffectiveGSDPreferences?: (basePath?: string) => unknown;
+  invalidateAllCaches?: () => void;
 }
 
 /**
