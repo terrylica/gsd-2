@@ -16,6 +16,25 @@ import { type TaskCommitContext } from "../worktree.js";
 // Permit them in test fixtures so existing override patterns keep working —
 // Lifecycle ignores the extras via structural typing.
 type LegacyTestDeps = WorktreeLifecycleDeps & {
+  enterAutoWorktree: (basePath: string, milestoneId: string) => string;
+  createAutoWorktree: (basePath: string, milestoneId: string) => string;
+  enterBranchModeForMilestone: (basePath: string, milestoneId: string) => void;
+  getAutoWorktreePath: (basePath: string, milestoneId: string) => string | null;
+  isInAutoWorktree: (basePath: string) => boolean;
+  autoCommitCurrentBranch: (
+    basePath: string,
+    reason: string,
+    milestoneId: string,
+  ) => void;
+  autoWorktreeBranch: (milestoneId: string) => string;
+  teardownAutoWorktree: (
+    basePath: string,
+    milestoneId: string,
+    opts?: { preserveBranch?: boolean },
+  ) => void;
+  getCurrentBranch: (basePath: string) => string;
+  checkoutBranch: (basePath: string, branch: string) => void;
+  readFileSync: (path: string, encoding: string) => string;
   shouldUseWorktreeIsolation?: () => boolean;
   syncWorktreeStateBack?: (
     mainBasePath: string,
