@@ -1,13 +1,16 @@
 // Project/App: GSD-2
-// File Purpose: ADR-017 contract tests for drift-driven State Reconciliation
-// (issue #5700). Covers: end-to-end sketch-flag drift, repair-throw path, and
-// Recovery Classification mapping for ReconciliationFailedError.
+// File Purpose: ADR-017 contract tests for drift-driven State Reconciliation.
+// Covers sketch-flag drift (#5700) and merge-state drift (#5701) end-to-end,
+// plus the repair-throw and persistent-drift error paths, and Recovery
+// Classification mapping for ReconciliationFailedError.
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 
 import {
   openDatabase,
@@ -179,6 +182,80 @@ test("ADR-017 (#5700): classifyFailure recognizes ReconciliationFailedError", ()
   assert.equal(result.exitReason, "reconciliation-drift");
   assert.match(result.remediation, /persistent or repair-failed drift kinds/);
 });
+
+// ─── #5701: merge-state drift ────────────────────────────────────────────────
+
+function makeGitBase(): string {
+  const base = join(tmpdir(), `gsd-adr017-merge-${randomUUID()}`);
+  mkdirSync(base, { recursive: true });
+  execFileSync("git", ["init", "--initial-branch=main"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: base, stdio: "ignore" });
+  writeFileSync(join(base, ".gitkeep"), "");
+  execFileSync("git", ["add", "."], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "initial"], { cwd: base, stdio: "ignore" });
+  return base;
+}
+
+function rmTreeQuiet(base: string): void {
+  try {
+    rmSync(base, { recursive: true, force: true });
+  } catch {
+    /* noop */
+  }
+}
+
+test("ADR-017 (#5701): merge-state drift detected and repaired end-to-end", async (t) => {
+  const base = makeGitBase();
+  t.after(() => rmTreeQuiet(base));
+
+  // Build a clean fast-forward-resolvable merge: feature branch with one file,
+  // then start merge --no-commit on main so MERGE_HEAD exists with no conflicts.
+  execFileSync("git", ["checkout", "-b", "feature"], { cwd: base, stdio: "ignore" });
+  writeFileSync(join(base, "feature.txt"), "feature content");
+  execFileSync("git", ["add", "."], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "add feature"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["checkout", "main"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["merge", "--no-ff", "--no-commit", "feature"], { cwd: base, stdio: "ignore" });
+
+  assert.ok(existsSync(join(base, ".git", "MERGE_HEAD")), "pre: MERGE_HEAD exists");
+
+  const result = await reconcileBeforeDispatch(base, {
+    invalidateStateCache: () => {},
+    deriveState: async () => makeState(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(
+    existsSync(join(base, ".git", "MERGE_HEAD")),
+    false,
+    "post: MERGE_HEAD cleared after reconciliation",
+  );
+  const mergeRepaired = result.repaired.find((d) => d.kind === "unmerged-merge-state");
+  assert.ok(mergeRepaired, "repaired list should include the merge-state drift record");
+  if (mergeRepaired?.kind === "unmerged-merge-state") {
+    assert.equal(mergeRepaired.basePath, base);
+  }
+});
+
+test("ADR-017 (#5701): no merge state → detector returns no drift", async (t) => {
+  const base = makeGitBase();
+  t.after(() => rmTreeQuiet(base));
+
+  const result = await reconcileBeforeDispatch(base, {
+    invalidateStateCache: () => {},
+    deriveState: async () => makeState(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(
+    result.repaired.some((d) => d.kind === "unmerged-merge-state"),
+    false,
+    "no merge drift should be reported when the repo is clean",
+  );
+});
+
+// ─── Lifecycle and classification ────────────────────────────────────────────
 
 test("ADR-017 (#5700): cascading drift triggers second pass within cap", async () => {
   // First pass detects drift A; repair "fixes" it. Second pass detects drift B

@@ -122,7 +122,8 @@ export async function reconcileBeforeDispatch(
 async function detectAllDrift(
   state: GSDState,
   ctx: DriftContext,
-  registry: ReadonlyArray<DriftHandler>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  registry: ReadonlyArray<DriftHandler<any>>,
 ): Promise<DriftRecord[]> {
   const collected: DriftRecord[] = [];
   for (const handler of registry) {
