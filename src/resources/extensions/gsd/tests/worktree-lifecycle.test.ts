@@ -54,6 +54,31 @@ type LegacyTestDeps = WorktreeLifecycleDeps & {
   getCurrentBranch?: (basePath: string) => string;
   checkoutBranch?: (basePath: string, branch: string) => void;
   readFileSync?: (path: string, encoding: BufferEncoding) => string;
+  // Legacy retired fields: Lifecycle no longer reads these post-C2/C3, but
+  // tests still write them to track call counts. Listed here so structural
+  // typing accepts them on the deps bag.
+  isInAutoWorktree?: (basePath: string) => boolean;
+  autoWorktreeBranch?: (mid: string) => string;
+  teardownAutoWorktree?: (
+    basePath: string,
+    milestoneId: string,
+    opts?: { preserveBranch?: boolean },
+  ) => void;
+  getIsolationMode?: (basePath?: string) => "worktree" | "branch" | "none";
+  invalidateAllCaches?: () => void;
+  loadEffectiveGSDPreferences?: () =>
+    | { preferences?: { git?: Record<string, unknown> } }
+    | null
+    | undefined;
+  resolveMilestoneFile?: (
+    basePath: string,
+    milestoneId: string,
+    fileType: string,
+  ) => string | null;
+  getAutoWorktreePath?: (
+    basePath: string,
+    milestoneId: string,
+  ) => string | null;
 };
 
 function makeSession(overrides?: Partial<AutoSession>): AutoSession {
@@ -68,22 +93,19 @@ function makeDeps(
   overrides?: Partial<LegacyTestDeps>,
 ): LegacyTestDeps & { calls: CallLog[] } {
   const calls: CallLog[] = [];
-  // ADR-016 phase 2 / C1 + C2 + C3 inlined worktree-manager, fs/git-CLI,
-  // cache, preferences, and path primitives. Tests still pass legacy fields
-  // via `LegacyTestDeps` — Lifecycle ignores the extras structurally and
-  // reads override hooks (`getAutoWorktreePath`, `getCurrentBranch`, etc.)
-  // through the C1-healing primitive-override pattern.
+  // ADR-016 phase 2 / C-track close-out: WorktreeLifecycleDeps is now a
+  // 3-field bag (gitServiceFactory, worktreeProjection, mergeMilestoneToMain).
+  // Tests still pass legacy override hooks via `LegacyTestDeps` — Lifecycle
+  // ignores the extras structurally and reads them through the C1-healing
+  // primitive-override pattern when stubs are needed.
   const deps: LegacyTestDeps & { calls: CallLog[] } = {
     calls,
-    GitServiceImpl: class MockGitService {
-      basePath: string;
-      gitConfig: unknown;
-      constructor(basePath: string, gitConfig: unknown) {
-        calls.push({ fn: "GitServiceImpl", args: [basePath, gitConfig] });
-        this.basePath = basePath;
-        this.gitConfig = gitConfig;
-      }
-    } as unknown as WorktreeLifecycleDeps["GitServiceImpl"],
+    gitServiceFactory: (basePath: string) => {
+      calls.push({ fn: "gitServiceFactory", args: [basePath] });
+      return { basePath } as unknown as ReturnType<
+        WorktreeLifecycleDeps["gitServiceFactory"]
+      >;
+    },
     worktreeProjection: new WorktreeStateProjection(),
     // Legacy stubs — Lifecycle no longer reads these post-C2; preserved as
     // no-ops so existing test fixtures keep type-checking.
@@ -524,9 +546,13 @@ test("restoreToProjectRoot restores basePath to originalBasePath and rebuilds gi
   lifecycle.restoreToProjectRoot();
 
   assert.equal(s.basePath, "/project");
-  // GitServiceImpl is still injected (C4 will retire it). After C3
-  // `invalidateAllCaches` is inlined and no longer routes through deps.
-  assert.equal(deps.calls.filter((c) => c.fn === "GitServiceImpl").length, 1);
+  // After C4 (#5627) the rebuild goes through `gitServiceFactory`
+  // instead of `new GitServiceImpl(...)`. `invalidateAllCaches` is
+  // inlined post-C3 and no longer routes through deps.
+  assert.equal(
+    deps.calls.filter((c) => c.fn === "gitServiceFactory").length,
+    1,
+  );
 });
 
 test("restoreToProjectRoot loads git preferences from restored session base path", () => {
@@ -561,7 +587,7 @@ test("restoreToProjectRoot is no-op when originalBasePath is empty", () => {
   lifecycle.restoreToProjectRoot();
 
   assert.equal(s.basePath, "/some/path"); // unchanged
-  assert.equal(deps.calls.filter((c) => c.fn === "GitServiceImpl").length, 0);
+  assert.equal(deps.calls.filter((c) => c.fn === "gitServiceFactory").length, 0);
 });
 
 // ─── adoptSessionRoot (ADR-016 phase 2 / B2, issue #5620) ─────────────────────
@@ -617,7 +643,7 @@ test("adoptSessionRoot does not chdir, rebuild git service, or invalidate caches
 
   lifecycle.adoptSessionRoot("/project");
 
-  assert.equal(deps.calls.filter((c) => c.fn === "GitServiceImpl").length, 0);
+  assert.equal(deps.calls.filter((c) => c.fn === "gitServiceFactory").length, 0);
   assert.equal(deps.calls.filter((c) => c.fn === "invalidateAllCaches").length, 0);
 });
 
@@ -674,7 +700,7 @@ test("resumeFromPausedSession does not chdir, rebuild git service, or invalidate
 
   lifecycle.resumeFromPausedSession("/project", null);
 
-  assert.equal(deps.calls.filter((c) => c.fn === "GitServiceImpl").length, 0);
+  assert.equal(deps.calls.filter((c) => c.fn === "gitServiceFactory").length, 0);
   assert.equal(deps.calls.filter((c) => c.fn === "invalidateAllCaches").length, 0);
 });
 

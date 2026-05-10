@@ -135,6 +135,8 @@ function makeDeps(
     invalidateAllCaches: () => undefined,
     captureIntegrationBranch: () => undefined,
     worktreeProjection: new WorktreeStateProjection(),
+    // ADR-016 phase 2 / C4 (#5627): GitServiceImpl constructor → factory.
+    gitServiceFactory: () => ({}) as never,
     ...overrides,
   };
 }
