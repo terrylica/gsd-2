@@ -122,7 +122,6 @@ function reconcileOtherInProgressGitOps(
       label: "cherry-pick",
       indicators: [join(gitDir, "CHERRY_PICK_HEAD")],
       abort: () => {
-        // No native helper; fall back to git CLI.
         try {
           execFileSync("git", ["cherry-pick", "--abort"], {
             cwd: basePath,
@@ -130,11 +129,7 @@ function reconcileOtherInProgressGitOps(
             encoding: "utf-8",
           });
         } catch (err) {
-          logWarning(
-            "recovery",
-            `cherry-pick --abort failed: ${getErrorMessage(err)}`,
-          );
-          throw err;
+          throw new Error(`cherry-pick --abort failed: ${getErrorMessage(err)}`);
         }
       },
     },
@@ -149,11 +144,7 @@ function reconcileOtherInProgressGitOps(
             encoding: "utf-8",
           });
         } catch (err) {
-          logWarning(
-            "recovery",
-            `revert --abort failed: ${getErrorMessage(err)}`,
-          );
-          throw err;
+          throw new Error(`revert --abort failed: ${getErrorMessage(err)}`);
         }
       },
     },
