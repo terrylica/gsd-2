@@ -234,8 +234,8 @@ export function formatMcpRow(servers: string[], width: number): string {
  * and workspace state easier to scan.
  */
 export function renderHeaderLines(data: HeaderData, width: number): string[] {
-  const outerWidth = Math.max(1, width);
-  if (outerWidth < 40) return renderStackedHeader(data, outerWidth);
+  if (width < 40) return renderStackedHeader(data, width);
+  const outerWidth = width;
   const innerWidth = Math.max(0, outerWidth - 2);
   const logoLines = GSD_LOGO;
   const logoWidth = Math.max(...logoLines.map((line) => visibleWidth(line)));
@@ -295,7 +295,7 @@ export function renderHeaderLines(data: HeaderData, width: number): string[] {
  * Fallback stacked layout for narrow terminals (< 20 cols for info panel).
  */
 function renderStackedHeader(data: HeaderData, width: number): string[] {
-  const outerWidth = Math.max(1, width);
+  const outerWidth = Math.max(0, width);
   if (outerWidth < 3) {
     return [color(truncateToWidth("GSD", outerWidth, ""), colors.accent)];
   }

@@ -947,9 +947,10 @@ function setLifecycleOutcome(
   },
 ): void {
   if (!ctx?.hasUI) return;
+  const { unitLabel: unitLabelOverride, ...rest } = input;
   setAutoOutcomeWidget(ctx, {
-    ...input,
-    unitLabel: input.unitLabel ?? currentUnitLabel(),
+    ...rest,
+    unitLabel: unitLabelOverride !== undefined ? unitLabelOverride : currentUnitLabel(),
     startedAt: s.autoStartTime,
   });
 }

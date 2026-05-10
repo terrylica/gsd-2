@@ -28,7 +28,10 @@ export class UserMessageComponent extends Container {
 		const messageWidth = chatMessageWidth(frameWidth);
 		const contentWidth = Math.max(1, messageWidth - 2);
 		const lines = super.render(contentWidth);
-		const meta = this.timestamp != null ? formatTimestamp(this.timestamp, this.timestampFormat) : undefined;
+		const meta =
+			this.timestamp !== undefined
+				? formatTimestamp(this.timestamp, this.timestampFormat)
+				: undefined;
 		const framed = renderUserRail(lines, frameWidth, {
 			label: "You",
 			meta,
