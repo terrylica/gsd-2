@@ -9,6 +9,7 @@ import {
   type NotifyCtx,
 } from "../worktree-lifecycle.js";
 import { WorktreeStateProjection } from "../worktree-state-projection.js";
+import { type TaskCommitContext } from "../worktree.js";
 
 // Test-local: LegacyTestDeps had three fields Lifecycle does not need
 // (shouldUseWorktreeIsolation, syncWorktreeStateBack, captureIntegrationBranch).
@@ -22,6 +23,15 @@ type LegacyTestDeps = WorktreeLifecycleDeps & {
     milestoneId: string,
   ) => { synced: string[] };
   captureIntegrationBranch?: (basePath: string, mid: string | undefined) => void;
+  autoCommitCurrentBranch?: (
+    basePath: string,
+    unitType: string,
+    unitId: string,
+    taskContext?: TaskCommitContext,
+  ) => string | null;
+  getCurrentBranch?: (basePath: string) => string;
+  checkoutBranch?: (basePath: string, branch: string) => void;
+  readFileSync?: (path: string, encoding: BufferEncoding) => string;
 };
 import { AutoSession } from "../auto/session.js";
 import type { JournalEntry } from "../journal.js";
@@ -52,7 +62,12 @@ function makeDeps(
     enterAutoWorktree: (_basePath: string, milestoneId: string) =>
       `/project/.gsd/worktrees/${milestoneId}`,
     getAutoWorktreePath: () => null,
-    autoCommitCurrentBranch: () => {},
+    autoCommitCurrentBranch: (
+      _basePath: string,
+      _unitType: string,
+      _unitId: string,
+      _taskContext?: TaskCommitContext,
+    ) => null,
     getCurrentBranch: () => "main",
     checkoutBranch: () => {},
     autoWorktreeBranch: (milestoneId: string) => `milestone/${milestoneId}`,

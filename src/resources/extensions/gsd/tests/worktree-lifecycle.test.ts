@@ -12,6 +12,7 @@ import {
   type NotifyCtx,
 } from "../worktree-lifecycle.js";
 import { WorktreeStateProjection } from "../worktree-state-projection.js";
+import { type TaskCommitContext } from "../worktree.js";
 import { AutoSession } from "../auto/session.js";
 import { openDatabase, closeDatabase, insertMilestone } from "../gsd-db.js";
 import { registerAutoWorker } from "../db/auto-workers.js";
@@ -24,6 +25,18 @@ interface CallLog {
   args: unknown[];
 }
 
+type LegacyTestDeps = WorktreeLifecycleDeps & {
+  autoCommitCurrentBranch?: (
+    basePath: string,
+    unitType: string,
+    unitId: string,
+    taskContext?: TaskCommitContext,
+  ) => string | null;
+  getCurrentBranch?: (basePath: string) => string;
+  checkoutBranch?: (basePath: string, branch: string) => void;
+  readFileSync?: (path: string, encoding: BufferEncoding) => string;
+};
+
 function makeSession(overrides?: Partial<AutoSession>): AutoSession {
   const s = new AutoSession();
   s.basePath = overrides?.basePath ?? "/project";
@@ -33,10 +46,10 @@ function makeSession(overrides?: Partial<AutoSession>): AutoSession {
 }
 
 function makeDeps(
-  overrides?: Partial<WorktreeLifecycleDeps>,
-): WorktreeLifecycleDeps & { calls: CallLog[] } {
+  overrides?: Partial<LegacyTestDeps>,
+): LegacyTestDeps & { calls: CallLog[] } {
   const calls: CallLog[] = [];
-  const deps: WorktreeLifecycleDeps & { calls: CallLog[] } = {
+  const deps: LegacyTestDeps & { calls: CallLog[] } = {
     calls,
     enterAutoWorktree: (basePath, milestoneId) => {
       calls.push({ fn: "enterAutoWorktree", args: [basePath, milestoneId] });
@@ -80,7 +93,15 @@ function makeDeps(
     // These tests focus on enter; merge-side helpers are no-op stubs.
     worktreeProjection: new WorktreeStateProjection(),
     isInAutoWorktree: () => false,
-    autoCommitCurrentBranch: () => {},
+    autoCommitCurrentBranch: (
+      basePath: string,
+      unitType: string,
+      unitId: string,
+      taskContext?: TaskCommitContext,
+    ) => {
+      calls.push({ fn: "autoCommitCurrentBranch", args: [basePath, unitType, unitId, taskContext] });
+      return null;
+    },
     autoWorktreeBranch: (mid: string) => `milestone/${mid}`,
     teardownAutoWorktree: () => {},
     mergeMilestoneToMain: () => ({ pushed: false, codeFilesChanged: true }),

@@ -29,13 +29,14 @@
 
 import { describe, test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { WorktreeLifecycle, type WorktreeLifecycleDeps } from "../worktree-lifecycle.ts";
 import { WorktreeStateProjection } from "../worktree-state-projection.ts";
 import { MergeConflictError } from "../git-service.ts";
+import { type TaskCommitContext } from "../worktree.ts";
 import type { AutoSession } from "../auto/session.ts";
 
 // Test-local: LegacyTestDeps had three fields Lifecycle does not need
@@ -50,6 +51,15 @@ type LegacyTestDeps = WorktreeLifecycleDeps & {
     milestoneId: string,
   ) => { synced: string[] };
   captureIntegrationBranch?: (basePath: string, mid: string | undefined) => void;
+  autoCommitCurrentBranch?: (
+    basePath: string,
+    unitType: string,
+    unitId: string,
+    taskContext?: TaskCommitContext,
+  ) => string | null;
+  getCurrentBranch?: (basePath: string) => string;
+  checkoutBranch?: (basePath: string, branch: string) => void;
+  readFileSync?: (path: string, encoding: BufferEncoding) => string;
 };
 
 /**
@@ -96,7 +106,12 @@ function makeDeps(
     enterAutoWorktree: () => "",
     enterBranchModeForMilestone: () => undefined,
     getAutoWorktreePath: () => null,
-    autoCommitCurrentBranch: () => undefined,
+    autoCommitCurrentBranch: (
+      _basePath: string,
+      _unitType: string,
+      _unitId: string,
+      _taskContext?: TaskCommitContext,
+    ) => null,
     getCurrentBranch: () => "worktree/M001",
     checkoutBranch: () => undefined,
     autoWorktreeBranch: (mid: string) => `worktree/${mid}`,
@@ -133,6 +148,13 @@ describe("WorktreeResolver.mergeAndExit re-throws MergeConflictError (#2330)", (
     baseDir = mkdtempSync(join(tmpdir(), "merge-conflict-stops-loop-"));
     // Fake out a milestone directory so mergeAndExit reaches mergeMilestoneToMain.
     mkdirSync(join(baseDir, ".gsd", "milestones", "M001"), { recursive: true });
+    // ADR-016 phase 2 / C1 (#5624): worktree-lifecycle.ts now calls
+    // node:fs.readFileSync directly (the dep was retired), so the roadmap
+    // file must exist on disk for the test to reach mergeMilestoneToMain.
+    writeFileSync(
+      join(baseDir, ".gsd", "milestones", "M001", "M001-ROADMAP.md"),
+      "# M001\n",
+    );
   });
 
   afterEach(() => {
