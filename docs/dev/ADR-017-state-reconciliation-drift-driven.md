@@ -94,7 +94,7 @@ async function reconcileBeforeDispatch(
 
 `state-reconciliation/` folder owns detectors **and** repairs:
 
-```
+```text
 state-reconciliation/
   index.ts          → reconcileBeforeDispatch
   errors.ts         → ReconciliationFailedError

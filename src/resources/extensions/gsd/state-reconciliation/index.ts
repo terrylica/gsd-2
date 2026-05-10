@@ -65,7 +65,7 @@ export async function reconcileBeforeDispatch(
     const stateSnapshot = await deps.deriveState(basePath, deps.deriveStateOptions);
     const ctx: DriftContext = { basePath, state: stateSnapshot };
 
-    const drift = await detectAllDrift(stateSnapshot, ctx, registry);
+    const drift = await detectAllDrift(stateSnapshot, ctx, registry, pass);
     if (drift.length === 0) {
       return {
         ok: true,
@@ -105,7 +105,7 @@ export async function reconcileBeforeDispatch(
   deps.invalidateStateCache();
   const finalState = await deps.deriveState(basePath, deps.deriveStateOptions);
   const finalCtx: DriftContext = { basePath, state: finalState };
-  const persistent = await detectAllDrift(finalState, finalCtx, registry);
+  const persistent = await detectAllDrift(finalState, finalCtx, registry, MAX_PASSES);
 
   if (persistent.length > 0) {
     throw new ReconciliationFailedError({ persistentDrift: persistent });
@@ -124,11 +124,28 @@ async function detectAllDrift(
   ctx: DriftContext,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   registry: ReadonlyArray<DriftHandler<any>>,
+  pass: number,
 ): Promise<DriftRecord[]> {
   const collected: DriftRecord[] = [];
   for (const handler of registry) {
-    const detected = await handler.detect(state, ctx);
-    collected.push(...detected);
+    try {
+      const detected = await handler.detect(state, ctx);
+      collected.push(...detected);
+    } catch (cause) {
+      throw new ReconciliationFailedError({
+        detectionFailures: [
+          {
+            handlerKind: handler.kind,
+            phase: "detect",
+            basePath: ctx.basePath,
+            statePhase: state.phase,
+            activeMilestoneId: state.activeMilestone?.id,
+            cause,
+          },
+        ],
+        pass,
+      });
+    }
   }
   return collected;
 }

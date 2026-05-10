@@ -136,6 +136,42 @@ test("ADR-017 (#5700): repair failure throws ReconciliationFailedError with shap
   );
 });
 
+test("ADR-017 (#5700): detector failure throws ReconciliationFailedError with shape", async () => {
+  const handler: DriftHandler = {
+    kind: "stale-sketch-flag",
+    detect: () => {
+      throw new Error("simulated detect failure");
+    },
+    repair: () => {
+      /* detect fails before repair */
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      reconcileBeforeDispatch("/project", {
+        invalidateStateCache: () => {},
+        deriveState: async () => makeState(),
+        registry: [handler],
+      }),
+    (err: unknown) => {
+      assert.ok(err instanceof ReconciliationFailedError, "must be ReconciliationFailedError");
+      assert.equal(err.detectionFailures.length, 1);
+      assert.equal(err.detectionFailures[0]?.handlerKind, "stale-sketch-flag");
+      assert.equal(err.detectionFailures[0]?.phase, "detect");
+      assert.equal(err.detectionFailures[0]?.basePath, "/project");
+      assert.equal(err.detectionFailures[0]?.statePhase, "planning");
+      assert.equal(err.detectionFailures[0]?.activeMilestoneId, "M001");
+      assert.ok(err.detectionFailures[0]?.cause instanceof Error);
+      assert.equal((err.detectionFailures[0]?.cause as Error).message, "simulated detect failure");
+      assert.equal(err.pass, 0);
+      assert.equal(err.failures.length, 0);
+      assert.equal(err.persistentDrift.length, 0);
+      return true;
+    },
+  );
+});
+
 test("ADR-017 (#5700): persistent drift after cap=2 throws ReconciliationFailedError", async () => {
   // Detect always returns one drift; repair is a no-op (drift never goes away).
   const persistent: DriftRecord = { kind: "stale-sketch-flag", mid: "M001", sid: "S02" };
@@ -236,6 +272,48 @@ test("ADR-017 (#5701): merge-state drift detected and repaired end-to-end", asyn
   if (mergeRepaired?.kind === "unmerged-merge-state") {
     assert.equal(mergeRepaired.basePath, base);
   }
+});
+
+test("ADR-017 (#5701): merge-state drift is detected in linked worktrees", async (t) => {
+  const base = makeGitBase();
+  const worktree = join(tmpdir(), `gsd-adr017-worktree-${randomUUID()}`);
+  t.after(() => {
+    rmTreeQuiet(worktree);
+    rmTreeQuiet(base);
+  });
+
+  execFileSync("git", ["checkout", "-b", "feature"], { cwd: base, stdio: "ignore" });
+  writeFileSync(join(base, "feature.txt"), "feature content");
+  execFileSync("git", ["add", "."], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "add feature"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["checkout", "main"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["worktree", "add", "-b", "wt-main", worktree, "main"], {
+    cwd: base,
+    stdio: "ignore",
+  });
+  execFileSync("git", ["merge", "--no-ff", "--no-commit", "feature"], {
+    cwd: worktree,
+    stdio: "ignore",
+  });
+
+  const mergeHeadPath = execFileSync("git", ["rev-parse", "--git-path", "MERGE_HEAD"], {
+    cwd: worktree,
+    encoding: "utf-8",
+  }).trim();
+  assert.ok(existsSync(mergeHeadPath), "pre: MERGE_HEAD exists in resolved worktree gitdir");
+  assert.equal(existsSync(join(worktree, ".git", "MERGE_HEAD")), false);
+
+  const result = await reconcileBeforeDispatch(worktree, {
+    invalidateStateCache: () => {},
+    deriveState: async () => makeState(),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(existsSync(mergeHeadPath), false, "post: MERGE_HEAD cleared after reconciliation");
+  assert.ok(
+    result.repaired.some((d) => d.kind === "unmerged-merge-state"),
+    "repaired list should include the worktree merge-state drift record",
+  );
 });
 
 test("ADR-017 (#5701): no merge state → detector returns no drift", async (t) => {

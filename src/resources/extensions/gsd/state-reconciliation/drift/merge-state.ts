@@ -7,7 +7,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 import type { ExtensionContext } from "@gsd/pi-coding-agent";
 
@@ -33,6 +33,24 @@ type NotifyFn = (
 ) => void;
 
 const SILENT_NOTIFY: NotifyFn = () => {};
+
+function resolveGitDir(basePath: string): string {
+  try {
+    const gitDir = execFileSync("git", ["rev-parse", "--git-dir"], {
+      cwd: basePath,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+    }).trim();
+
+    if (gitDir.length > 0) {
+      return isAbsolute(gitDir) ? gitDir : resolve(basePath, gitDir);
+    }
+  } catch (err) {
+    logWarning("recovery", `gitdir resolution failed: ${getErrorMessage(err)}`);
+  }
+
+  return join(basePath, ".git");
+}
 
 /**
  * Best-effort abort of a pending merge/squash and hard-reset to HEAD.
@@ -88,7 +106,7 @@ function reconcileOtherInProgressGitOps(
   basePath: string,
   notify: NotifyFn,
 ): MergeReconcileResult {
-  const gitDir = join(basePath, ".git");
+  const gitDir = resolveGitDir(basePath);
   const states: Array<{
     label: string;
     indicators: string[];
@@ -115,6 +133,7 @@ function reconcileOtherInProgressGitOps(
             "recovery",
             `cherry-pick --abort failed: ${getErrorMessage(err)}`,
           );
+          throw err;
         }
       },
     },
@@ -133,6 +152,7 @@ function reconcileOtherInProgressGitOps(
             "recovery",
             `revert --abort failed: ${getErrorMessage(err)}`,
           );
+          throw err;
         }
       },
     },
@@ -177,8 +197,9 @@ function reconcileMergeStateCore(
   const otherOpsResult = reconcileOtherInProgressGitOps(basePath, notify);
   if (otherOpsResult === "blocked") return "blocked";
 
-  const mergeHeadPath = join(basePath, ".git", "MERGE_HEAD");
-  const squashMsgPath = join(basePath, ".git", "SQUASH_MSG");
+  const gitDir = resolveGitDir(basePath);
+  const mergeHeadPath = join(gitDir, "MERGE_HEAD");
+  const squashMsgPath = join(gitDir, "SQUASH_MSG");
   const hasMergeHead = existsSync(mergeHeadPath);
   const hasSquashMsg = existsSync(squashMsgPath);
   if (!hasMergeHead && !hasSquashMsg) {
@@ -280,7 +301,7 @@ export function reconcileMergeState(
 type MergeStateDrift = Extract<DriftRecord, { kind: "unmerged-merge-state" }>;
 
 function hasMergeStateLeftovers(basePath: string): boolean {
-  const gitDir = join(basePath, ".git");
+  const gitDir = resolveGitDir(basePath);
   return (
     existsSync(join(gitDir, "MERGE_HEAD")) ||
     existsSync(join(gitDir, "SQUASH_MSG")) ||
