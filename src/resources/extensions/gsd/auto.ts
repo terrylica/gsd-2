@@ -1026,18 +1026,27 @@ export async function cleanupAfterLoopExit(ctx: ExtensionContext): Promise<void>
   if (s.originalBasePath) {
     try {
       buildLifecycle().restoreToProjectRoot();
-      process.chdir(s.basePath);
+    } catch (err) {
+      logWarning(
+        "engine",
+        `restore project root failed: ${err instanceof Error ? err.message : String(err)}`,
+        { file: "auto.ts" },
+      );
+      s.basePath = s.originalBasePath;
+    }
+    try {
+      process.chdir(s.originalBasePath);
     } catch (err) {
       logWarning("engine", `basePath restore/chdir failed: ${err instanceof Error ? err.message : String(err)}`, { file: "auto.ts" });
     }
   }
 
   if (s.originalBasePath && s.cmdCtx) {
-    const result = await rerootCommandSession(s.cmdCtx, s.basePath);
+    const result = await rerootCommandSession(s.cmdCtx, s.originalBasePath);
     if (result.status === "cancelled") {
-      logWarning("engine", "post-loop session re-root was cancelled", { file: "auto.ts", basePath: s.basePath });
+      logWarning("engine", "post-loop session re-root was cancelled", { file: "auto.ts", basePath: s.originalBasePath });
     } else if (result.status === "failed") {
-      logWarning("engine", `post-loop session re-root failed: ${result.error ?? "unknown"}`, { file: "auto.ts", basePath: s.basePath });
+      logWarning("engine", `post-loop session re-root failed: ${result.error ?? "unknown"}`, { file: "auto.ts", basePath: s.originalBasePath });
     }
   }
 }

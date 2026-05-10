@@ -129,14 +129,9 @@ function makeGitRepoBase(opts?: {
   return base;
 }
 
-// Captured at module load — fixtures that chdir into temp dirs restore here
-// during cleanup so subsequent tests calling `process.cwd()` don't ENOENT
-// on a removed directory.
-const TEST_MODULE_CWD = process.cwd();
-
-function cleanupRepoBase(base: string): void {
+function cleanupRepoBase(base: string, previousCwd: string): void {
   try { closeDatabase(); } catch { /* noop */ }
-  try { process.chdir(TEST_MODULE_CWD); } catch { /* noop */ }
+  try { process.chdir(previousCwd); } catch { /* noop */ }
   try { rmSync(base, { recursive: true, force: true }); } catch { /* noop */ }
 }
 
@@ -170,8 +165,9 @@ test("enterMilestone returns ok:true mode:worktree on successful create", (t) =>
   // inlined, so the success path needs a real git repo. The test exercises
   // Lifecycle.enterMilestone end-to-end against `createAutoWorktree`'s
   // real implementation in `auto-worktree.ts`.
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "worktree" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
 
   const s = makeSession({ basePath: base, originalBasePath: base });
   const deps = makeDeps();
@@ -201,8 +197,9 @@ test("enterMilestone returns ok:true mode:worktree on successful create", (t) =>
 test("enterMilestone returns ok:true mode:branch on successful branch fallback", (t) => {
   // Real fixture with isolation:branch — `enterBranchModeForMilestone`'s
   // real implementation runs against the temp repo.
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "branch" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
 
   const s = makeSession({ basePath: base, originalBasePath: base });
   const deps = makeDeps({ getIsolationMode: () => "branch" });
@@ -248,16 +245,17 @@ test("enterMilestone returns ok:false reason:isolation-degraded when session deg
   if (!result.ok) {
     assert.equal(result.reason, "isolation-degraded");
   }
-  // No worktree primitives invoked
-  assert.equal(deps.calls.filter((c) => c.fn === "createAutoWorktree").length, 0);
-  assert.equal(deps.calls.filter((c) => c.fn === "enterAutoWorktree").length, 0);
+  assert.equal(s.basePath, "/project");
+  assert.equal(s.milestoneLeaseToken, null);
+  assert.equal(deps.calls.filter((c) => c.fn === "getIsolationMode").length, 0);
 });
 
 test("enterMilestone returns ok:false reason:creation-failed and degrades session on worktree throw", (t) => {
   // After C2 the worktree-manager primitives are inlined. Use a real
   // fixture and break the repo by deleting `.git` so any git op throws.
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "worktree" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
   rmSync(join(base, ".git"), { recursive: true, force: true });
 
   const s = makeSession({ basePath: base, originalBasePath: base });
@@ -280,8 +278,9 @@ test("enterMilestone returns ok:false reason:creation-failed and degrades sessio
 test("enterMilestone returns ok:false reason:creation-failed when branch mode throws", (t) => {
   // Branch-mode failure scenario: real fixture with isolation:branch, but
   // delete the `.git` directory so any branch operation throws.
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "branch" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
   rmSync(join(base, ".git"), { recursive: true, force: true });
 
   const s = makeSession({ basePath: base, originalBasePath: base });
@@ -302,8 +301,9 @@ test("enterMilestone enters existing worktree when path resolves", (t) => {
   // After C2, `getAutoWorktreePath` runs against real git. To exercise the
   // "existing worktree" branch we pre-create the worktree on disk so
   // git's worktree list includes it.
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "worktree" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
   const wt = join(base, ".gsd", "worktrees", "M001");
   execFileSync("git", ["checkout", "-b", "milestone/M001"], {
     cwd: base,
@@ -355,8 +355,11 @@ test("enterMilestone returns ok:false reason:lease-conflict when another worker 
     assert.equal(result.reason, "lease-conflict");
   }
   assert.equal(s.isolationDegraded, false);
-  assert.equal(deps.calls.filter((c) => c.fn === "createAutoWorktree").length, 0);
-  assert.equal(deps.calls.filter((c) => c.fn === "enterAutoWorktree").length, 0);
+  assert.equal(s.basePath, base);
+  assert.equal(s.milestoneLeaseToken, null);
+  assert.equal(deps.calls.filter((c) => c.fn === "getIsolationMode").length, 0);
+  assert.equal(ctx.messages.length, 1);
+  assert.equal(ctx.messages[0]?.level, "error");
 });
 
 test("enterMilestone is idempotent when already in the milestone worktree", (t) => {
@@ -364,8 +367,9 @@ test("enterMilestone is idempotent when already in the milestone worktree", (t) 
   // the worktree path with currentMilestoneId set, so the idempotency
   // early-return inside `_enterMilestoneCore` fires without invoking the
   // inlined worktree primitives.
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "worktree" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
   const wt = join(base, ".gsd", "worktrees", "M001");
 
   const s = makeSession({
@@ -452,8 +456,9 @@ test("degradeToBranchMode sets isolationDegraded and runs branch-mode setup", (t
   // After C2, `enterBranchModeForMilestone` runs against real git. Use a
   // real fixture so the branch checkout succeeds and we can observe the
   // session's isolationDegraded flag flip.
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "branch" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
 
   const s = makeSession({ basePath: base, originalBasePath: base });
   const deps = makeDeps();
@@ -649,8 +654,9 @@ test("resumeFromPausedSession does not chdir, rebuild git service, or invalidate
 // null" test uses a fixture WITHOUT a worktree so the real call returns null.
 
 test("adoptOrphanWorktree swaps to worktree path and reverts to base on !merged", (t) => {
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "worktree" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
   const wt = join(base, ".gsd", "worktrees", "M001");
   execFileSync("git", ["checkout", "-b", "milestone/M001"], { cwd: base, stdio: "pipe" });
   execFileSync("git", ["checkout", "main"], { cwd: base, stdio: "pipe" });
@@ -675,8 +681,9 @@ test("adoptOrphanWorktree swaps to worktree path and reverts to base on !merged"
 });
 
 test("adoptOrphanWorktree holds the swap on merged && active", (t) => {
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "worktree" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
   const wt = join(base, ".gsd", "worktrees", "M001");
   execFileSync("git", ["checkout", "-b", "milestone/M001"], { cwd: base, stdio: "pipe" });
   execFileSync("git", ["checkout", "main"], { cwd: base, stdio: "pipe" });
@@ -697,8 +704,9 @@ test("adoptOrphanWorktree holds the swap on merged && active", (t) => {
 });
 
 test("adoptOrphanWorktree restores prior paths on merged && !active", (t) => {
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "worktree" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
   const wt = join(base, ".gsd", "worktrees", "M001");
   execFileSync("git", ["checkout", "-b", "milestone/M001"], { cwd: base, stdio: "pipe" });
   execFileSync("git", ["checkout", "main"], { cwd: base, stdio: "pipe" });
@@ -721,8 +729,9 @@ test("adoptOrphanWorktree restores prior paths on merged && !active", (t) => {
 test("adoptOrphanWorktree falls back to base when getAutoWorktreePath returns null", (t) => {
   // Real fixture with isolation:worktree but NO worktree pre-created — the
   // real `getAutoWorktreePath` returns null so the verb falls back to base.
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "worktree" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
 
   const s = makeSession();
   s.basePath = "/old";
@@ -804,8 +813,9 @@ test("adoptOrphanWorktree rejects traversal-style milestone ids before path reso
 });
 
 test("adoptOrphanWorktree forwards the callback's return value", (t) => {
+  const previousCwd = process.cwd();
   const base = makeGitRepoBase({ isolation: "worktree" });
-  t.after(() => cleanupRepoBase(base));
+  t.after(() => cleanupRepoBase(base, previousCwd));
 
 
   const s = makeSession();
