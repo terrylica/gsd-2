@@ -18,6 +18,7 @@ import {
 } from "../worktree-lifecycle.js";
 import { WorktreeStateProjection } from "../worktree-state-projection.js";
 import { resolveWorktreeProjectRoot } from "../worktree-root.js";
+import { type TaskCommitContext } from "../worktree.js";
 import { AutoSession } from "../auto/session.js";
 
 /**
@@ -34,6 +35,15 @@ type LegacyTestDeps = WorktreeLifecycleDeps & {
     milestoneId: string,
   ) => { synced: string[] };
   captureIntegrationBranch?: (basePath: string, mid: string | undefined) => void;
+  autoCommitCurrentBranch?: (
+    basePath: string,
+    unitType: string,
+    unitId: string,
+    taskContext?: TaskCommitContext,
+  ) => string | null;
+  getCurrentBranch?: (basePath: string) => string;
+  checkoutBranch?: (basePath: string, branch: string) => void;
+  readFileSync?: (path: string, encoding: BufferEncoding) => string;
 };
 
 /**
@@ -175,13 +185,15 @@ function makeDeps(
     },
     autoCommitCurrentBranch: (
       basePath: string,
-      reason: string,
-      milestoneId: string,
+      unitType: string,
+      unitId: string,
+      taskContext?: TaskCommitContext,
     ) => {
       calls.push({
         fn: "autoCommitCurrentBranch",
-        args: [basePath, reason, milestoneId],
+        args: [basePath, unitType, unitId, taskContext],
       });
+      return null;
     },
     getCurrentBranch: (basePath: string) => {
       calls.push({ fn: "getCurrentBranch", args: [basePath] });

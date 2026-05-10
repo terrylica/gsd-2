@@ -36,6 +36,7 @@ import { tmpdir } from "node:os";
 import { WorktreeLifecycle, type WorktreeLifecycleDeps } from "../worktree-lifecycle.ts";
 import { WorktreeStateProjection } from "../worktree-state-projection.ts";
 import { MergeConflictError } from "../git-service.ts";
+import { type TaskCommitContext } from "../worktree.ts";
 import type { AutoSession } from "../auto/session.ts";
 
 // Test-local: LegacyTestDeps had three fields Lifecycle does not need
@@ -50,6 +51,15 @@ type LegacyTestDeps = WorktreeLifecycleDeps & {
     milestoneId: string,
   ) => { synced: string[] };
   captureIntegrationBranch?: (basePath: string, mid: string | undefined) => void;
+  autoCommitCurrentBranch?: (
+    basePath: string,
+    unitType: string,
+    unitId: string,
+    taskContext?: TaskCommitContext,
+  ) => string | null;
+  getCurrentBranch?: (basePath: string) => string;
+  checkoutBranch?: (basePath: string, branch: string) => void;
+  readFileSync?: (path: string, encoding: BufferEncoding) => string;
 };
 
 /**
@@ -96,7 +106,12 @@ function makeDeps(
     enterAutoWorktree: () => "",
     enterBranchModeForMilestone: () => undefined,
     getAutoWorktreePath: () => null,
-    autoCommitCurrentBranch: () => undefined,
+    autoCommitCurrentBranch: (
+      _basePath: string,
+      _unitType: string,
+      _unitId: string,
+      _taskContext?: TaskCommitContext,
+    ) => null,
     getCurrentBranch: () => "worktree/M001",
     checkoutBranch: () => undefined,
     autoWorktreeBranch: (mid: string) => `worktree/${mid}`,
