@@ -156,16 +156,12 @@ test("ADR-017 (#5700): detector failure throws ReconciliationFailedError with sh
       }),
     (err: unknown) => {
       assert.ok(err instanceof ReconciliationFailedError, "must be ReconciliationFailedError");
-      assert.equal(err.detectionFailures.length, 1);
-      assert.equal(err.detectionFailures[0]?.handlerKind, "stale-sketch-flag");
-      assert.equal(err.detectionFailures[0]?.phase, "detect");
-      assert.equal(err.detectionFailures[0]?.basePath, "/project");
-      assert.equal(err.detectionFailures[0]?.statePhase, "planning");
-      assert.equal(err.detectionFailures[0]?.activeMilestoneId, "M001");
-      assert.ok(err.detectionFailures[0]?.cause instanceof Error);
-      assert.equal((err.detectionFailures[0]?.cause as Error).message, "simulated detect failure");
+      assert.equal(err.failures.length, 1);
+      assert.equal(err.failures[0]?.drift.kind, "stale-sketch-flag");
+      assert.ok(err.failures[0]?.cause instanceof Error);
+      assert.equal((err.failures[0]?.cause as Error).message, "simulated detect failure");
       assert.equal(err.pass, 0);
-      assert.equal(err.failures.length, 0);
+      assert.equal(err.detectionFailures.length, 0);
       assert.equal(err.persistentDrift.length, 0);
       return true;
     },

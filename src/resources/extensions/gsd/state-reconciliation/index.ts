@@ -105,7 +105,7 @@ export async function reconcileBeforeDispatch(
   deps.invalidateStateCache();
   const finalState = await deps.deriveState(basePath, deps.deriveStateOptions);
   const finalCtx: DriftContext = { basePath, state: finalState };
-  const persistent = await detectAllDrift(finalState, finalCtx, registry, MAX_PASSES);
+  const persistent = await detectAllDrift(finalState, finalCtx, registry);
 
   if (persistent.length > 0) {
     throw new ReconciliationFailedError({ persistentDrift: persistent });
@@ -124,7 +124,7 @@ async function detectAllDrift(
   ctx: DriftContext,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   registry: ReadonlyArray<DriftHandler<any>>,
-  pass: number,
+  pass?: number,
 ): Promise<DriftRecord[]> {
   const collected: DriftRecord[] = [];
   for (const handler of registry) {
@@ -133,16 +133,7 @@ async function detectAllDrift(
       collected.push(...detected);
     } catch (cause) {
       throw new ReconciliationFailedError({
-        detectionFailures: [
-          {
-            handlerKind: handler.kind,
-            phase: "detect",
-            basePath: ctx.basePath,
-            statePhase: state.phase,
-            activeMilestoneId: state.activeMilestone?.id,
-            cause,
-          },
-        ],
+        failures: [{ drift: { kind: handler.kind } as DriftRecord, cause }],
         pass,
       });
     }
