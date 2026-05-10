@@ -96,8 +96,16 @@ export interface NotifyCtx {
  * recursion retires; shrinking it now would force a parallel migration.
  */
 export interface WorktreeLifecycleDeps {
-  // ── Git service rebuild ──────────────────────────────────────────────
-  GitServiceImpl: new (basePath: string, gitConfig?: GitPreferences) => unknown;
+  // ── Git service factory (ADR-016 phase 2 / C4) ───────────────────────
+  /**
+   * Build a fresh `GitService` instance bound to `basePath`.
+   *
+   * Hides the constructor shape (new GitServiceImpl(basePath, gitConfig))
+   * and the gitConfig load from Lifecycle. The factory takes only a
+   * `basePath` and is responsible for loading any config it needs.
+   * Tests substitute fakes by passing a function that returns a stub.
+   */
+  gitServiceFactory: (basePath: string) => AutoSession["gitService"];
 
   // ── State Projection Module (ADR-016 one-way edge) ───────────────────
   /**
@@ -126,8 +134,8 @@ export interface WorktreeLifecycleDeps {
     commitMessage?: string;
   };
 
-  // ADR-016 phase 2 / C1 + C2 + C3 inlined the following fields as direct
-  // imports — leaf primitives that did not vary across callers:
+  // ADR-016 phase 2 / C1 + C2 + C3 + C4 inlined the following fields as
+  // direct imports — leaf primitives that did not vary across callers:
   //   C1 (#5624): readFileSync, getCurrentBranch, checkoutBranch,
   //               autoCommitCurrentBranch
   //   C2 (#5625): enterAutoWorktree, createAutoWorktree,
@@ -135,7 +143,11 @@ export interface WorktreeLifecycleDeps {
   //               teardownAutoWorktree, isInAutoWorktree, autoWorktreeBranch
   //   C3 (#5626): invalidateAllCaches, loadEffectiveGSDPreferences,
   //               getIsolationMode, resolveMilestoneFile
-  // C4 (#5627) closes out the GitServiceImpl shape next.
+  //   C4 (#5627): GitServiceImpl constructor → gitServiceFactory above
+  //
+  // Final dep bag: 3 fields (gitServiceFactory, worktreeProjection,
+  // mergeMilestoneToMain). The ADR's envisioned shape was ≤6.
+
   /**
    * @deprecated Compatibility-only fields for legacy WorktreeResolver test
    * fixtures. Lifecycle ignores these at runtime because the corresponding
@@ -626,7 +638,7 @@ export function _enterMilestoneCore(
   // Handles the case where originalBasePath is falsy and basePath is itself
   // a worktree path — prevents double-nested worktree paths (#3729).
   const basePath = resolveWorktreeProjectRoot(s.basePath, s.originalBasePath);
-  const mode = lifecycleGetIsolationMode(deps, basePath);
+  const mode = getIsolationMode(basePath);
 
   if (mode === "none") {
     debugLog("WorktreeLifecycle", {
@@ -675,7 +687,7 @@ export function _enterMilestoneCore(
       // Rebuild GitService so the new HEAD is reflected, then flush any
       // path-keyed caches that may have been populated before the checkout.
       rebuildGitService(s, deps);
-      lifecycleInvalidateAllCaches(deps);
+      invalidateAllCaches();
       debugLog("WorktreeLifecycle", {
         action: "enterMilestone",
         milestoneId,
@@ -726,7 +738,7 @@ export function _enterMilestoneCore(
 
     s.basePath = wtPath;
     rebuildGitService(s, deps);
-    lifecycleInvalidateAllCaches(deps);
+    invalidateAllCaches();
 
     // Per ADR-016: Lifecycle calls Projection on entry, before any Unit
     // dispatches. Build a temporary scope from the new basePath; callers may
@@ -831,12 +843,11 @@ function rebuildGitService(
   s: AutoSession,
   deps: WorktreeLifecycleDeps,
 ): void {
-  const gitConfig =
-    lifecycleLoadPreferences(deps, s.basePath)?.preferences?.git ?? {};
-  s.gitService = new deps.GitServiceImpl(
-    s.basePath,
-    gitConfig,
-  ) as AutoSession["gitService"];
+  // ADR-016 phase 2 / C4 (#5627): the gitConfig load and constructor
+  // construction live behind `gitServiceFactory`. Lifecycle no longer
+  // sees the constructor shape, the gitConfig type, or the unknown→
+  // GitService cast.
+  s.gitService = deps.gitServiceFactory(s.basePath);
 }
 
 // ─── Session-less merge entry (ADR-016 phase 2 / A1) ─────────────────────
@@ -895,8 +906,7 @@ function _mergeWorktreeModeImpl(
     // projection silently dropped it or .gsd/ is not symlinked. Without
     // the fallback, a missing roadmap triggers bare teardown which
     // deletes the branch and orphans all milestone commits (#1573).
-    let roadmapPath = lifecycleResolveMilestoneFile(
-      deps,
+    let roadmapPath = resolveMilestoneFile(
       originalBasePath,
       milestoneId,
       "ROADMAP",
@@ -905,8 +915,7 @@ function _mergeWorktreeModeImpl(
       !roadmapPath &&
       !isSamePathPhysical(worktreeBasePath, originalBasePath)
     ) {
-      roadmapPath = lifecycleResolveMilestoneFile(
-        deps,
+      roadmapPath = resolveMilestoneFile(
         worktreeBasePath,
         milestoneId,
         "ROADMAP",
@@ -1091,8 +1100,7 @@ function _mergeBranchModeImpl(
       }
     }
 
-    const roadmapPath = lifecycleResolveMilestoneFile(
-      deps,
+    const roadmapPath = resolveMilestoneFile(
       worktreeBasePath,
       milestoneId,
       "ROADMAP",
@@ -1220,7 +1228,7 @@ export function mergeMilestoneStandalone(
     };
   }
 
-  const mode = lifecycleGetIsolationMode(deps, originalBasePath || worktreeBasePath);
+  const mode = getIsolationMode(originalBasePath || worktreeBasePath);
   debugLog("WorktreeLifecycle", {
     action: "mergeAndExit",
     milestoneId,
@@ -1691,7 +1699,7 @@ export class WorktreeLifecycle {
     try {
       lifecycleEnterBranchMode(this.deps, basePath, milestoneId);
       rebuildGitService(this.s, this.deps);
-      lifecycleInvalidateAllCaches(this.deps);
+      invalidateAllCaches();
       this.s.isolationDegraded = true;
       ctx.notify(
         `Switched to branch milestone/${milestoneId} (isolation degraded).`,
@@ -1719,7 +1727,7 @@ export class WorktreeLifecycle {
     if (!this.s.originalBasePath) return;
     this.s.basePath = this.s.originalBasePath;
     rebuildGitService(this.s, this.deps);
-    lifecycleInvalidateAllCaches(this.deps);
+    invalidateAllCaches();
   }
 
   /**

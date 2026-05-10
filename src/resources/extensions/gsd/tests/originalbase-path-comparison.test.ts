@@ -75,6 +75,18 @@ type LegacyTestDeps = WorktreeLifecycleDeps & {
   getCurrentBranch?: (basePath: string) => string;
   checkoutBranch?: (basePath: string, branch: string) => void;
   readFileSync?: (path: string, encoding: BufferEncoding) => string;
+  getIsolationMode?: (basePath?: string) => "worktree" | "branch" | "none";
+  resolveMilestoneFile?: (
+    basePath: string,
+    milestoneId: string,
+    fileType: string,
+  ) => string | null;
+  GitServiceImpl?: new (basePath: string, gitConfig: unknown) => unknown;
+  loadEffectiveGSDPreferences?: () =>
+    | { preferences?: { git?: Record<string, unknown> } }
+    | null
+    | undefined;
+  invalidateAllCaches?: () => void;
 };
 
 /** Shim factory preserving the legacy WorktreeResolver throw shape for tests. */
@@ -188,7 +200,9 @@ function makeDeps(overrides?: Partial<LegacyTestDeps>): LegacyTestDeps & { calls
     captureIntegrationBranch: (_basePath: string, _mid: string | undefined) => {},
     enterBranchModeForMilestone: (_basePath: string, _milestoneId: string) => {},
     worktreeProjection: new WorktreeStateProjection(),
-    ...overrides,
+    gitServiceFactory: () => ({}) as unknown as ReturnType<
+      WorktreeLifecycleDeps["gitServiceFactory"]
+    >,
   };
 
   if (overrides) {

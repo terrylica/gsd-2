@@ -1708,21 +1708,24 @@ export async function pauseAuto(
  * Lifecycle Module instead of bypassing it (ADR-016 phase 2 / A2).
  */
 export function buildWorktreeLifecycleDeps(): WorktreeLifecycleDeps {
-  // ADR-016 phase 2 / C1 + C2 + C3:
-  //   C1 (#5624) inlined readFileSync, getCurrentBranch, checkoutBranch,
-  //   autoCommitCurrentBranch.
-  //   C2 (#5625) inlined enterAutoWorktree, createAutoWorktree,
-  //   enterBranchModeForMilestone, getAutoWorktreePath,
-  //   teardownAutoWorktree, isInAutoWorktree, autoWorktreeBranch.
-  //   C3 (#5626) inlined invalidateAllCaches, loadEffectiveGSDPreferences,
-  //   getIsolationMode, resolveMilestoneFile.
-  // Dep bag is now 3 fields. C4 (#5627) converts GitServiceImpl to a
-  // factory; the final shape will be ≤6 fields.
+  // ADR-016 phase 2 / C-track close-out:
+  //   C1 (#5624) — fs + git-CLI primitives inlined
+  //   C2 (#5625) — worktree-manager helpers inlined
+  //   C3 (#5626) — cache + preferences + paths inlined
+  //   C4 (#5627) — GitServiceImpl constructor → gitServiceFactory
+  //
+  // Final WorktreeLifecycleDeps shape: 3 fields (gitServiceFactory,
+  // worktreeProjection, mergeMilestoneToMain). Down from 18 at slice-7
+  // closure.
   return {
-    GitServiceImpl,
+    gitServiceFactory: (basePath: string) => {
+      const gitConfig =
+        loadEffectiveGSDPreferences()?.preferences?.git ?? {};
+      return new GitServiceImpl(basePath, gitConfig);
+    },
     worktreeProjection: new WorktreeStateProjection(),
     mergeMilestoneToMain,
-  } as unknown as WorktreeLifecycleDeps;
+  };
 }
 
 function buildLifecycle(): WorktreeLifecycle {

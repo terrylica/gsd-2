@@ -71,6 +71,18 @@ type LegacyTestDeps = WorktreeLifecycleDeps & {
   getCurrentBranch?: (basePath: string) => string;
   checkoutBranch?: (basePath: string, branch: string) => void;
   readFileSync?: (path: string, encoding: BufferEncoding) => string;
+  getIsolationMode?: (basePath?: string) => "worktree" | "branch" | "none";
+  resolveMilestoneFile?: (
+    basePath: string,
+    milestoneId: string,
+    fileType: string,
+  ) => string | null;
+  GitServiceImpl?: new (basePath: string, gitConfig: unknown) => unknown;
+  loadEffectiveGSDPreferences?: () =>
+    | { preferences?: { git?: Record<string, unknown> } }
+    | null
+    | undefined;
+  invalidateAllCaches?: () => void;
 };
 
 /**
@@ -135,6 +147,8 @@ function makeDeps(
     invalidateAllCaches: () => undefined,
     captureIntegrationBranch: () => undefined,
     worktreeProjection: new WorktreeStateProjection(),
+    // ADR-016 phase 2 / C4 (#5627): GitServiceImpl constructor → factory.
+    gitServiceFactory: () => ({}) as never,
     ...overrides,
   };
 }
@@ -195,7 +209,7 @@ describe("WorktreeResolver.mergeAndExit re-throws MergeConflictError (#2330)", (
     const conflicted = ["src/feature.ts", "README.md"];
     const roadmapPath = join(baseDir, ".gsd", "milestones", "M001", "M001-ROADMAP.md");
     const deps = makeDeps({
-      resolveMilestoneFile: (_base, _mid, type) =>
+      resolveMilestoneFile: (_base: string, _mid: string, type: string) =>
         type === "ROADMAP" ? roadmapPath : null,
       readFileSync: () => "# M001\n",
       mergeMilestoneToMain: () => {
@@ -226,7 +240,7 @@ describe("WorktreeResolver.mergeAndExit re-throws MergeConflictError (#2330)", (
     const roadmapPath = join(baseDir, ".gsd", "milestones", "M001", "M001-ROADMAP.md");
     class FakePermError extends Error {}
     const deps = makeDeps({
-      resolveMilestoneFile: (_base, _mid, type) =>
+      resolveMilestoneFile: (_base: string, _mid: string, type: string) =>
         type === "ROADMAP" ? roadmapPath : null,
       readFileSync: () => "# M001\n",
       mergeMilestoneToMain: () => {
@@ -252,7 +266,7 @@ describe("WorktreeResolver.mergeAndExit re-throws MergeConflictError (#2330)", (
   test("successful merge does not throw", () => {
     const roadmapPath = join(baseDir, ".gsd", "milestones", "M001", "M001-ROADMAP.md");
     const deps = makeDeps({
-      resolveMilestoneFile: (_base, _mid, type) =>
+      resolveMilestoneFile: (_base: string, _mid: string, type: string) =>
         type === "ROADMAP" ? roadmapPath : null,
       readFileSync: () => "# M001\n",
       mergeMilestoneToMain: () => ({ pushed: false, codeFilesChanged: true }),
