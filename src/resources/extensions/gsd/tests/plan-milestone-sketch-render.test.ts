@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { openDatabase, closeDatabase } from "../gsd-db.ts";
-import { handlePlanMilestone } from "../tools/plan-milestone.ts";
+import { handlePlanMilestone, type PlanMilestoneParams } from "../tools/plan-milestone.ts";
 
 function makeTmpBase(): string {
   const base = mkdtempSync(join(tmpdir(), "gsd-plan-sketch-render-"));
@@ -34,7 +34,7 @@ function cleanup(base: string): void {
   }
 }
 
-function planMilestoneWithSketches() {
+function planMilestoneWithSketches(): PlanMilestoneParams {
   return {
     milestoneId: "M001",
     title: "Progressive Planning Demo",
@@ -70,6 +70,10 @@ function planMilestoneWithSketches() {
         depends: ["S01"],
         demo: "Sketched until S01 ships.",
         goal: "Refine into a full plan after S01 lands.",
+        successCriteria: "",
+        proofLevel: "",
+        integrationClosure: "",
+        observabilityImpact: "",
         isSketch: true,
         sketchScope: "Pick up the scaffold from S01 and add the demo behavior. Stay inside the existing module boundaries.",
       },
@@ -81,7 +85,7 @@ test("ROADMAP renders sketch slices with [sketch] badge and full slices without"
   const base = makeTmpBase();
   try {
     const params = planMilestoneWithSketches();
-    const result = await handlePlanMilestone(params as Parameters<typeof handlePlanMilestone>[0], base);
+    const result = await handlePlanMilestone(params, base);
     if ("error" in result) {
       assert.fail(`handlePlanMilestone failed: ${result.error}`);
     }
@@ -130,9 +134,9 @@ test("ROADMAP omits sketch badge when no slices are sketches", async () => {
       proofLevel: "unit" as const,
       integrationClosure: "S02 closes the demo behavior.",
       observabilityImpact: "No new telemetry.",
-    } as typeof params.slices[1];
+    };
 
-    const result = await handlePlanMilestone(params as Parameters<typeof handlePlanMilestone>[0], base);
+    const result = await handlePlanMilestone(params, base);
     if ("error" in result) {
       assert.fail(`handlePlanMilestone failed: ${result.error}`);
     }
