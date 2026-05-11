@@ -351,8 +351,6 @@ test("saveDecisionToDb writes a DECISIONS.md projection sourced from memories th
         decision: "Schema versioning",
         choice: "header column",
         rationale: "simplest to read",
-        revisable: "Yes",
-        made_by: "agent",
       },
       base,
     );
@@ -366,6 +364,7 @@ test("saveDecisionToDb writes a DECISIONS.md projection sourced from memories th
     assert.match(md, /Adopt SQLite/);
     assert.match(md, /Schema versioning/);
     assert.match(md, /# Decisions Register/);
+    assert.match(md, /\| D002 \|[^\n]*\| Yes \| agent \|/);
   } finally {
     cleanup(base);
   }

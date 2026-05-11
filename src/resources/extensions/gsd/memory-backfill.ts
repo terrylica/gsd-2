@@ -39,6 +39,8 @@ interface DecisionRow {
   superseded_by: string | null;
 }
 
+type DecisionContentFields = Pick<DecisionRow, "decision" | "choice" | "rationale">;
+
 /**
  * Backfill decisions rows into the memories table.
  *
@@ -69,7 +71,7 @@ export function backfillDecisionsToMemories(): number {
 
   try {
     const decisions = adapter
-      .prepare("SELECT id, when_context, scope, decision, choice, rationale, made_by, revisable, superseded_by FROM decisions")
+      .prepare("SELECT id, when_context, scope, decision, choice, rationale, made_by, revisable, superseded_by FROM decisions ORDER BY seq")
       .all() as Array<Record<string, unknown>>;
 
     if (decisions.length === 0) return 0;
@@ -135,7 +137,7 @@ export function backfillDecisionsToMemories(): number {
         continue;
       }
 
-      const content = synthesizeContent(row);
+      const content = synthesizeDecisionMemoryContent(row);
       const id = createMemory({
         category: "architecture",
         content,
@@ -186,7 +188,7 @@ function safeParse(raw: string): Record<string, unknown> | null {
  * Truncates each field to keep the synthesized line under ~600 chars so
  * memory_query rendering stays readable.
  */
-function synthesizeContent(row: DecisionRow): string {
+export function synthesizeDecisionMemoryContent(row: DecisionContentFields): string {
   const trim = (value: string, max: number): string => {
     const cleaned = value.replace(/\s+/g, " ").trim();
     return cleaned.length > max ? cleaned.slice(0, max - 1) + "\u2026" : cleaned;
