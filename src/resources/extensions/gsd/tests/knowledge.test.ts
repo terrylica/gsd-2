@@ -187,7 +187,7 @@ test('loadKnowledgeBlock: uses project knowledge alone when no global file', () 
   writeFileSync(join(cwd, '.gsd', 'KNOWLEDGE.md'), 'K001: Use real DB');
 
   const result = loadKnowledgeBlock(gsdHome, cwd);
-  assert.ok(result.block.includes('[KNOWLEDGE — Manual Rules]'));
+  assert.ok(result.block.includes('[KNOWLEDGE — Rules from KNOWLEDGE.md'));
   assert.ok(result.block.includes('## Project Knowledge'));
   assert.ok(result.block.includes('K001: Use real DB'));
   assert.ok(!result.block.includes('## Global Knowledge'));
@@ -205,7 +205,7 @@ test('loadKnowledgeBlock: uses global knowledge alone when no project file', () 
   writeFileSync(join(gsdHome, 'agent', 'KNOWLEDGE.md'), 'G001: Respond in English');
 
   const result = loadKnowledgeBlock(gsdHome, cwd);
-  assert.ok(result.block.includes('[KNOWLEDGE — Manual Rules]'));
+  assert.ok(result.block.includes('[KNOWLEDGE — Rules from KNOWLEDGE.md'));
   assert.ok(result.block.includes('## Global Knowledge'));
   assert.ok(result.block.includes('G001: Respond in English'));
   assert.ok(!result.block.includes('## Project Knowledge'));
@@ -268,7 +268,7 @@ test('loadKnowledgeBlock: strips patterns and lessons from project knowledge', (
   );
 
   const result = loadKnowledgeBlock(gsdHome, cwd);
-  assert.ok(result.block.includes('[KNOWLEDGE — Manual Rules]'));
+  assert.ok(result.block.includes('[KNOWLEDGE — Rules from KNOWLEDGE.md'));
   assert.ok(result.block.includes('Intro note that should stay with manual rules.'));
   assert.ok(result.block.includes('K001'), 'rules entry should be present');
   assert.ok(!result.block.includes('P001'), 'patterns should be stripped and injected via memories');
