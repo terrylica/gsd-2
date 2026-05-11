@@ -510,13 +510,13 @@ export async function saveDecisionToDb(
       const fallback: Decision = {
         seq: nextSeq,
         id,
-        when_context: fields.when_context ?? '',
-        scope: fields.scope,
-        decision: fields.decision,
-        choice: fields.choice,
-        rationale: fields.rationale,
-        revisable: fields.revisable ?? 'Yes',
-        made_by: fields.made_by ?? 'agent',
+        when_context: normalized.when_context,
+        scope: normalized.scope,
+        decision: normalized.decision,
+        choice: normalized.choice,
+        rationale: normalized.rationale,
+        revisable: normalized.revisable,
+        made_by: normalized.made_by,
         superseded_by: null,
       };
       allDecisions = [...allDecisions, fallback];
@@ -589,35 +589,35 @@ export async function saveDecisionToDb(
  * table so the memory store remains the single source of truth for the
  * DECISIONS.md projection (Stage 2a) and for prompt-inline reads (Stage 1).
  *
- * Required save contract: throws when the memory mirror cannot be written.
+ * Best-effort mirror: logs failures without throwing to avoid blocking saves.
  * Caller invokes this AFTER the decisions-table write completes and
  * BEFORE the projection regen — the regen sources from memories and would
  * otherwise miss the just-saved decision.
  */
 async function mirrorDecisionToMemory(
   id: string,
-  fields: NormalizedSaveDecisionFields,
+  normalizedFields: NormalizedSaveDecisionFields,
 ): Promise<void> {
   try {
     const { createMemory } = await import('./memory-store.js');
     const { synthesizeDecisionMemoryContent } = await import('./memory-backfill.js');
-    const content = synthesizeDecisionMemoryContent(fields);
+    const content = synthesizeDecisionMemoryContent(normalizedFields);
     if (!content) return;
 
     createMemory({
       category: 'architecture',
       content,
-      scope: fields.scope || 'project',
+      scope: normalizedFields.scope || 'project',
       confidence: 0.85,
       structuredFields: {
         sourceDecisionId: id,
-        when_context: fields.when_context,
-        scope: fields.scope,
-        decision: fields.decision,
-        choice: fields.choice,
-        rationale: fields.rationale,
-        made_by: fields.made_by,
-        revisable: fields.revisable,
+        when_context: normalizedFields.when_context,
+        scope: normalizedFields.scope,
+        decision: normalizedFields.decision,
+        choice: normalizedFields.choice,
+        rationale: normalizedFields.rationale,
+        made_by: normalizedFields.made_by,
+        revisable: normalizedFields.revisable,
         // New decisions are always written as active; md-importer can later
         // set superseded_by on the source decision row, and the backfill's
         // drift auto-heal pass propagates that update to this memory.
