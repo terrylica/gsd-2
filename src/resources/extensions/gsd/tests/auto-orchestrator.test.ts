@@ -87,6 +87,7 @@ test("start() advances and records active unit", async () => {
   const result = await orchestrator.start({ basePath: "/tmp/project", trigger: "manual" });
 
   assert.equal(result.kind, "advanced");
+  assert.deepEqual(result.unit, { unitType: "execute-task", unitId: "T01" });
   const status = orchestrator.getStatus();
   assert.equal(status.phase, "running");
   assert.deepEqual(status.activeUnit, { unitType: "execute-task", unitId: "T01" });
@@ -107,6 +108,7 @@ test("advance() returns blocked when health gate denies", async () => {
 
   assert.equal(result.kind, "blocked");
   assert.equal(result.reason, "doctor-block");
+  assert.equal(result.action, "pause");
 });
 
 test("advance() follows the ADR-015 invariant sequence before journaling advance", async () => {
@@ -116,6 +118,7 @@ test("advance() follows the ADR-015 invariant sequence before journaling advance
   const result = await orchestrator.advance();
 
   assert.equal(result.kind, "advanced");
+  assert.deepEqual(result.unit, { unitType: "execute-task", unitId: "T01" });
   assert.deepEqual(calls, [
     "runtime.lock",
     "health.pre",
@@ -144,6 +147,7 @@ test("advance() blocks before dispatch when State Reconciliation blocks", async 
 
   assert.equal(result.kind, "blocked");
   assert.equal(result.reason, "state drift blocked");
+  assert.equal(result.action, "pause");
   assert.ok(!calls.includes("dispatch.decide"));
   assert.ok(calls.includes("journal:advance-blocked"));
 });
@@ -163,6 +167,7 @@ test("advance() blocks before Runtime persistence when Tool Contract fails", asy
 
   assert.equal(result.kind, "blocked");
   assert.equal(result.reason, "unknown Unit");
+  assert.equal(result.action, "pause");
   assert.ok(!calls.includes("worktree.prepare"));
   assert.ok(!calls.includes("journal:advance"));
   assert.ok(calls.includes("journal:advance-blocked"));
@@ -185,6 +190,7 @@ test("advance() blocks before Runtime persistence when Worktree Safety fails", a
 
   assert.equal(result.kind, "blocked");
   assert.equal(result.reason, "worktree invalid");
+  assert.equal(result.action, "pause");
   assert.ok(!calls.includes("journal:advance"));
   assert.ok(!calls.includes("worktree.sync"));
   assert.ok(calls.includes("journal:advance-blocked"));
@@ -232,8 +238,10 @@ test("advance() is idempotent for the same active unit", async () => {
   const second = await orchestrator.advance();
 
   assert.equal(first.kind, "advanced");
+  assert.deepEqual(first.unit, { unitType: "execute-task", unitId: "T01" });
   assert.equal(second.kind, "blocked");
   assert.equal(second.reason, "idempotent advance: unit already active");
+  assert.equal(second.action, "stop");
 
   const prepareCalls = calls.filter((c) => c === "worktree.prepare").length;
   assert.equal(prepareCalls, 1);

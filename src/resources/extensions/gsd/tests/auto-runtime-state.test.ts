@@ -12,10 +12,10 @@ test("getAutoRuntimeSnapshot includes orchestration phase when available", () =>
   autoSession.active = true;
   autoSession.basePath = "/tmp/project";
   autoSession.orchestration = {
-    async start() { return { kind: "advanced" as const }; },
-    async advance() { return { kind: "advanced" as const }; },
-    async resume() { return { kind: "advanced" as const }; },
-    async stop() { return { kind: "stopped" as const }; },
+    async start() { return { kind: "stopped" as const, reason: "test" }; },
+    async advance() { return { kind: "stopped" as const, reason: "test" }; },
+    async resume() { return { kind: "stopped" as const, reason: "test" }; },
+    async stop() { return { kind: "stopped" as const, reason: "test" }; },
     getStatus() {
       return { phase: "running" as const, transitionCount: 3, lastTransitionAt: 123 };
     },
