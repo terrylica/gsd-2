@@ -60,6 +60,7 @@ test("system prompt requires reading before edit or overwrite", () => {
   assert.match(prompt, /Read before edit or overwrite/i);
   assert.match(prompt, /Before any write that creates or replaces a file/i);
   assert.match(prompt, /confirm whether the path exists; if it does, `read` it first/i);
+  assert.match(prompt, /For truly new files, confirm the path does not already exist/i);
 });
 
 test("discuss prompt allows implementation questions when they materially matter", () => {
