@@ -7,6 +7,14 @@
 **Author:** Jeremy (@jeremymcs)
 **Related:** PR #4469 (memory tools Phase 1), commits f4bd65a8 / 59e1f830 / 03f77f36 / 9d9ccfe8 / fc6c93c2 (Phase 2-5), Issue #4495, PR #4496
 
+## Implementation update: Stage 3 cutover
+
+ADR-013 Stage 3 has crossed the destructive cutover boundary. `gsd_save_decision` / `gsd_decision_save` no longer write new rows to the legacy `decisions` table. New decisions are persisted as `memories` rows with `category = "architecture"` and `structuredFields.sourceDecisionId`, while `.gsd/DECISIONS.md` is regenerated as a projection from those memory rows.
+
+The legacy `decisions` table remains available for backwards-compatible reads during the cutover window and is still used by import/inspection paths until the follow-up drop. Operators should treat it as read-only drift context, not as an authoritative write target. Rollback during this window is a code revert that restores the old table write path; memory rows written during the cutover remain durable and can project back into the legacy shape if needed.
+
+Patterns and lessons in `.gsd/KNOWLEDGE.md` are also memory-backed. New pattern/lesson captures are written to `memories` with `structuredFields.sourceKnowledgeId` and then projected into `KNOWLEDGE.md`; the manually authored Rules section remains file-owned and is preserved verbatim.
+
 ## Context
 
 After PR #4469 landed, GSD has **two parallel knowledge persistence surfaces** that overlap in purpose but not in interface, schema, or auto-injection behavior:
