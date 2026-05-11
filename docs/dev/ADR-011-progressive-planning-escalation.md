@@ -1,10 +1,41 @@
 # ADR-011: Progressive Planning and Mid-Execution Escalation
 
-**Status:** Proposed
+**Status:** Accepted (mostly implemented)
 **Date:** 2026-04-17
+**Implemented:** 2026-04 to 2026-05 (Phase 1 + Phase 2 shipped; outstanding work tracked on #5754)
 **Author:** Alan Alwakeel (@OfficialDelta)
 **Related:** ADR-003 (pipeline simplification), ADR-009 (orchestration kernel refactor)
 **Prior art:** PR #3468 (enhanced verification), PR #3602 (discussion system), PR #3766 (tiered context injection), PR #4079 (layered depth enforcement)
+
+## Implementation status
+
+### Phase 1 — Progressive Planning (sketch in plan-milestone)
+
+| Piece | Status | Evidence |
+|---|---|---|
+| Schema: `is_sketch` + `sketch_scope` columns | ✅ | `src/resources/extensions/gsd/db-base-schema.ts:172-173` |
+| Prompt: progressive-planning section in plan-milestone | ✅ | `src/resources/extensions/gsd/prompts/plan-milestone.md:84-94` ("Progressive Planning (ADR-011)") |
+| Executor: 3-valued `isSketch` ON CONFLICT semantics | ✅ | `src/resources/extensions/gsd/tools/plan-milestone.ts:136-184` |
+| Preference: `phases.progressive_planning` | ✅ | `src/resources/extensions/gsd/types.ts:358`, validated in `preferences-validation.ts:352-354` |
+| State derivation: `is_sketch=1` → `phase: 'refining'` | ✅ | `src/resources/extensions/gsd/state.ts:737-744`; phase union in `types.ts:14` |
+| ROADMAP sketch badge | ✅ | `src/resources/extensions/gsd/markdown-renderer.ts:160` — `[sketch]` backtick badge (PR #5763) |
+
+### Phase 2 — Mid-Execution Escalation
+
+| Piece | Status | Evidence |
+|---|---|---|
+| Escalation artifact type | ✅ | `src/resources/extensions/gsd/types.ts:372` |
+| Escalation artifact I/O | ✅ | `src/resources/extensions/gsd/escalation.ts` |
+| Gate-plane `manual-attention` wiring | ✅ | UOK gate runner |
+| `refine-slice` prompt + builder | ✅ | `src/resources/extensions/gsd/prompts/refine-slice.md`; `auto-prompts.ts:2192-2225` (`buildRefineSlicePrompt`) |
+| Dispatch: `refining` → `refine-slice` (or fallback to `plan-slice`) | ✅ | `src/resources/extensions/gsd/auto-dispatch.ts:880-928` |
+| `is_sketch` auto-clear after PLAN written | ✅ | `src/resources/extensions/gsd/state-reconciliation/drift/sketch-flag.ts` — `sketchFlagHandler` registered in DRIFT_REGISTRY |
+| Test coverage of pieces in isolation | ✅ | `src/resources/extensions/gsd/tests/progressive-planning.test.ts` — 12 tests |
+
+### Outstanding (#5754)
+
+- End-to-end test covering the full sketch → refining → dispatch → PLAN written → drift-clear → execute-task pipeline (pieces tested in isolation today)
+- UOK audit event (`category: "plan"`, `type: "refine-slice-start" / "refine-slice-complete"`) emitted on refine dispatch + completion
 
 ## Context
 
