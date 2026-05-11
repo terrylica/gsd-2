@@ -82,10 +82,10 @@ export function backfillDecisionsToMemories(): number {
     // sentinel would silently abort the backfill if a user manually called
     // capture_thought with their own structuredFields.sourceDecisionId.
     const checkExisting = adapter.prepare(
-      "SELECT structured_fields FROM memories WHERE structured_fields LIKE :pattern LIMIT 1",
+      "SELECT id, structured_fields FROM memories WHERE structured_fields LIKE :pattern LIMIT 1",
     );
     const updateStructuredFields = adapter.prepare(
-      "UPDATE memories SET structured_fields = :sf, updated_at = :ts WHERE structured_fields LIKE :pattern",
+      "UPDATE memories SET structured_fields = :sf, updated_at = :ts WHERE id = :id",
     );
 
     let written = 0;
@@ -106,7 +106,7 @@ export function backfillDecisionsToMemories(): number {
 
       const pattern = `%"sourceDecisionId":"${row.id}"%`;
       const existing = checkExisting.get({ ":pattern": pattern }) as
-        | { structured_fields: string | null }
+        | { id: string; structured_fields: string | null }
         | undefined;
 
       if (existing) {
@@ -128,9 +128,9 @@ export function backfillDecisionsToMemories(): number {
             superseded_by: row.superseded_by,
           };
           updateStructuredFields.run({
+            ":id": existing.id,
             ":sf": JSON.stringify(merged),
             ":ts": new Date().toISOString(),
-            ":pattern": pattern,
           });
           healed += 1;
         }
