@@ -238,7 +238,6 @@ import type { LoopDeps, StopAutoOptions } from "./auto/loop-deps.js";
 import type { ErrorContext } from "./auto/types.js";
 import { runAutoLoopWithUok } from "./uok/kernel.js";
 import { resolveUokFlags } from "./uok/flags.js";
-import { UokGateRunner } from "./uok/gate-runner.js";
 import { validateDirectory } from "./validate-directory.js";
 import { createAutoOrchestrator } from "./auto/orchestrator.js";
 import type { AutoOrchestrationModule, AutoOrchestratorDeps } from "./auto/contracts.js";
@@ -1996,6 +1995,7 @@ export function createWiredAutoOrchestrationModule(
         if (!uokFlags.gates) return;
         const milestoneId = input.milestoneId ?? s.currentMilestoneId ?? undefined;
         try {
+          const { UokGateRunner } = await import("./uok/gate-runner.js");
           const runner = new UokGateRunner();
           runner.register({
             id: input.gateId,
