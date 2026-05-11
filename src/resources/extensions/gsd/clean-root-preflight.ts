@@ -90,21 +90,33 @@ function listStashUntrackedPaths(basePath: string, stashRef: string): string[] |
   }
 }
 
-function listStashTrackedPaths(basePath: string, stashRef: string): string[] {
-  const output = gitText(basePath, ["diff", "--name-only", "-z", `${stashRef}^1`, stashRef]);
-  return readZeroDelimitedPaths(output);
+function listStashTrackedPaths(basePath: string, stashRef: string): string[] | null {
+  try {
+    const output = gitText(basePath, ["diff", "--name-only", "-z", `${stashRef}^1`, stashRef]);
+    return readZeroDelimitedPaths(output);
+  } catch {
+    return null;
+  }
 }
 
-function isWorktreeClean(basePath: string): boolean {
-  return gitText(basePath, ["status", "--porcelain"]).trim() === "";
+function isWorktreeClean(basePath: string): boolean | null {
+  try {
+    return gitText(basePath, ["status", "--porcelain"]).trim() === "";
+  } catch {
+    return null;
+  }
 }
 
-function stashBlobEqualsWorktreeFile(basePath: string, stashRef: string, path: string): boolean {
-  const worktreePath = join(basePath, path);
-  if (!existsSync(worktreePath)) return false;
-  const worktreeContent = readFileSync(worktreePath);
-  const stashContent = gitBuffer(basePath, ["show", `${stashRef}^3:${path}`]);
-  return Buffer.compare(worktreeContent, stashContent) === 0;
+function stashBlobEqualsWorktreeFile(basePath: string, stashRef: string, path: string): boolean | null {
+  try {
+    const worktreePath = join(basePath, path);
+    if (!existsSync(worktreePath)) return false;
+    const worktreeContent = readFileSync(worktreePath);
+    const stashContent = gitBuffer(basePath, ["show", `${stashRef}^3:${path}`]);
+    return Buffer.compare(worktreeContent, stashContent) === 0;
+  } catch {
+    return null;
+  }
 }
 
 function reconcileAlreadyPresentUntrackedStash(
@@ -121,14 +133,16 @@ function reconcileAlreadyPresentUntrackedStash(
   if (!untrackedPaths || untrackedPaths.length === 0) return null;
 
   const trackedPaths = listStashTrackedPaths(basePath, stashRef);
-  if (trackedPaths.length > 0) return null;
+  if (trackedPaths === null || trackedPaths.length > 0) return null;
 
   const untrackedPathSet = new Set(untrackedPaths);
   if (!collidedPaths.every((path) => untrackedPathSet.has(path))) return null;
   if (!untrackedPaths.every((path) => existsSync(join(basePath, path)))) return null;
-  if (!isWorktreeClean(basePath)) return null;
+  if (isWorktreeClean(basePath) !== true) return null;
 
-  const allIdentical = untrackedPaths.every((path) => stashBlobEqualsWorktreeFile(basePath, stashRef, path));
+  const blobComparisons = untrackedPaths.map((path) => stashBlobEqualsWorktreeFile(basePath, stashRef, path));
+  if (blobComparisons.some((result) => result === null)) return null;
+  const allIdentical = blobComparisons.every(Boolean);
   if (allIdentical) {
     let dropped = true;
     try {
