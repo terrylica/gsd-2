@@ -666,7 +666,7 @@ runtime_kv  (soft state KV)
 
 | Tool | Tables READ | Tables WRITTEN | Disk Artifacts |
 |------|------------|----------------|----------------|
-| `gsd_decision_save` | decisions | decisions | DECISIONS.md (regenerated) |
+| `gsd_decision_save` | decisions | decisions, memories | DECISIONS.md (regenerated from memories) |
 | `gsd_requirement_save` | requirements | requirements | REQUIREMENTS.md |
 | `gsd_requirement_update` | requirements | requirements | REQUIREMENTS.md |
 | `gsd_summary_save` | milestones, slices, tasks | artifacts | M##/S##/T## artifact files |
@@ -685,7 +685,7 @@ runtime_kv  (soft state KV)
 | `gsd_slice_reopen` | slices, tasks, milestones | slices, tasks | deletes S##-SUMMARY.md, UAT, all T##-SUMMARY.md |
 | `gsd_milestone_reopen` | milestones, slices, tasks | milestones, slices, tasks | deletes all summaries |
 | `gsd_save_gate_result` | quality_gates | quality_gates, gate_runs | — |
-| `capture_thought` | memories | memories | KNOWLEDGE.md |
+| `capture_thought` | memories | memories | KNOWLEDGE.md projection for backfilled Patterns/Lessons |
 | `memory_query` | memories, memories_fts, memory_embeddings | memories (hit_count++) | — |
 
 ---
