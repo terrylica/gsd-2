@@ -682,7 +682,7 @@ custom_instructions:
   - "Prefer functional patterns over classes"
 ```
 
-如果是项目特有知识（模式、坑点、经验），请优先放到 `.gsd/KNOWLEDGE.md` 中，因为它会自动注入每个 agent prompt。你也可以通过 `/gsd knowledge rule|pattern|lesson <description>` 添加。
+如果是项目特有知识，请使用 `/gsd knowledge rule|pattern|lesson <description>` 添加。规则会直接追加到 `.gsd/KNOWLEDGE.md`；模式和经验会保存为 memories，投影回 `.gsd/KNOWLEDGE.md`，并通过 memory block 自动注入。
 
 ### `RUNTIME.md`：运行时上下文（v2.39）
 

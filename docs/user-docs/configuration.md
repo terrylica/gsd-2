@@ -752,7 +752,7 @@ custom_instructions:
   - "Prefer functional patterns over classes"
 ```
 
-For project-specific knowledge (patterns, gotchas, lessons learned), use `.gsd/KNOWLEDGE.md` instead — it's injected into every agent prompt automatically. Add entries with `/gsd knowledge rule|pattern|lesson <description>`.
+For project-specific knowledge, use `/gsd knowledge rule|pattern|lesson <description>`. Rules append directly to `.gsd/KNOWLEDGE.md`; patterns and lessons are stored as memories, projected back into `.gsd/KNOWLEDGE.md`, and injected through the memory block automatically.
 
 ### `RUNTIME.md` — Runtime Context (v2.39)
 
@@ -778,7 +778,7 @@ Declare project-level runtime context in `.gsd/RUNTIME.md`. This file is inlined
 - Redis: localhost:6379
 ```
 
-Use this for information that the agent needs during execution but that doesn't belong in `DECISIONS.md` (architectural) or `KNOWLEDGE.md` (patterns/rules). Common examples: API base URLs, service ports, deployment targets, and environment-specific configuration.
+Use this for information that the agent needs during execution but that doesn't belong in `DECISIONS.md` (architectural) or project knowledge (rules, patterns, lessons). Common examples: API base URLs, service ports, deployment targets, and environment-specific configuration.
 
 ### `dynamic_routing`
 

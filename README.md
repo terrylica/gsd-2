@@ -543,7 +543,7 @@ Every dispatch is carefully constructed. The LLM never wastes tool calls on orie
 | `PROJECT.md`       | Living doc — what the project is right now                      |
 | `REQUIREMENTS.md`  | Project-level capability contract and out-of-scope list         |
 | `DECISIONS.md`     | Append-only register of architectural decisions                 |
-| `KNOWLEDGE.md`     | Cross-session rules, patterns, and lessons learned              |
+| `KNOWLEDGE.md`     | Cross-session knowledge: manual Rules plus memory-projected Patterns and Lessons |
 | `RUNTIME.md`       | Runtime context — API endpoints, env vars, services (v2.39)     |
 | `runtime/research-decision.json` | Deep-mode marker for project research vs skip       |
 | `research/*.md`    | Optional deep-mode project research: stack, features, architecture, pitfalls |

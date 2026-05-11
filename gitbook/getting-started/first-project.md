@@ -106,7 +106,7 @@ GSD keeps authoritative runtime state in the project-root SQLite database and re
   PROJECT.md          — what the project is
   REQUIREMENTS.md     — requirement contract
   DECISIONS.md        — architectural decisions
-  KNOWLEDGE.md        — cross-session rules and patterns
+  KNOWLEDGE.md        — manual rules plus memory-projected patterns and lessons
   STATE.md            — quick-glance status rendered from the database
   milestones/
     M001/

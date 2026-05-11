@@ -36,7 +36,7 @@ The two surfaces are not just redundant; they fragment durable knowledge across 
 |---|---|
 | `memories` table | **Canonical** durable knowledge store. All `capture_thought` writes land here. All `memory_query` reads come from here. Auto-injected via a new `loadMemoryBlock` analogous to `loadKnowledgeBlock`. |
 | `.gsd/DECISIONS.md` | **Read-only projection** rendered from `memories` rows where `category = "architecture"`. Continues to satisfy human review and external MCP consumers. |
-| `.gsd/KNOWLEDGE.md` | **Read-only projection** rendered from `memories` rows where `category in ("pattern", "convention", "gotcha")`. Continues to satisfy human review and external MCP consumers. Rules table (manually authored via `/gsd knowledge`) is a separate concern and is **not** migrated. |
+| `.gsd/KNOWLEDGE.md` | **Hybrid artifact**: the Rules table remains file-canonical and manually authored via `/gsd knowledge`; Patterns and Lessons are rendered from `memories` rows carrying KNOWLEDGE source metadata. Continues to satisfy human review and external MCP consumers without making Rules part of the memory migration. |
 | `.gsd/milestones/*/M*-LEARNINGS.md` | **Audit trail** of each extraction. Unchanged — written by `buildExtractionStepsBlock` Step 2; never read back by automation. |
 | `decisions` table | **Removed** in step 6 after backfill into `memories` completes. |
 
@@ -47,13 +47,13 @@ The two surfaces are not just redundant; they fragment durable knowledge across 
 3. **Register `capture_thought` and `memory_query` in `packages/mcp-server/src/server.ts`.** Resolve the `gsd_graph` name collision by renaming the memory variant to `gsd_memory_graph` (or namespacing similarly). External MCP clients (studio, vscode-extension) gain access to the new surface before any cutover removes their current sources.
 4. **Auto-injection parity in `src/resources/extensions/gsd/bootstrap/system-context.ts`.** Implement `loadMemoryBlock` mirroring `loadKnowledgeBlock`: query top-N highest-confidence and most-reinforced memories scoped to the project, inject on `before_agent_start`. After this lands, `memory_query` becomes a discretionary refinement, not the only path to retrieval.
 5. **Backfill `decisions` -> `memories`.** Idempotent migration runs on the next `session_start` after a migration version bump. Each `decisions` row produces a `memories` row with `category = "architecture"`, `content` synthesised from `decision + choice + rationale`, and `structuredFields` populated verbatim. Re-running the migration is a no-op (matched on `structuredFields.sourceDecisionId`).
-6. **Cutover.** Remove KNOWLEDGE.md / DECISIONS.md / `gsd_save_decision` write paths from `buildExtractionStepsBlock`, `execute-task.md`, `complete-slice.md`. Replace with single `capture_thought` calls. Re-render DECISIONS.md and KNOWLEDGE.md from the `memories` table on every project mutation that touches them. Update remaining #4429 regression tests. Deprecate the `decisions` table (read-only for one minor version, then drop).
+6. **Cutover.** Remove DECISIONS.md / `gsd_save_decision` write paths from `buildExtractionStepsBlock`, `execute-task.md`, `complete-slice.md`, and route Patterns/Lessons writes through memory capture. Keep `/gsd knowledge rule` as the file-canonical Rules path. Re-render DECISIONS.md and the Patterns/Lessons portions of KNOWLEDGE.md from the `memories` table on project mutation or session start. Update remaining #4429 regression tests. Deprecate the `decisions` table (read-only for one minor version, then drop).
 
 ### Cutover criteria
 
 Step 6 may land only when **all** of the following are observable on `feat/memory-tools-dual-write`:
 
-- Step 4 auto-injection produces a memory block measurably similar in coverage to the current KNOWLEDGE.md inline injection on at least three real GSD projects (manual spot check).
+- Step 4 auto-injection produces a memory block measurably similar in coverage to the old Patterns/Lessons KNOWLEDGE.md inline injection on at least three real GSD projects (manual spot check); Rules still come from `loadKnowledgeBlock`.
 - Step 5 backfill is idempotent (rerunnable with no diff) on at least one real `.gsd/gsd.db` that contains historical decisions.
 - MCP `capture_thought` and `memory_query` calls succeed end-to-end from a non-CLI client (studio or vscode integration test).
 - No regression test in `src/resources/extensions/gsd/tests/` is silenced or removed without an explicit rationale comment in the diff.
@@ -81,7 +81,7 @@ If step 6 must be rolled back after the `decisions` table is dropped, a forward 
 
 ### Caveats
 
-- KNOWLEDGE.md and DECISIONS.md become projections. Manual edits are already overwritten today (DECISIONS.md is DB-projected) — the change extends that contract to KNOWLEDGE.md, which currently accepts manual appends. Anyone hand-editing KNOWLEDGE.md after step 6 will see their changes discarded on the next render. The migration commits include a one-time scan that warns if any KNOWLEDGE.md row in the working tree has no corresponding `memories` row at cutover time.
+- DECISIONS.md becomes a projection, and the Patterns/Lessons sections of KNOWLEDGE.md become projections. The Rules section remains file-canonical and round-trips manual `/gsd knowledge rule` entries. Anyone hand-editing Patterns or Lessons after cutover will see those rows discarded on the next render unless they are also captured as memories. The migration commits include a one-time scan that warns if any KNOWLEDGE.md Pattern/Lesson row in the working tree has no corresponding `memories` row at cutover time.
 - `category` enum is fixed at six values (`architecture | convention | gotcha | pattern | preference | environment`). Adding a seventh requires a schema change. The current set is adequate for the migration; future categories are out of scope for this ADR.
 - The `structuredFields` blob is intentionally schemaless inside the JSON. Schema for `architecture`-category memories is documented in step 2's commit; future categories may grow their own structured shapes.
 

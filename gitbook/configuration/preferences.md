@@ -263,7 +263,7 @@ custom_instructions:
   - "Prefer functional patterns over classes"
 ```
 
-For project-specific patterns, use `.gsd/KNOWLEDGE.md` instead — it's injected into every agent prompt automatically.
+For project-specific knowledge, use `/gsd knowledge rule|pattern|lesson <description>`. Rules append directly to `.gsd/KNOWLEDGE.md`; patterns and lessons are stored as memories, projected back into `.gsd/KNOWLEDGE.md`, and injected through the memory block automatically.
 
 ### `context_pause_threshold`
 
