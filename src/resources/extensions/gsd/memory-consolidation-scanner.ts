@@ -125,11 +125,17 @@ function getActiveDecisions(): DecisionRow[] {
   const adapter = _getAdapter();
   if (!adapter) return [];
   try {
-    return adapter
+    const rows = adapter
       .prepare(
         "SELECT id, decision FROM decisions WHERE superseded_by IS NULL",
       )
-      .all() as DecisionRow[];
+      .all() as Array<Record<string, unknown>>;
+    return rows
+      .map((row): DecisionRow => ({
+        id: String(row["id"] ?? ""),
+        decision: String(row["decision"] ?? ""),
+      }))
+      .filter((row) => row.id.length > 0);
   } catch {
     return [];
   }
