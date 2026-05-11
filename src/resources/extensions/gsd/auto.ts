@@ -2020,7 +2020,7 @@ export function createWiredAutoOrchestrationModule(
             file: "auto.ts",
             gateId: input.gateId,
             gateType: input.gateType,
-            milestoneId,
+            ...(milestoneId ? { milestoneId } : {}),
           });
         }
       },
