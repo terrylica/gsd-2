@@ -116,7 +116,7 @@ See the full [Changelog](./CHANGELOG.md) for the complete v2.82 entry and prior 
 
 - **Context Mode** — dispatch builds task-ready context automatically (artifacts, prior session, milestone/slice signals, execution metadata); enabled by default for new projects
 - **Sandboxed execution tools** — `gsd_exec_search`, `gsd_resume`, and sandboxed tool-output paths for context-mode flows
-- **Memory architecture (ADR-013)** — `memories` table is now authoritative; `structured_fields` adds typed metadata; dual-write migration landed with decisions backfill
+- **Memory architecture (ADR-013)** — `memories` table is now authoritative; `structured_fields` adds typed metadata; decisions and KNOWLEDGE patterns/lessons are memory-backed projections after the cutover
 - **Skill coverage** — 9 gap-closing skills landed plus 6 planning/design skills surfaced
 - **Hook stack** — Layer 0 shell hooks and additional Layer 2 lifecycle events
 - **TUI polish** — dedicated chat-frame style for skill invocations; active-row overflow fixes
@@ -350,7 +350,7 @@ This is what makes GSD different. Run it, walk away, come back to built software
 
 Auto mode is a state machine driven by the GSD database at the project root. It derives the next unit of work from authoritative SQLite state, creates a fresh agent session, injects a focused prompt with all relevant context pre-inlined, and lets the LLM execute. When the LLM finishes, auto mode persists the result to the database, refreshes markdown projections such as `STATE.md`, and dispatches the next unit.
 
-The database is authoritative for milestones, slices, tasks, requirements, decisions, summaries, and completion status. Markdown under `.gsd/` is a rendered projection for review, prompts, and git-friendly history; it is not a runtime fallback unless you explicitly run a recovery/import command. In worktree mode, project-root DB state remains authoritative and worktree markdown projections are not synced back as state.
+The database is authoritative for milestones, slices, tasks, requirements, summaries, and completion status. Durable decisions and project knowledge are stored in the `memories` table: decisions are `architecture` memories, and KNOWLEDGE patterns/lessons are `pattern`/`gotcha` memories. Markdown under `.gsd/` is a rendered projection for review, prompts, and git-friendly history; it is not a runtime fallback unless you explicitly run a recovery/import command. In worktree mode, project-root DB state remains authoritative and worktree markdown projections are not synced back as state.
 
 `KNOWLEDGE.md` is hybrid: rules remain file-canonical, while patterns and lessons are stored in the `memories` table and rendered back into `KNOWLEDGE.md` on the next session-start projection. Existing pattern and lesson rows are backfilled into memories before projection, so newly captured patterns and lessons may appear in memory-backed prompt context before the file view refreshes.
 
@@ -546,7 +546,7 @@ Every dispatch is carefully constructed. The LLM never wastes tool calls on orie
 | `gsd.db`           | Authoritative runtime state for hierarchy and completion        |
 | `PROJECT.md`       | Living doc — what the project is right now                      |
 | `REQUIREMENTS.md`  | Project-level capability contract and out-of-scope list         |
-| `DECISIONS.md`     | Append-only register of architectural decisions                 |
+| `DECISIONS.md`     | Projected register of memory-backed architectural decisions     |
 | `KNOWLEDGE.md`     | Hybrid knowledge projection: manual Rules plus memory-backed Patterns/Lessons |
 | `RUNTIME.md`       | Runtime context — API endpoints, env vars, services (v2.39)     |
 | `runtime/research-decision.json` | Deep-mode marker for project research vs skip       |

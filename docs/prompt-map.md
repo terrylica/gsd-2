@@ -426,9 +426,9 @@ LLM sees: "load these skill files and follow their rules for this unit"
 | `gsd_requirement_save` | requirements table |
 | `gsd_requirement_update` | requirements table |
 | `gsd_summary_save` | artifact files + DB reference |
-| `gsd_decision_save` | decisions table + mirrored architecture memory; DECISIONS.md projection reads memories |
-| `capture_thought` | memories (patterns, gotchas, arch) |
-| `memory_query` | READ — queries memories |
+| `gsd_decision_save` | memories table (`architecture` rows) + DECISIONS.md projection |
+| `capture_thought` | memories table; KNOWLEDGE.md projection for Patterns/Lessons |
+| `memory_query` | READ — queries memories / memory indexes |
 | `ask_user_questions` | blocks until user responds; no DB write |
 | `subagent` | spins up child Pi session with given prompt |
 

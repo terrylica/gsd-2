@@ -8,6 +8,14 @@
 **Author:** Jeremy (@jeremymcs)
 **Related:** PR #4469 (memory tools Phase 1), commits f4bd65a8 / 59e1f830 / 03f77f36 / 9d9ccfe8 / fc6c93c2 (Phase 2-5), Issue #4495, PR #4496
 
+## Implementation update: Stage 3 cutover
+
+ADR-013 Stage 3 has crossed the destructive cutover boundary. `gsd_save_decision` / `gsd_decision_save` no longer write new rows to the legacy `decisions` table. New decisions are persisted as `memories` rows with `category = "architecture"` and `structuredFields.sourceDecisionId`, while `.gsd/DECISIONS.md` is regenerated as a projection from those memory rows.
+
+The legacy `decisions` table remains available for backwards-compatible reads during the cutover window and is still used by import/inspection paths until the follow-up drop. Operators should treat it as read-only drift context, not as an authoritative write target. Rollback during this window is a code revert that restores the old table write path; memory rows written during the cutover remain durable and can project back into the legacy shape if needed.
+
+Patterns and lessons in `.gsd/KNOWLEDGE.md` are also memory-backed. New pattern/lesson captures are written to `memories` with `structuredFields.sourceKnowledgeId` and then projected into `KNOWLEDGE.md`; the manually authored Rules section remains file-owned and is preserved verbatim.
+
 ## Implementation status
 
 | Phase | Scope | Status | Evidence |
@@ -19,14 +27,13 @@
 | 4a | Researcher agent frontmatter updated to include write-capable memory tools (`capture_thought`, `memory_query`, `gsd_graph`) | ✅ | `src/resources/agents/researcher.md:4` |
 | 4b | Scout agent frontmatter intentionally kept read-only — memory tools excluded per scope | ✅ | `src/resources/agents/scout.md:4` (no change; read-only contract preserved) |
 | 5 | Idempotent `decisions → memories` backfill on session start | ✅ | `src/resources/extensions/gsd/memory-backfill.ts` — `backfillDecisionsToMemories`; wired from `system-context.ts:159` |
-| 6 preflight | Cutover gap scanner (read-only, warns on unmigrated rows) | ⏳ | Outstanding — tracked on #5751 / PR #5765. No scanner module is present in this branch. |
-| 6 cutover | Stop dual-write, memories canonical, `decisions` table read-only | ⏳ | Outstanding — tracked on #5755. Destructive; blocked on scanner reading clean. |
-| 6 drop | Schema migration to drop `decisions` table | ⏳ | Outstanding — tracked on #5756. Blocked on #5755 baking for one minor version. |
+| 6 preflight | Cutover gap scanner (read-only, warns on unmigrated rows) | ✅ | `src/resources/extensions/gsd/memory-consolidation-scanner.ts` (PR #5765) |
+| 6 cutover | Stop dual-write, memories canonical, `decisions` table read-only | ✅ | Shipped via this PR (#5772) — `db-writer.ts:saveDecisionToDb` no longer calls `db.upsertDecision`. New decisions land only in `memories`. |
+| 6 drop | Schema migration to drop `decisions` table | ⏳ | Outstanding — tracked on #5756. Blocked on this PR baking for one minor version. |
 
 ### Outstanding work
 
-- **#5755** (HITL, destructive) — stop dual-write of decisions / KNOWLEDGE.md, make `memories` the sole write surface, projections regenerate from `memories`
-- **#5756** (AFK, gated) — drop the `decisions` table; remove the read fallback. Blocked on #5755 baking
+- **#5756** (AFK, gated) — drop the `decisions` table; remove the legacy read fallback. Blocked on this PR baking
 
 ## Context
 

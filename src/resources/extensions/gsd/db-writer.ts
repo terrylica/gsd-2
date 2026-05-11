@@ -235,14 +235,63 @@ export async function nextDecisionId(): Promise<string> {
   }
 }
 
-/** Synchronous variant for use inside db.transaction(). */
-function nextDecisionIdSync(adapter: ReturnType<typeof import('./gsd-db.js')._getAdapter>): string {
+/**
+ * ADR-013 Stage 3: compute the next `D###` identifier across both the legacy
+ * `decisions` table AND the `memories.structured_fields.sourceDecisionId`
+ * surface. Returns the max numeric suffix from either side + 1, three-digit
+ * padded.
+ *
+ * Used by `saveDecisionToDb` once writes to the `decisions` table stop —
+ * new decisions live only in memories, but historical IDs sit in both
+ * places during the cutover bake. The cross-surface max keeps IDs
+ * monotonic and avoids collisions on the next save.
+ */
+function nextDecisionIdAcrossSurfaces(
+  adapter: ReturnType<typeof import('./gsd-db.js')._getAdapter>,
+): string {
   if (!adapter) return 'D001';
-  const row = adapter
-    .prepare('SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) as max_num FROM decisions')
-    .get();
-  const maxNum = row ? (row['max_num'] as number | null) : null;
-  if (maxNum == null || isNaN(maxNum)) return 'D001';
+
+  let maxNum = 0;
+
+  // Legacy table — best-effort.
+  try {
+    const row = adapter
+      .prepare('SELECT MAX(CAST(SUBSTR(id, 2) AS INTEGER)) as max_num FROM decisions')
+      .get();
+    const candidate = row ? (row['max_num'] as number | null) : null;
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      maxNum = Math.max(maxNum, candidate);
+    }
+  } catch {
+    // fall through to memory-only
+  }
+
+  // Memory surface: scan structuredFields.sourceDecisionId for D### values.
+  // SQLite LIKE on the JSON-stringified field is sufficient — rows tagged
+  // with sourceDecisionId are bounded by the decisions count.
+  try {
+    const rows = adapter
+      .prepare(
+        "SELECT structured_fields FROM memories WHERE structured_fields LIKE '%\"sourceDecisionId\":\"D%'",
+      )
+      .all() as Array<{ structured_fields: string | null }>;
+    for (const row of rows) {
+      if (!row.structured_fields) continue;
+      let sf: Record<string, unknown>;
+      try {
+        sf = JSON.parse(row.structured_fields) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const sourceId = sf['sourceDecisionId'];
+      if (typeof sourceId !== 'string' || !sourceId.startsWith('D')) continue;
+      const num = parseInt(sourceId.slice(1), 10);
+      if (Number.isFinite(num) && num > maxNum) maxNum = num;
+    }
+  } catch {
+    // best-effort
+  }
+
   const next = maxNum + 1;
   return `D${String(next).padStart(3, '0')}`;
 }
@@ -455,7 +504,6 @@ export async function saveDecisionToDb(
 
   try {
     const db = await import('./gsd-db.js');
-
     const adapter = db._getAdapter();
     const normalized: NormalizedSaveDecisionFields = {
       ...fields,
@@ -465,33 +513,22 @@ export async function saveDecisionToDb(
       source: fields.source ?? 'discussion',
     };
 
-    const id = db.transaction(() => {
-      const nextId = nextDecisionIdSync(adapter);
-      db.upsertDecision({
-        id: nextId,
-        when_context: normalized.when_context,
-        scope: normalized.scope,
-        decision: normalized.decision,
-        choice: normalized.choice,
-        rationale: normalized.rationale,
-        revisable: normalized.revisable,
-        made_by: normalized.made_by,
-        source: normalized.source,
-        superseded_by: null,
-      });
+    // ADR-013 Stage 3 (destructive): writes to the `decisions` table stop
+    // here. New decisions live only in the `memories` table; the projection
+    // regen below sources from memories (Stage 2a). The decisions table
+    // remains for backwards-compat reads (queryDecisions, md-importer,
+    // commands-inspect, workflow-manifest) until #5756 drops it.
+    //
+    // Reversal: a code revert of this change restores the upsertDecision
+    // call. Memory rows written between merge and revert stay durable; the
+    // legacy table simply doesn't grow during the cutover window.
+    const id = nextDecisionIdAcrossSurfaces(adapter);
 
-
-      return nextId;
-    });
-
-    // ADR-013 Stage 2a (PR #5767 → #5755): the dual-write to memories MUST
-    // happen before the projection regen below, because the regen now sources
-    // from memories. If the dual-write ran after, the just-saved decision
-    // would be missing from its own projection.
-    // mirrorDecisionToMemory is best-effort and swallows its own errors
-    // (see its body) — no need to wrap here. Use the normalized field set
-    // so the memory row reflects the same defaults that landed in the
-    // decisions table.
+    // The mirror-to-memories write is what persists the new decision. Must
+    // run before the projection regen — the regen sources from memories
+    // (Stage 2a) and would otherwise miss the just-saved decision. Pass
+    // the normalized field set so defaults (revisable, made_by, source)
+    // are recorded on the memory row.
     await mirrorDecisionToMemory(id, normalized);
 
     // Fetch all decisions (including superseded for the full register).
