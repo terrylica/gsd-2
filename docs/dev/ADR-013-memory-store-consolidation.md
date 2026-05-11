@@ -2,10 +2,30 @@
 
 # ADR-013: Memory Store Consolidation
 
-**Status:** Accepted
+**Status:** Accepted (mostly implemented — Phase 6 cutover outstanding)
 **Date:** 2026-04-19
+**Implemented:** 2026-04 to 2026-05 (Phases 0–5 + preflight scanner; Phase 6 cutover tracked on #5755 / #5756)
 **Author:** Jeremy (@jeremymcs)
 **Related:** PR #4469 (memory tools Phase 1), commits f4bd65a8 / 59e1f830 / 03f77f36 / 9d9ccfe8 / fc6c93c2 (Phase 2-5), Issue #4495, PR #4496
+
+## Implementation status
+
+| Phase | Scope | Status | Evidence |
+|---|---|---|---|
+| 0 | ADR document | ✅ | This file |
+| 1 | `structuredFields` JSON column on `memories` table | ✅ | Schema present in `src/resources/extensions/gsd/gsd-db.ts` (memories table definition) |
+| 2 | Register `capture_thought`, `memory_query`, `gsd_graph` | ✅ | `src/resources/extensions/gsd/bootstrap/memory-tools.ts` |
+| 3 | Auto-injection of relevant memories at session start | ✅ | `src/resources/extensions/gsd/bootstrap/system-context.ts:213,329` — `loadMemoryBlock` (covered by `tests/load-memory-block.test.ts`) |
+| 4 | Researcher / scout agent frontmatter updated to include memory tools | ✅ | `src/resources/agents/researcher.md:4` (scout intentionally read-only per scope) |
+| 5 | Idempotent `decisions → memories` backfill on session start | ✅ | `src/resources/extensions/gsd/memory-backfill.ts` — `backfillDecisionsToMemories`; wired from `system-context.ts:159` |
+| 6 preflight | Cutover gap scanner (read-only, warns on unmigrated rows) | ✅ | `src/resources/extensions/gsd/memory-consolidation-scanner.ts` — `scanConsolidationGaps` + `reportConsolidationGaps`; wired from `system-context.ts:168` (PR #5765, closes #5751) |
+| 6 cutover | Stop dual-write, memories canonical, `decisions` table read-only | ⏳ | Outstanding — tracked on #5755. Destructive; blocked on scanner reading clean. |
+| 6 drop | Schema migration to drop `decisions` table | ⏳ | Outstanding — tracked on #5756. Blocked on #5755 baking for one minor version. |
+
+### Outstanding work
+
+- **#5755** (HITL, destructive) — stop dual-write of decisions / KNOWLEDGE.md, make `memories` the sole write surface, projections regenerate from `memories`
+- **#5756** (AFK, gated) — drop the `decisions` table; remove the read fallback. Blocked on #5755 baking
 
 ## Context
 
