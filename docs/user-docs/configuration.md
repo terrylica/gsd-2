@@ -778,7 +778,7 @@ Declare project-level runtime context in `.gsd/RUNTIME.md`. This file is inlined
 - Redis: localhost:6379
 ```
 
-Use this for information that the agent needs during execution but that doesn't belong in `DECISIONS.md` (architectural) or `KNOWLEDGE.md` (patterns/rules). Common examples: API base URLs, service ports, deployment targets, and environment-specific configuration.
+Use this for information that the agent needs during execution but that doesn't belong in `DECISIONS.md` (architectural) or project knowledge (rules, patterns, lessons). Common examples: API base URLs, service ports, deployment targets, and environment-specific configuration.
 
 ### `dynamic_routing`
 

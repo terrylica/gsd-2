@@ -161,9 +161,9 @@ No manual intervention needed for transient errors — the session pauses briefl
 
 ### Incremental Memory (v2.26)
 
-GSD maintains durable project memory in `gsd.db` and projects the reviewable subset into `.gsd/KNOWLEDGE.md`. On startup, existing `KNOWLEDGE.md` Patterns and Lessons are backfilled into memories, then the file is rewritten as a hybrid projection: manual Rules remain in the file, while generated Patterns and Lessons are rendered from memory rows.
+GSD maintains durable project memory in the `memories` table and projects selected knowledge back into `.gsd/KNOWLEDGE.md` for review. `KNOWLEDGE.md` keeps manual Rules as file-canonical entries, while Patterns and Lessons are captured as memories, backfilled from existing rows, and rendered into the file on session start.
 
-Agents use the memory system when deciding what project knowledge to inject into prompts, so cross-session memory survives context window boundaries without depending on manual markdown edits. Use `/gsd knowledge rule` for hand-authored operating rules; recurring patterns and lessons discovered during work are stored as memories and shown in `KNOWLEDGE.md` for review.
+At the start of each unit, GSD injects the manual Rules from project `KNOWLEDGE.md`; Patterns and Lessons reach the agent through the memory block. Global `~/.gsd/agent/KNOWLEDGE.md` remains user-maintained and is injected unchanged.
 
 ### Context Pressure Monitor (v2.26)
 

@@ -107,6 +107,41 @@ export function parseKnowledgeRows(content: string): KnowledgeRow[] {
 }
 
 /**
+ * Slice the KNOWLEDGE.md content to just the intro prose plus the `## Rules`
+ * section, dropping `## Patterns` and `## Lessons Learned`. Used by
+ * `loadKnowledgeBlock` to avoid double-injecting Patterns and Lessons —
+ * those reach the LLM via `loadMemoryBlock` after the ADR-013 Stage 2b
+ * cutover, so re-emitting them through the KNOWLEDGE.md block is pure
+ * token-cost overhead.
+ *
+ * Returns the full content unchanged when no `## Rules` heading exists
+ * (legacy projects or unusual layouts — better to over-inject than drop
+ * unfamiliar content silently).
+ */
+export function extractIntroAndRules(content: string): string {
+  if (!content.trim()) return "";
+  const lines = content.split("\n");
+  const rulesIdx = lines.findIndex((l) => l.trim() === "## Rules");
+  if (rulesIdx === -1) return content;
+
+  // End of the Rules section is the next `## ` heading (Patterns or
+  // Lessons Learned) or end-of-file. Drop trailing blank lines so the
+  // caller can join the slice without producing a triple newline.
+  let endIdx = lines.length;
+  for (let i = rulesIdx + 1; i < lines.length; i++) {
+    if (lines[i]!.startsWith("## ")) {
+      endIdx = i;
+      break;
+    }
+  }
+  const slice = lines.slice(0, endIdx);
+  while (slice.length > 0 && slice[slice.length - 1]!.trim() === "") {
+    slice.pop();
+  }
+  return slice.join("\n") + "\n";
+}
+
+/**
  * Split a Markdown table row on un-escaped pipes. Returns the cell values
  * (without the leading/trailing empty fragments from `| ... |`), each
  * trimmed. Escaped pipes (`\|`) inside a cell are preserved as `|` in the

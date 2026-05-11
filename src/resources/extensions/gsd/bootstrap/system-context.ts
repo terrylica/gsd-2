@@ -13,6 +13,7 @@ import { resolveAllSkillReferences, renderPreferencesForSystemPrompt, loadEffect
 import { resolveModelWithFallbacksForUnit } from "../preferences-models.js";
 import { resolveSkillReference } from "../preferences-skills.js";
 import { resolveGsdRootFile, resolveSliceFile, resolveSlicePath, resolveTaskFile, resolveTaskFiles, resolveTasksDir, relSliceFile, relSlicePath, relTaskFile } from "../paths.js";
+import { extractIntroAndRules } from "../knowledge-parser.js";
 import { ensureCodebaseMapFresh, readCodebaseMap } from "../codebase-generator.js";
 import { hasSkillSnapshot, detectNewSkills, formatSkillsXml } from "../skill-discovery.js";
 import { getActiveAutoWorktreeContext } from "../auto-worktree.js";
@@ -404,29 +405,10 @@ export async function loadMemoryBlock(
   }
 }
 
-/**
- * Extracts intro prose plus the `## Rules` section from project KNOWLEDGE.md,
- * dropping projected patterns and lessons that are injected through memory.
- */
-function extractRulesSection(content: string): string {
-  const rulesHeading = "## Rules";
-  const rulesIdx = content.indexOf(rulesHeading);
-  if (rulesIdx === -1) {
-    const firstSection = content.search(/^## /m);
-    return firstSection === -1 ? content : content.slice(0, firstSection).trim();
-  }
-
-  const intro = content.slice(0, rulesIdx).trim();
-  const afterRules = content.slice(rulesIdx);
-  const nextSection = afterRules.match(/\n## /);
-  const rulesSection =
-    nextSection && nextSection.index !== undefined ? afterRules.slice(0, nextSection.index).trim() : afterRules.trim();
-
-  return intro ? `${intro}\n\n${rulesSection}` : rulesSection;
-}
-
 export function loadKnowledgeBlock(gsdHomeDir: string, cwd: string): { block: string; globalSizeKb: number } {
-  // 1. Global knowledge (~/.gsd/agent/KNOWLEDGE.md) — cross-project, user-maintained
+  // 1. Global knowledge (~/.gsd/agent/KNOWLEDGE.md) — cross-project,
+  //    user-maintained. NOT migrated to memories (which are project-scoped),
+  //    so the full file is injected unchanged.
   let globalKnowledge = "";
   let globalSizeKb = 0;
   const globalKnowledgePath = join(gsdHomeDir, "agent", "KNOWLEDGE.md");
@@ -442,13 +424,18 @@ export function loadKnowledgeBlock(gsdHomeDir: string, cwd: string): { block: st
     }
   }
 
-  // 2. Project knowledge (.gsd/KNOWLEDGE.md) — project-specific
+  // 2. Project knowledge (.gsd/KNOWLEDGE.md) — project-specific.
+  //    ADR-013 Stage 2b: Patterns and Lessons are projected from the
+  //    memories table and already reach the LLM via loadMemoryBlock. Inject
+  //    only the intro prose + `## Rules` section here to avoid duplicating
+  //    Patterns/Lessons content in the prompt. Rules stay manual per
+  //    ADR-013 line 39 and have no memory equivalent.
   let projectKnowledge = "";
   const knowledgePath = resolveGsdRootFile(cwd, "KNOWLEDGE");
   if (existsSync(knowledgePath)) {
     try {
-      const content = readFileSync(knowledgePath, "utf-8").trim();
-      if (content) projectKnowledge = extractRulesSection(content);
+      const raw = readFileSync(knowledgePath, "utf-8").trim();
+      if (raw) projectKnowledge = extractIntroAndRules(raw).trim();
     } catch (e) {
       logWarning("bootstrap", `project knowledge file read failed: ${(e as Error).message}`);
     }
@@ -467,7 +454,7 @@ export function loadKnowledgeBlock(gsdHomeDir: string, cwd: string): { block: st
   }
   const body = limitKnowledgeBlock(parts.join("\n\n"), getKnowledgeCharLimit());
   return {
-    block: `\n\n[KNOWLEDGE — Manual Rules]\n\n${body}`,
+    block: `\n\n[KNOWLEDGE — Rules from KNOWLEDGE.md (Patterns and Lessons reach the LLM via the memory block)]\n\n${body}`,
     globalSizeKb,
   };
 }

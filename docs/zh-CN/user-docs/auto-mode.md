@@ -87,9 +87,9 @@ GSD 会对 provider 错误分类，并在安全时自动恢复：
 
 ### 增量记忆（v2.26）
 
-GSD 会把持久项目记忆保存在 `gsd.db` 中，并把可审阅的部分投影到 `.gsd/KNOWLEDGE.md`。启动时，已有的 `KNOWLEDGE.md` Patterns 和 Lessons 会回填到 memories，然后文件会被重写为混合投影：手写 Rules 仍保留在文件中，生成的 Patterns 和 Lessons 则从 memory 行渲染出来。
+GSD 会在 `memories` 表中维护项目持久记忆，并把其中一部分知识投影回 `.gsd/KNOWLEDGE.md` 方便审阅。`KNOWLEDGE.md` 中的 Rules 仍由文件本身保存；Patterns 和 Lessons 会作为 memories 捕获，从已有行回填，并在会话启动时重新渲染到文件中。
 
-agent 会通过 memory 系统选择要注入 prompt 的项目知识，因此跨会话记忆不依赖手工维护 markdown。手写的操作规则请用 `/gsd knowledge rule`；工作中发现的重复模式和经验会存入 memories，并显示在 `KNOWLEDGE.md` 中方便审阅。
+每个工作单元开始时，GSD 会从项目 `KNOWLEDGE.md` 注入手写 Rules；Patterns 和 Lessons 则通过 memory block 提供给 agent。全局的 `~/.gsd/agent/KNOWLEDGE.md` 仍由用户维护，并按原样注入。
 
 ### 上下文压力监视器（v2.26）
 

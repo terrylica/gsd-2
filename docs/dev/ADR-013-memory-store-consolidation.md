@@ -87,7 +87,7 @@ After the backfill, GSD rewrites `.gsd/KNOWLEDGE.md` as a hybrid projection. Int
 
 Step 6 may land only when **all** of the following are observable on `feat/memory-tools-dual-write`:
 
-- Step 4 auto-injection produces a memory block measurably similar in coverage to the current KNOWLEDGE.md inline injection on at least three real GSD projects (manual spot check).
+- Step 4 auto-injection produces a memory block measurably similar in coverage to the old Patterns/Lessons KNOWLEDGE.md inline injection on at least three real GSD projects (manual spot check); Rules still come from `loadKnowledgeBlock`.
 - Step 5 backfill is idempotent (rerunnable with no diff) on at least one real `.gsd/gsd.db` that contains historical decisions.
 - The ADR-013 Phase 6 preflight scanner reports zero consolidation gaps at startup and through `/gsd doctor`: active `decisions` rows must have matching `memories.structured_fields.sourceDecisionId` markers, and migrated `KNOWLEDGE.md` rows must have matching `sourceKnowledgeId` markers.
 - MCP `capture_thought` and `memory_query` calls succeed end-to-end from a non-CLI client (studio or vscode integration test).
