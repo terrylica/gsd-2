@@ -91,10 +91,6 @@ function readDecisionsFromMemories(
     ];
     const params: Record<string, unknown> = {};
 
-    if (!includeSuperseded) {
-      clauses.push("superseded_by IS NULL");
-    }
-
     if (opts?.milestoneId) {
       // when_context is a free-text JSON value; substring match preserves the
       // semantics of `when_context LIKE '%milestoneId%'` on the legacy table.

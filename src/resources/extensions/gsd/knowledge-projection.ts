@@ -53,6 +53,11 @@ interface KnowledgeMemoryRow {
   structured: Record<string, unknown>;
 }
 
+interface KnowledgeMemoryReadResult {
+  ok: boolean;
+  rows: KnowledgeMemoryRow[];
+}
+
 export interface KnowledgeProjectionResult {
   written: boolean;
   content: string;
@@ -64,10 +69,10 @@ export interface KnowledgeProjectionResult {
  * structuredFields fail to parse are skipped silently; they are diagnosed
  * separately by the memory-consolidation scanner.
  */
-function readKnowledgeMemories(category: "pattern" | "gotcha"): KnowledgeMemoryRow[] {
-  if (!isDbAvailable()) return [];
+function readKnowledgeMemories(category: "pattern" | "gotcha"): KnowledgeMemoryReadResult {
+  if (!isDbAvailable()) return { ok: false, rows: [] };
   const adapter = _getAdapter();
-  if (!adapter) return [];
+  if (!adapter) return { ok: false, rows: [] };
   try {
     const rows = adapter
       .prepare(
@@ -88,14 +93,17 @@ function readKnowledgeMemories(category: "pattern" | "gotcha"): KnowledgeMemoryR
       if (typeof sourceId !== "string" || sourceId.length === 0) continue;
       out.push({ sourceId, structured: sf });
     }
-    return out;
+    return { ok: true, rows: out };
   } catch {
-    return [];
+    return { ok: false, rows: [] };
   }
 }
 
 function escapeCell(value: string | undefined): string {
-  return (value ?? "").replace(/\|/g, "\\|");
+  return (value ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/\|/g, "\\|")
+    .trim();
 }
 
 function renderPatternsSection(memories: KnowledgeMemoryRow[]): string[] {
@@ -193,12 +201,23 @@ export function renderKnowledgeProjection(basePath: string): KnowledgeProjection
     const existing = readKnowledgeMd(basePath);
     const intro = extractIntro(existing);
     const rules = extractRulesSection(existing);
-    const patterns = renderPatternsSection(readKnowledgeMemories("pattern"));
-    const lessons = renderLessonsSection(readKnowledgeMemories("gotcha"));
+    const patternMemories = readKnowledgeMemories("pattern");
+    const lessonMemories = readKnowledgeMemories("gotcha");
+    if (!patternMemories.ok || !lessonMemories.ok) {
+      return { written: false, content: existing };
+    }
+    const patterns = renderPatternsSection(patternMemories.rows);
+    const lessons = renderLessonsSection(lessonMemories.rows);
 
-    const content = [intro, ...rules, ...patterns, ...lessons]
+    const introText = intro
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/\s+$/g, "");
+    const projectedText = [...patterns, ...lessons]
       .join("\n")
       .replace(/\n{3,}/g, "\n\n")
+      .replace(/\s+$/g, "");
+    const content = [introText, rules.join("\n"), projectedText]
+      .join("\n")
       .replace(/\s+$/g, "")
       + "\n";
 
@@ -209,7 +228,7 @@ export function renderKnowledgeProjection(basePath: string): KnowledgeProjection
     writeFileSync(knowledgeMdPath(basePath), content, "utf-8");
     return { written: true, content };
   } catch (e) {
-    logWarning("knowledge-projection", `render failed: ${(e as Error).message}`);
+    logWarning("renderer", `KNOWLEDGE.md projection render failed: ${(e as Error).message}`);
     return { written: false, content: "" };
   }
 }

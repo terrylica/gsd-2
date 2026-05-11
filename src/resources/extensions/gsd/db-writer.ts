@@ -471,7 +471,10 @@ export async function saveDecisionToDb(
     // happen before the projection regen below, because the regen now sources
     // from memories. If the dual-write ran after, the just-saved decision
     // would be missing from its own projection.
-    await mirrorDecisionToMemory(id, fields);
+    const mirrored = await mirrorDecisionToMemory(id, fields);
+    if (!mirrored) {
+      throw new Error(`Decision ${id} saved to DB but failed to mirror into memories`);
+    }
 
     // Fetch all decisions (including superseded for the full register).
     // ADR-013 Stage 2a: source from the `memories` table. The Phase 5
@@ -548,7 +551,8 @@ export async function saveDecisionToDb(
  * table so the memory store remains the single source of truth for the
  * DECISIONS.md projection (Stage 2a) and for prompt-inline reads (Stage 1).
  *
- * Best-effort: never throws, never rolls back the decision on failure.
+ * Never throws directly; returns false so the caller can avoid reporting a
+ * successful save when memory-sourced projections would miss the decision.
  * Caller invokes this AFTER the decisions-table write completes and
  * BEFORE the projection regen — the regen sources from memories and would
  * otherwise miss the just-saved decision.
@@ -556,7 +560,7 @@ export async function saveDecisionToDb(
 async function mirrorDecisionToMemory(
   id: string,
   fields: SaveDecisionFields,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const { createMemory } = await import('./memory-store.js');
     const decisionText = (fields.decision ?? '').trim();
@@ -567,7 +571,7 @@ async function mirrorDecisionToMemory(
     if (choiceText) contentParts.push(`Chose: ${choiceText}.`);
     if (rationaleText) contentParts.push(`Rationale: ${rationaleText}.`);
     const content = contentParts.join(' ').slice(0, 600);
-    if (!content) return;
+    if (!content) return false;
 
     createMemory({
       category: 'architecture',
@@ -589,12 +593,14 @@ async function mirrorDecisionToMemory(
         superseded_by: null,
       },
     });
+    return true;
   } catch (mirrorErr) {
-    logError('manifest', 'memory-store mirror write failed (non-fatal)', {
+    logError('manifest', 'memory-store mirror write failed', {
       fn: 'saveDecisionToDb',
       decisionId: id,
       error: String((mirrorErr as Error).message),
     });
+    return false;
   }
 }
 
