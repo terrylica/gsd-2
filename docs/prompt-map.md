@@ -79,8 +79,8 @@ Static section
     └── DECISIONS.md
 
 Semi-static section
-    ├── KNOWLEDGE.md  (manual rules projection)
-    ├── memories      (prompt-relevant patterns, gotchas, decisions)
+    ├── KNOWLEDGE.md  (hybrid file: manual rules plus projected patterns/lessons from memories)
+    ├── memories      (prompt-relevant patterns, gotchas, decisions; may overlap the projected KNOWLEDGE.md entries)
     ├── PREFERENCES.md
     └── Prior slice/milestone RESEARCH.md
 
@@ -92,6 +92,11 @@ Dynamic section
     ├── Carry-forward captures
     └── Gate list to close
 ```
+
+Before this map is assembled, `buildBeforeAgentStartResult()` runs the
+session-start KNOWLEDGE backfill/projection path and then calls
+`loadKnowledgeBlock()`. That helper inlines the current hybrid
+`.gsd/KNOWLEDGE.md` file, not only the manual Rules section.
 
 Budget enforcement: `context-budget.ts` computes `preambleBudgetChars`, `summaryBudgetChars`, `verificationBudgetChars` from the model's context window. Sections are truncated at markdown section boundaries, not mid-sentence.
 
