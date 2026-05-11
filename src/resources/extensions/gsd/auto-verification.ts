@@ -346,6 +346,7 @@ export async function runPostUnitVerification(
           } else {
             const nextAttempt = attempt + 1;
             const includeRetryMetadata =
+              !result.passed &&
               verdict.retryable &&
               autoFixEnabled &&
               nextAttempt <= maxRetries;
