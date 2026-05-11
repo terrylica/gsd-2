@@ -345,13 +345,17 @@ export async function runPostUnitVerification(
             writeVerificationJSON(result, tasksDir, tid, s.currentUnit.id);
           } else {
             const nextAttempt = attempt + 1;
+            const includeRetryMetadata =
+              verdict.retryable &&
+              autoFixEnabled &&
+              nextAttempt <= maxRetries;
             writeVerificationJSON(
               result,
               tasksDir,
               tid,
               s.currentUnit.id,
-              nextAttempt,
-              maxRetries,
+              includeRetryMetadata ? nextAttempt : undefined,
+              includeRetryMetadata ? maxRetries : undefined,
             );
           }
         }
