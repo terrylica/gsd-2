@@ -548,7 +548,7 @@ export async function saveDecisionToDb(
  * table so the memory store remains the single source of truth for the
  * DECISIONS.md projection (Stage 2a) and for prompt-inline reads (Stage 1).
  *
- * Best-effort: never throws, never rolls back the decision on failure.
+ * Required save contract: throws when the memory mirror cannot be written.
  * Caller invokes this AFTER the decisions-table write completes and
  * BEFORE the projection regen — the regen sources from memories and would
  * otherwise miss the just-saved decision.
@@ -557,44 +557,48 @@ async function mirrorDecisionToMemory(
   id: string,
   fields: SaveDecisionFields,
 ): Promise<void> {
-  try {
-    const { createMemory } = await import('./memory-store.js');
-    const decisionText = (fields.decision ?? '').trim();
-    const choiceText = (fields.choice ?? '').trim();
-    const rationaleText = (fields.rationale ?? '').trim();
-    const contentParts: string[] = [];
-    if (decisionText) contentParts.push(decisionText);
-    if (choiceText) contentParts.push(`Chose: ${choiceText}.`);
-    if (rationaleText) contentParts.push(`Rationale: ${rationaleText}.`);
-    const content = contentParts.join(' ').slice(0, 600);
-    if (!content) return;
+  const { createMemory } = await import('./memory-store.js');
+  const decisionText = (fields.decision ?? '').trim();
+  const choiceText = (fields.choice ?? '').trim();
+  const rationaleText = (fields.rationale ?? '').trim();
+  const contentParts: string[] = [];
+  if (decisionText) contentParts.push(decisionText);
+  if (choiceText) contentParts.push(`Chose: ${choiceText}.`);
+  if (rationaleText) contentParts.push(`Rationale: ${rationaleText}.`);
+  const content = contentParts.join(' ').slice(0, 600);
+  if (!content) {
+    throw new Error(`memory-store mirror write failed for ${id}: empty decision content`);
+  }
 
-    createMemory({
-      category: 'architecture',
-      content,
-      scope: fields.scope || 'project',
-      confidence: 0.85,
-      structuredFields: {
-        sourceDecisionId: id,
-        when_context: fields.when_context ?? '',
-        scope: fields.scope,
-        decision: fields.decision,
-        choice: fields.choice,
-        rationale: fields.rationale,
-        made_by: fields.made_by ?? 'agent',
-        revisable: fields.revisable ?? '',
-        // New decisions are always written as active; md-importer can later
-        // set superseded_by on the source decision row, and the backfill's
-        // drift auto-heal pass propagates that update to this memory.
-        superseded_by: null,
-      },
-    });
-  } catch (mirrorErr) {
-    logError('manifest', 'memory-store mirror write failed (non-fatal)', {
+  const memoryId = createMemory({
+    category: 'architecture',
+    content,
+    scope: fields.scope || 'project',
+    confidence: 0.85,
+    structuredFields: {
+      sourceDecisionId: id,
+      when_context: fields.when_context ?? '',
+      scope: fields.scope,
+      decision: fields.decision,
+      choice: fields.choice,
+      rationale: fields.rationale,
+      made_by: fields.made_by ?? 'agent',
+      revisable: fields.revisable ?? 'Yes',
+      // New decisions are always written as active; md-importer can later
+      // set superseded_by on the source decision row, and the backfill's
+      // drift auto-heal pass propagates that update to this memory.
+      superseded_by: null,
+    },
+  });
+
+  if (!memoryId) {
+    const mirrorErr = new Error(`memory-store mirror write failed for ${id}: memory store unavailable`);
+    logError('manifest', 'memory-store mirror write failed', {
       fn: 'saveDecisionToDb',
       decisionId: id,
-      error: String((mirrorErr as Error).message),
+      error: mirrorErr.message,
     });
+    throw mirrorErr;
   }
 }
 

@@ -131,9 +131,11 @@ export async function buildBeforeAgentStartResult(
     logWarning("bootstrap", `cmux prompt setup skipped: ${(e as Error).message}`);
   }
 
+  const basePath = process.cwd();
+
   let preferenceBlock = "";
   if (loadedPreferences) {
-    const cwd = process.cwd();
+    const cwd = basePath;
     const report = resolveAllSkillReferences(loadedPreferences.preferences, cwd);
     preferenceBlock = `\n\n${renderPreferencesForSystemPrompt(loadedPreferences.preferences, report.resolutions)}`;
     if (report.warnings.length > 0) {
@@ -142,14 +144,6 @@ export async function buildBeforeAgentStartResult(
         "warning",
       );
     }
-  }
-
-  const { block: knowledgeBlock, globalSizeKb } = loadKnowledgeBlock(gsdHome(), process.cwd());
-  if (globalSizeKb > 4) {
-    ctx.ui.notify(
-      `GSD: ~/.gsd/agent/KNOWLEDGE.md is ${globalSizeKb.toFixed(1)}KB — consider trimming to keep system prompt lean.`,
-      "warning",
-    );
   }
 
   // ADR-013 step 5: opportunistic decisions->memories backfill. Idempotent
@@ -183,6 +177,14 @@ export async function buildBeforeAgentStartResult(
     renderKnowledgeProjection(basePath);
   } catch (e) {
     logWarning("bootstrap", `KNOWLEDGE.md projection render failed: ${(e as Error).message}`);
+  }
+
+  const { block: knowledgeBlock, globalSizeKb } = loadKnowledgeBlock(gsdHome(), basePath);
+  if (globalSizeKb > 4) {
+    ctx.ui.notify(
+      `GSD: ~/.gsd/agent/KNOWLEDGE.md is ${globalSizeKb.toFixed(1)}KB — consider trimming to keep system prompt lean.`,
+      "warning",
+    );
   }
 
   let newSkillsBlock = "";

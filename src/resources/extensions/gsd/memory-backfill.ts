@@ -69,7 +69,7 @@ export function backfillDecisionsToMemories(): number {
 
   try {
     const decisions = adapter
-      .prepare("SELECT id, when_context, scope, decision, choice, rationale, made_by, revisable, superseded_by FROM decisions")
+      .prepare("SELECT id, when_context, scope, decision, choice, rationale, made_by, revisable, superseded_by FROM decisions ORDER BY seq")
       .all() as Array<Record<string, unknown>>;
 
     if (decisions.length === 0) return 0;
