@@ -76,7 +76,7 @@ function readKnowledgeMemories(category: "pattern" | "gotcha"): KnowledgeMemoryR
   try {
     const rows = adapter
       .prepare(
-        "SELECT structured_fields FROM memories WHERE category = :cat AND structured_fields LIKE '%\"sourceKnowledgeId\":\"%' ORDER BY seq",
+        "SELECT structured_fields FROM memories WHERE category = :cat AND structured_fields IS NOT NULL",
       )
       .all({ ":cat": category }) as Array<{ structured_fields: string | null }>;
 
@@ -93,6 +93,10 @@ function readKnowledgeMemories(category: "pattern" | "gotcha"): KnowledgeMemoryR
       if (typeof sourceId !== "string" || sourceId.length === 0) continue;
       out.push({ sourceId, structured: sf });
     }
+    // Lexicographic sort matches the docstring contract (P001 < P002 < P010).
+    // DB seq order is creation-time; sorting by sourceId stabilizes the
+    // rendered output across reruns.
+    out.sort((a, b) => a.sourceId.localeCompare(b.sourceId));
     return { ok: true, rows: out };
   } catch {
     return { ok: false, rows: [] };

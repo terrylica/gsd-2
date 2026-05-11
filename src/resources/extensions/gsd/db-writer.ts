@@ -416,6 +416,16 @@ export interface SaveDecisionFields {
   source?: string;
 }
 
+type NormalizedSaveDecisionFields = Omit<
+  SaveDecisionFields,
+  'when_context' | 'revisable' | 'made_by' | 'source'
+> & {
+  when_context: string;
+  revisable: string;
+  made_by: NonNullable<SaveDecisionFields['made_by']>;
+  source: string;
+};
+
 /**
  * Save a new decision to DB and regenerate DECISIONS.md.
  * Auto-assigns the next ID via nextDecisionId().
@@ -447,19 +457,26 @@ export async function saveDecisionToDb(
     const db = await import('./gsd-db.js');
 
     const adapter = db._getAdapter();
+    const normalized: NormalizedSaveDecisionFields = {
+      ...fields,
+      when_context: fields.when_context ?? '',
+      revisable: fields.revisable ?? 'Yes',
+      made_by: fields.made_by ?? 'agent',
+      source: fields.source ?? 'discussion',
+    };
 
     const id = db.transaction(() => {
       const nextId = nextDecisionIdSync(adapter);
       db.upsertDecision({
         id: nextId,
-        when_context: fields.when_context ?? '',
-        scope: fields.scope,
-        decision: fields.decision,
-        choice: fields.choice,
-        rationale: fields.rationale,
-        revisable: fields.revisable ?? 'Yes',
-        made_by: fields.made_by ?? 'agent',
-        source: fields.source ?? 'discussion',
+        when_context: normalized.when_context,
+        scope: normalized.scope,
+        decision: normalized.decision,
+        choice: normalized.choice,
+        rationale: normalized.rationale,
+        revisable: normalized.revisable,
+        made_by: normalized.made_by,
+        source: normalized.source,
         superseded_by: null,
       });
 
@@ -471,10 +488,11 @@ export async function saveDecisionToDb(
     // happen before the projection regen below, because the regen now sources
     // from memories. If the dual-write ran after, the just-saved decision
     // would be missing from its own projection.
-    const mirrored = await mirrorDecisionToMemory(id, fields);
-    if (!mirrored) {
-      throw new Error(`Decision ${id} saved to DB but failed to mirror into memories`);
-    }
+    // mirrorDecisionToMemory is best-effort and swallows its own errors
+    // (see its body) — no need to wrap here. Use the normalized field set
+    // so the memory row reflects the same defaults that landed in the
+    // decisions table.
+    await mirrorDecisionToMemory(id, normalized);
 
     // Fetch all decisions (including superseded for the full register).
     // ADR-013 Stage 2a: source from the `memories` table. The Phase 5
@@ -483,6 +501,26 @@ export async function saveDecisionToDb(
     // superseded_by on every session start.
     const { getAllDecisionsFromMemories } = await import('./context-store.js');
     let allDecisions: Decision[] = getAllDecisionsFromMemories();
+    if (!allDecisions.some(d => d.id === id)) {
+      logWarning('projection', 'just-saved decision missing from memories after mirror; injecting fallback for projection', {
+        fn: 'saveDecisionToDb',
+        decisionId: id,
+      });
+      const nextSeq = allDecisions.reduce((max, d) => Math.max(max, d.seq ?? 0), 0) + 1;
+      const fallback: Decision = {
+        seq: nextSeq,
+        id,
+        when_context: normalized.when_context,
+        scope: normalized.scope,
+        decision: normalized.decision,
+        choice: normalized.choice,
+        rationale: normalized.rationale,
+        revisable: normalized.revisable,
+        made_by: normalized.made_by,
+        superseded_by: null,
+      };
+      allDecisions = [...allDecisions, fallback];
+    }
 
     const filePath = resolveGsdRootFile(basePath, 'DECISIONS');
 
@@ -551,42 +589,35 @@ export async function saveDecisionToDb(
  * table so the memory store remains the single source of truth for the
  * DECISIONS.md projection (Stage 2a) and for prompt-inline reads (Stage 1).
  *
- * Never throws directly; returns false so the caller can avoid reporting a
- * successful save when memory-sourced projections would miss the decision.
+ * Best-effort mirror: logs failures without throwing to avoid blocking saves.
  * Caller invokes this AFTER the decisions-table write completes and
  * BEFORE the projection regen — the regen sources from memories and would
  * otherwise miss the just-saved decision.
  */
 async function mirrorDecisionToMemory(
   id: string,
-  fields: SaveDecisionFields,
-): Promise<boolean> {
+  normalizedFields: NormalizedSaveDecisionFields,
+): Promise<void> {
   try {
     const { createMemory } = await import('./memory-store.js');
-    const decisionText = (fields.decision ?? '').trim();
-    const choiceText = (fields.choice ?? '').trim();
-    const rationaleText = (fields.rationale ?? '').trim();
-    const contentParts: string[] = [];
-    if (decisionText) contentParts.push(decisionText);
-    if (choiceText) contentParts.push(`Chose: ${choiceText}.`);
-    if (rationaleText) contentParts.push(`Rationale: ${rationaleText}.`);
-    const content = contentParts.join(' ').slice(0, 600);
-    if (!content) return false;
+    const { synthesizeDecisionMemoryContent } = await import('./memory-backfill.js');
+    const content = synthesizeDecisionMemoryContent(normalizedFields);
+    if (!content) return;
 
     createMemory({
       category: 'architecture',
       content,
-      scope: fields.scope || 'project',
+      scope: normalizedFields.scope || 'project',
       confidence: 0.85,
       structuredFields: {
         sourceDecisionId: id,
-        when_context: fields.when_context ?? '',
-        scope: fields.scope,
-        decision: fields.decision,
-        choice: fields.choice,
-        rationale: fields.rationale,
-        made_by: fields.made_by ?? 'agent',
-        revisable: fields.revisable ?? '',
+        when_context: normalizedFields.when_context,
+        scope: normalizedFields.scope,
+        decision: normalizedFields.decision,
+        choice: normalizedFields.choice,
+        rationale: normalizedFields.rationale,
+        made_by: normalizedFields.made_by,
+        revisable: normalizedFields.revisable,
         // New decisions are always written as active; md-importer can later
         // set superseded_by on the source decision row, and the backfill's
         // drift auto-heal pass propagates that update to this memory.

@@ -22,6 +22,8 @@ Plan (with integrated research) → Execute (per task) → Complete → Reassess
 - **Reassess** — checks if the roadmap still makes sense
 - **Validate Milestone** — reconciliation gate after all slices complete; compares roadmap success criteria against actual results, catches gaps before sealing the milestone
 
+When progressive planning is enabled, GSD fully plans the first slice and may leave later slices as sketches. Those slices render in `M###-ROADMAP.md` with a `` `[sketch]` `` badge, meaning the slice has an approved scope boundary but has not yet been expanded into task plans. Auto mode runs `refine-slice` just before execution to convert the sketch into a full slice plan using the current codebase and prior slice summaries.
+
 ### Idempotent Milestone Completion
 
 Milestone completion is safe to retry. If a `complete-milestone` unit is redispatched after the database already marks the milestone as closed, GSD treats the call as successful instead of returning an error. The existing summary projection is left intact, no duplicate completion event is appended, and the tool response includes `alreadyComplete: true` in its details so operators and integrations can distinguish a retry from the first completion.
@@ -61,7 +63,7 @@ Workflow Preferences -> Project Context -> Requirements -> Research Decision -> 
 | `.gsd/REQUIREMENTS.md` | `discuss-requirements` | Capability contract using `R###` requirements grouped by Active, Validated, Deferred, and Out of Scope |
 | `.gsd/runtime/research-decision.json` | `research-decision` | Records `research` or `skip`; this unit only asks the question and writes the marker |
 | `.gsd/research/STACK.md`, `FEATURES.md`, `ARCHITECTURE.md`, `PITFALLS.md` | `research-project`, only when the decision is `research` | Four parallel project-level research outputs for stack, feature norms, architecture, and pitfalls |
-| `.gsd/milestones/<MID>/M###-CONTEXT.md` and `M###-ROADMAP.md` | Normal milestone discussion/planning | Milestone-specific context and executable roadmap |
+| `.gsd/milestones/<MID>/M###-CONTEXT.md` and `M###-ROADMAP.md` | Normal milestone discussion/planning | Milestone-specific context and executable roadmap; `` `[sketch]` `` marks slices awaiting `refine-slice` |
 
 `REQUIREMENTS.md` is rendered from the requirements stored in the GSD database. Agents should save individual requirements with `gsd_requirement_save`; a final `gsd_summary_save` for `REQUIREMENTS` will fail if no active requirement rows exist instead of treating caller-supplied markdown as canonical.
 
@@ -157,7 +159,9 @@ No manual intervention needed for transient errors — the session pauses briefl
 
 ### Incremental Memory (v2.26)
 
-GSD maintains a `KNOWLEDGE.md` file — an append-only register of project-specific rules, patterns, and lessons learned. The agent reads it at the start of every unit and appends to it when discovering recurring issues, non-obvious patterns, or rules that future sessions should follow. This gives auto-mode cross-session memory that survives context window boundaries.
+GSD maintains durable project memory in `gsd.db` and projects the reviewable subset into `.gsd/KNOWLEDGE.md`. On startup, existing `KNOWLEDGE.md` Patterns and Lessons are backfilled into memories, then the file is rewritten as a hybrid projection: manual Rules remain in the file, while generated Patterns and Lessons are rendered from memory rows.
+
+Agents use the memory system when deciding what project knowledge to inject into prompts, so cross-session memory survives context window boundaries without depending on manual markdown edits. Use `/gsd knowledge rule` for hand-authored operating rules; recurring patterns and lessons discovered during work are stored as memories and shown in `KNOWLEDGE.md` for review.
 
 ### Context Pressure Monitor (v2.26)
 
