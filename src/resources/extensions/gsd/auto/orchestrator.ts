@@ -33,7 +33,7 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
       await this.deps.runtime.ensureLockOwnership();
       const gate = await this.deps.health.preAdvanceGate();
       if (!gate.allow) {
-        const blocked: AutoAdvanceResult = { kind: "blocked", reason: gate.reason ?? "health gate blocked" };
+        const blocked: AutoAdvanceResult = { kind: "blocked", reason: gate.reason ?? "health gate blocked", action: "pause" };
         await this.deps.runtime.journalTransition({ name: "advance-blocked", reason: blocked.reason });
         await this.deps.health.postAdvanceRecord(blocked);
         return blocked;
@@ -43,7 +43,8 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
       if (!reconciliation.ok || !reconciliation.stateSnapshot) {
         const blocked: AutoAdvanceResult = {
           kind: "blocked",
-          reason: reconciliation.reason,
+          reason: reconciliation.reason ?? "state reconciliation produced no snapshot",
+          action: "pause",
           stateSnapshot: reconciliation.stateSnapshot,
         };
         await this.deps.runtime.journalTransition({ name: "advance-blocked", reason: blocked.reason });
@@ -65,7 +66,7 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
 
       const nextKey = `${decision.unitType}:${decision.unitId}`;
       if (this.lastAdvanceKey === nextKey) {
-        const blocked: AutoAdvanceResult = { kind: "blocked", reason: "idempotent advance: unit already active" };
+        const blocked: AutoAdvanceResult = { kind: "blocked", reason: "idempotent advance: unit already active", action: "stop" };
         await this.deps.runtime.journalTransition({
           name: "advance-blocked",
           reason: blocked.reason,
@@ -81,6 +82,7 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
         const blocked: AutoAdvanceResult = {
           kind: "blocked",
           reason: contract.reason,
+          action: "pause",
           stateSnapshot: reconciliation.stateSnapshot,
         };
         await this.deps.runtime.journalTransition({
@@ -98,6 +100,7 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
         const blocked: AutoAdvanceResult = {
           kind: "blocked",
           reason: worktree.reason,
+          action: "pause",
           stateSnapshot: reconciliation.stateSnapshot,
         };
         await this.deps.runtime.journalTransition({
@@ -123,7 +126,11 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
       });
       await this.deps.worktree.syncAfterUnit(decision.unitType, decision.unitId);
 
-      const advanced: AutoAdvanceResult = { kind: "advanced", stateSnapshot: reconciliation.stateSnapshot };
+      const advanced: AutoAdvanceResult = {
+        kind: "advanced",
+        unit: { unitType: decision.unitType, unitId: decision.unitId },
+        stateSnapshot: reconciliation.stateSnapshot,
+      };
       await this.deps.health.postAdvanceRecord(advanced);
       return advanced;
     } catch (error) {

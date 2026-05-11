@@ -8,21 +8,24 @@ export interface AutoSessionContext {
   trigger: "guided-flow" | "resume" | "auto-loop" | "manual";
 }
 
+export interface UnitRef {
+  unitType: string;
+  unitId: string;
+}
+
 export interface AutoStatus {
   phase: "idle" | "running" | "paused" | "stopped" | "error";
-  activeUnit?: {
-    unitType: string;
-    unitId: string;
-  };
+  activeUnit?: UnitRef;
   lastTransitionAt?: number;
   transitionCount: number;
 }
 
-export interface AutoAdvanceResult {
-  kind: "advanced" | "blocked" | "paused" | "stopped" | "error";
-  reason?: string;
-  stateSnapshot?: GSDState;
-}
+export type AutoAdvanceResult =
+  | { kind: "advanced"; unit: UnitRef; stateSnapshot: GSDState }
+  | { kind: "blocked"; reason: string; action: "pause" | "stop"; stateSnapshot?: GSDState }
+  | { kind: "stopped"; reason: string; stateSnapshot?: GSDState }
+  | { kind: "paused"; reason: string }
+  | { kind: "error"; reason: string };
 
 export interface AutoOrchestrationModule {
   start(sessionContext: AutoSessionContext): Promise<AutoAdvanceResult>;
