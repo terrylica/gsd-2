@@ -131,9 +131,11 @@ export async function buildBeforeAgentStartResult(
     logWarning("bootstrap", `cmux prompt setup skipped: ${(e as Error).message}`);
   }
 
+  const basePath = process.cwd();
+
   let preferenceBlock = "";
   if (loadedPreferences) {
-    const cwd = process.cwd();
+    const cwd = basePath;
     const report = resolveAllSkillReferences(loadedPreferences.preferences, cwd);
     preferenceBlock = `\n\n${renderPreferencesForSystemPrompt(loadedPreferences.preferences, report.resolutions)}`;
     if (report.warnings.length > 0) {
@@ -144,14 +146,6 @@ export async function buildBeforeAgentStartResult(
     }
   }
 
-  const { block: knowledgeBlock, globalSizeKb } = loadKnowledgeBlock(gsdHome(), process.cwd());
-  if (globalSizeKb > 4) {
-    ctx.ui.notify(
-      `GSD: ~/.gsd/agent/KNOWLEDGE.md is ${globalSizeKb.toFixed(1)}KB — consider trimming to keep system prompt lean.`,
-      "warning",
-    );
-  }
-
   // ADR-013 step 5: opportunistic decisions->memories backfill. Idempotent
   // and best-effort — first run absorbs the existing decisions table into
   // the memory store; subsequent runs are a single sentinel SELECT.
@@ -159,21 +153,48 @@ export async function buildBeforeAgentStartResult(
     const { backfillDecisionsToMemories } = await import("../memory-backfill.js");
     const written = backfillDecisionsToMemories();
     if (written > 0) {
-      ctx.ui.notify(`GSD: backfilled ${written} decision${written === 1 ? "" : "s"} into the memory store (ADR-013).`, "info");
+      ctx.ui.notify(`GSD: backfilled ${written} decision${written === 1 ? "" : "s"} into the memory store.`, "info");
     }
   } catch (e) {
     logWarning("bootstrap", `decisions backfill failed: ${(e as Error).message}`);
   }
 
+  // ADR-013 Stage 2b: KNOWLEDGE.md Patterns + Lessons backfill, then
+  // re-render the hybrid projection (manual Rules + projected Patterns +
+  // projected Lessons). Both are idempotent and best-effort — failures here
+  // can't block agent startup.
+  try {
+    const { backfillKnowledgeToMemories } = await import("../knowledge-backfill.js");
+    const writtenK = backfillKnowledgeToMemories(basePath);
+    if (writtenK > 0) {
+      ctx.ui.notify(`GSD: backfilled ${writtenK} KNOWLEDGE.md row${writtenK === 1 ? "" : "s"} into the memory store.`, "info");
+    }
+  } catch (e) {
+    logWarning("bootstrap", `KNOWLEDGE.md backfill failed: ${(e as Error).message}`);
+  }
+  try {
+    const { renderKnowledgeProjection } = await import("../knowledge-projection.js");
+    renderKnowledgeProjection(basePath);
+  } catch (e) {
+    logWarning("bootstrap", `KNOWLEDGE.md projection render failed: ${(e as Error).message}`);
+  }
+
   // ADR-013 step 6 preflight: warn when decisions / KNOWLEDGE.md rows are not
-  // yet in the memories table. Read-only; never throws. The Phase 6 cutover
-  // is blocked on this signal reading clean, so users see the gap before
-  // any destructive step lands.
+  // yet in the memories table. Read-only; never throws. Runs after the two
+  // backfills above so the gap report reflects post-backfill state.
   try {
     const { reportConsolidationGaps } = await import("../memory-consolidation-scanner.js");
-    reportConsolidationGaps(process.cwd());
+    reportConsolidationGaps(basePath);
   } catch (e) {
     logWarning("bootstrap", `memory consolidation scan failed: ${(e as Error).message}`);
+  }
+
+  const { block: knowledgeBlock, globalSizeKb } = loadKnowledgeBlock(gsdHome(), basePath);
+  if (globalSizeKb > 4) {
+    ctx.ui.notify(
+      `GSD: ~/.gsd/agent/KNOWLEDGE.md is ${globalSizeKb.toFixed(1)}KB — consider trimming to keep system prompt lean.`,
+      "warning",
+    );
   }
 
   let newSkillsBlock = "";

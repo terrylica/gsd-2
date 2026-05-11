@@ -545,7 +545,7 @@ Every dispatch is carefully constructed. The LLM never wastes tool calls on orie
 | `PROJECT.md`       | Living doc — what the project is right now                      |
 | `REQUIREMENTS.md`  | Project-level capability contract and out-of-scope list         |
 | `DECISIONS.md`     | Append-only register of architectural decisions                 |
-| `KNOWLEDGE.md`     | Cross-session rules, patterns, and lessons learned              |
+| `KNOWLEDGE.md`     | Hybrid knowledge projection: manual Rules plus memory-backed Patterns/Lessons |
 | `RUNTIME.md`       | Runtime context — API endpoints, env vars, services (v2.39)     |
 | `runtime/research-decision.json` | Deep-mode marker for project research vs skip       |
 | `research/*.md`    | Optional deep-mode project research: stack, features, architecture, pitfalls |
@@ -586,6 +586,12 @@ Every task has must-haves — mechanically checkable outcomes:
 - **Key Links** — Imports and wiring between artifacts
 
 The verification ladder: static checks → command execution → behavioral testing → human review (only when the agent genuinely can't verify itself).
+
+### Project Knowledge
+
+`.gsd/KNOWLEDGE.md` remains the human-readable register for durable project knowledge, but the memory store is now authoritative for generated Patterns and Lessons. On startup, GSD backfills existing `## Patterns` and `## Lessons Learned` rows into `gsd.db` memories, then rewrites `KNOWLEDGE.md` as a hybrid projection: the manual `## Rules` section is preserved from the file, while Patterns and Lessons are rendered from the backfilled memory rows.
+
+Keep hand-authored operating rules in `## Rules` or add them with `/gsd knowledge rule`. Patterns and Lessons that agents discover are retrieved through the memory system for prompts and projected back into `KNOWLEDGE.md` for review, reports, and git history.
 
 ### Dashboard
 

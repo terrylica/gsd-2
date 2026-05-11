@@ -79,7 +79,8 @@ Static section
     └── DECISIONS.md
 
 Semi-static section
-    ├── KNOWLEDGE.md  (patterns, gotchas)
+    ├── KNOWLEDGE.md  (manual rules projection)
+    ├── memories      (prompt-relevant patterns, gotchas, decisions)
     ├── PREFERENCES.md
     └── Prior slice/milestone RESEARCH.md
 
@@ -419,9 +420,9 @@ LLM sees: "load these skill files and follow their rules for this unit"
 | `gsd_requirement_save` | requirements table |
 | `gsd_requirement_update` | requirements table |
 | `gsd_summary_save` | artifact files + DB reference |
-| `gsd_decision_save` | DECISIONS.md + DB |
-| `capture_thought` | KNOWLEDGE.md (patterns, gotchas, arch) |
-| `memory_query` | READ — queries KNOWLEDGE.md + summaries |
+| `gsd_decision_save` | decisions table + mirrored architecture memory; DECISIONS.md projection reads memories |
+| `capture_thought` | memories (patterns, gotchas, arch) |
+| `memory_query` | READ — queries memories |
 | `ask_user_questions` | blocks until user responds; no DB write |
 | `subagent` | spins up child Pi session with given prompt |
 

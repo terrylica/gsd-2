@@ -159,7 +159,9 @@ No manual intervention needed for transient errors — the session pauses briefl
 
 ### Incremental Memory (v2.26)
 
-GSD maintains a `KNOWLEDGE.md` file — an append-only register of project-specific rules, patterns, and lessons learned. The agent reads it at the start of every unit and appends to it when discovering recurring issues, non-obvious patterns, or rules that future sessions should follow. This gives auto-mode cross-session memory that survives context window boundaries.
+GSD maintains durable project memory in `gsd.db` and projects the reviewable subset into `.gsd/KNOWLEDGE.md`. On startup, existing `KNOWLEDGE.md` Patterns and Lessons are backfilled into memories, then the file is rewritten as a hybrid projection: manual Rules remain in the file, while generated Patterns and Lessons are rendered from memory rows.
+
+Agents use the memory system when deciding what project knowledge to inject into prompts, so cross-session memory survives context window boundaries without depending on manual markdown edits. Use `/gsd knowledge rule` for hand-authored operating rules; recurring patterns and lessons discovered during work are stored as memories and shown in `KNOWLEDGE.md` for review.
 
 ### Context Pressure Monitor (v2.26)
 
