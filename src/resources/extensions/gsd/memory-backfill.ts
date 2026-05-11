@@ -115,9 +115,17 @@ export function backfillDecisionsToMemories(): number {
         // queries reconstruct Decision.superseded_by from this field, so the
         // DECISIONS.md projection stays accurate without us having to track
         // supersedes events at the write site.
-        const currentSf = existing.structured_fields
-          ? (safeParse(existing.structured_fields) ?? {})
+        const parsedSf = existing.structured_fields
+          ? safeParse(existing.structured_fields)
           : {};
+        if (existing.structured_fields && !parsedSf) {
+          logWarning(
+            "memory-backfill",
+            `decisions->memories drift heal skipped for ${row.id}: invalid structured_fields JSON`,
+          );
+          continue;
+        }
+        const currentSf = parsedSf ?? {};
         const memorySuperseded =
           typeof currentSf["superseded_by"] === "string" || currentSf["superseded_by"] === null
             ? (currentSf["superseded_by"] as string | null | undefined)
