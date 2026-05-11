@@ -350,6 +350,8 @@ Auto mode is a state machine driven by the GSD database at the project root. It 
 
 The database is authoritative for milestones, slices, tasks, requirements, decisions, summaries, and completion status. Markdown under `.gsd/` is a rendered projection for review, prompts, and git-friendly history; it is not a runtime fallback unless you explicitly run a recovery/import command. In worktree mode, project-root DB state remains authoritative and worktree markdown projections are not synced back as state.
 
+`KNOWLEDGE.md` is hybrid: rules remain file-canonical, while patterns and lessons are stored in the `memories` table and rendered back into `KNOWLEDGE.md` on the next session-start projection. Existing pattern and lesson rows are backfilled into memories before projection, so newly captured patterns and lessons may appear in memory-backed prompt context before the file view refreshes.
+
 **What happens under the hood:**
 
 1. **Fresh session per unit** — Every task, every research phase, every planning step gets a clean 200k-token context window. No accumulated garbage. No "I'll be more concise now."
@@ -543,7 +545,7 @@ Every dispatch is carefully constructed. The LLM never wastes tool calls on orie
 | `PROJECT.md`       | Living doc — what the project is right now                      |
 | `REQUIREMENTS.md`  | Project-level capability contract and out-of-scope list         |
 | `DECISIONS.md`     | Append-only register of architectural decisions                 |
-| `KNOWLEDGE.md`     | Cross-session rules, patterns, and lessons learned              |
+| `KNOWLEDGE.md`     | Cross-session rules plus projected memory-backed patterns and lessons learned |
 | `RUNTIME.md`       | Runtime context — API endpoints, env vars, services (v2.39)     |
 | `runtime/research-decision.json` | Deep-mode marker for project research vs skip       |
 | `research/*.md`    | Optional deep-mode project research: stack, features, architecture, pitfalls |
@@ -829,7 +831,7 @@ gsd (CLI binary)
 - **`pkg/` shim directory** — `PI_PACKAGE_DIR` points here (not project root) to avoid Pi's theme resolution collision with our `src/` directory. Contains only `piConfig` and theme assets.
 - **Two-file loader pattern** — `loader.ts` sets all env vars with zero SDK imports, then dynamic-imports `cli.ts` which does static SDK imports. This ensures `PI_PACKAGE_DIR` is set before any SDK code evaluates.
 - **Always-overwrite sync** — `npm update -g` takes effect immediately. Bundled extensions and agents are synced to `~/.gsd/agent/` on every launch, not just first run.
-- **DB-authoritative state** — the project-root GSD database is the runtime source of truth. `.gsd/` markdown files are rendered projections for review, prompt context, and git history. No in-memory state survives across sessions.
+- **DB-authoritative state** — the project-root GSD database is the runtime source of truth. `.gsd/` markdown files are rendered projections for review, prompt context, and git history. `KNOWLEDGE.md` keeps rules file-canonical and projects patterns/lessons from `memories` at session start. No in-memory state survives across sessions.
 
 ---
 

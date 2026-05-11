@@ -106,7 +106,7 @@ GSD keeps authoritative runtime state in the project-root SQLite database and re
   PROJECT.md          — what the project is
   REQUIREMENTS.md     — requirement contract
   DECISIONS.md        — architectural decisions
-  KNOWLEDGE.md        — cross-session rules and patterns
+  KNOWLEDGE.md        — rules plus projected memory-backed patterns and lessons
   STATE.md            — quick-glance status rendered from the database
   milestones/
     M001/
@@ -121,6 +121,8 @@ GSD keeps authoritative runtime state in the project-root SQLite database and re
             T01-PLAN.md
             T01-SUMMARY.md
 ```
+
+`KNOWLEDGE.md` has a split source of truth. Rules stay in the file. Patterns and lessons are persisted to the `memories` table, then rendered into `KNOWLEDGE.md` the next time a GSD session starts; existing pattern and lesson rows are backfilled into memories during that startup path.
 
 ## Next Steps
 
