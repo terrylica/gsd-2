@@ -282,6 +282,50 @@ function gitRemoteExists(basePath: string, remote: string): boolean {
   }
 }
 
+function findRegularMergeChangedPaths(basePath: string, milestoneBranch: string, mainBranch: string): Set<string> {
+  const changedPaths = new Set<string>();
+  let mergeLog = "";
+  try {
+    mergeLog = execFileSync("git", ["rev-list", "--merges", "--parents", mainBranch], {
+      cwd: basePath,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+    }).trim();
+  } catch (err) {
+    logWarning("worktree", `regular merge lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+    return changedPaths;
+  }
+
+  for (const line of mergeLog.split("\n").filter(Boolean)) {
+    const [mergeCommit, firstParent, ...otherParents] = line.split(" ");
+    if (!mergeCommit || !firstParent || otherParents.length === 0) continue;
+    const mergedMilestone = otherParents.some((parent) => {
+      try {
+        return nativeIsAncestor(basePath, milestoneBranch, parent);
+      } catch {
+        return false;
+      }
+    });
+    if (!mergedMilestone) continue;
+
+    try {
+      const output = execFileSync("git", ["diff", "--name-only", firstParent, mergeCommit], {
+        cwd: basePath,
+        stdio: ["ignore", "pipe", "pipe"],
+        encoding: "utf-8",
+      }).trim();
+      for (const path of output.split("\n").filter(Boolean)) {
+        if (!path.startsWith(".gsd/")) changedPaths.add(path);
+      }
+    } catch (err) {
+      logWarning("worktree", `regular merge diff lookup failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return changedPaths;
+  }
+
+  return changedPaths;
+}
+
 function clearProjectRootStateFiles(basePath: string, milestoneId: string): void {
   const gsdDir = gsdRoot(basePath);
   // Phase C pt 2: auto.lock removed from this list — the file is gone
@@ -1739,7 +1783,32 @@ export function mergeMilestoneToMain(
     }
   }
 
+  // Already regular-merged milestones can skip the squash path and proceed to cleanup (#5831).
   if (nativeIsAncestor(originalBasePath_, milestoneBranch, mainBranch)) {
+    const codeChanges = nativeDiffNumstat(
+      originalBasePath_,
+      mainBranch,
+      milestoneBranch,
+    ).filter((entry) => !entry.path.startsWith(".gsd/"));
+    if (codeChanges.length > 0) {
+      const regularMergeChangedPaths = findRegularMergeChangedPaths(
+        originalBasePath_,
+        milestoneBranch,
+        mainBranch,
+      );
+      const unanchoredCodeChanges = codeChanges.filter((entry) =>
+        regularMergeChangedPaths.has(entry.path)
+      );
+      if (unanchoredCodeChanges.length > 0) {
+        process.chdir(previousCwd);
+        throw new GSDError(
+          GSD_GIT_ERROR,
+          `Milestone branch "${milestoneBranch}" is reachable from "${mainBranch}" ` +
+            `but has ${unanchoredCodeChanges.length} milestone-touched code file(s) not on current "${mainBranch}". ` +
+            `Aborting worktree teardown to prevent data loss.`,
+        );
+      }
+    }
     debugLog("mergeMilestoneToMain", {
       action: "skip-squash-already-merged",
       milestoneId,
