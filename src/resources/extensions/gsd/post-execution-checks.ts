@@ -47,6 +47,46 @@ export interface PostExecutionResult {
 // ─── Import Resolution Check ─────────────────────────────────────────────────
 
 /**
+ * Replace the contents of single- and double-quoted string literals on a single
+ * source line with spaces so import patterns do not match text inside strings.
+ * Template-literal spans are handled separately via the inTemplateLiteral flag.
+ */
+function stripStringLiterals(line: string): string {
+  let result = "";
+  let i = 0;
+
+  while (i < line.length) {
+    const ch = line[i];
+
+    if (ch === '"' || ch === "'") {
+      result += ch;
+      i++;
+
+      while (i < line.length) {
+        const c = line[i];
+
+        if (c === "\\" && i + 1 < line.length) {
+          result += "  ";
+          i += 2;
+        } else if (c === ch) {
+          result += ch;
+          i++;
+          break;
+        } else {
+          result += " ";
+          i++;
+        }
+      }
+    } else {
+      result += ch;
+      i++;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Extract relative import paths from TypeScript/JavaScript source code.
  * Returns array of { importPath, lineNum } for relative imports.
  */
@@ -112,9 +152,20 @@ export function extractRelativeImports(
     importPattern.lastIndex = 0;
     requirePattern.lastIndex = 0;
 
+    const strippedLine = stripStringLiterals(line);
+
     while ((match = importPattern.exec(line)) !== null) {
+      const importOffset = match[0].indexOf("import");
+      const importStart = match.index + importOffset;
+      if (
+        strippedLine.slice(importStart, importStart + "import".length) !==
+        "import"
+      ) {
+        continue;
+      }
+
       // Check if this match is after a // comment marker on the same line
-      const beforeMatch = line.substring(0, match.index);
+      const beforeMatch = strippedLine.substring(0, match.index);
       if (beforeMatch.includes("//")) {
         continue;
       }
@@ -126,13 +177,16 @@ export function extractRelativeImports(
     }
 
     while ((match = requirePattern.exec(line)) !== null) {
-      // Check if this match is after a // comment marker on the same line
-      const beforeMatch = line.substring(0, match.index);
-      if (beforeMatch.includes("//")) {
+      if (
+        strippedLine.slice(match.index, match.index + "require".length) !==
+        "require"
+      ) {
         continue;
       }
 
-      if (isInsideStringOrTemplateLiteral(line, match.index)) {
+      // Check if this match is after a // comment marker on the same line
+      const beforeMatch = strippedLine.substring(0, match.index);
+      if (beforeMatch.includes("//")) {
         continue;
       }
 
@@ -142,44 +196,12 @@ export function extractRelativeImports(
       });
     }
 
-    if ((line.match(/(?<!\\)`/g) ?? []).length % 2 === 1) {
+    if ((strippedLine.match(/(?<!\\)`/g) ?? []).length % 2 === 1) {
       inTemplateLiteral = true;
     }
   }
 
   return imports;
-}
-
-function isInsideStringOrTemplateLiteral(line: string, index: number): boolean {
-  let quote: "'" | '"' | "`" | null = null;
-  let escaped = false;
-
-  for (let i = 0; i < index; i++) {
-    const char = line[i];
-
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-
-    if (quote !== null) {
-      if (char === quote) {
-        quote = null;
-      }
-      continue;
-    }
-
-    if (char === "'" || char === '"' || char === "`") {
-      quote = char;
-    }
-  }
-
-  return quote !== null;
 }
 
 /**

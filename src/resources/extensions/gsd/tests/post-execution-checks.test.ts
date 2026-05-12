@@ -157,10 +157,11 @@ import realThing from "./real-thing";
   });
 
   test("ignores require() inside string literals", () => {
-    const source = `
-const fixture = "const x = require('./missing');";
-const real = require('./real');
-`;
+    const source = [
+      'const fixture = "const x = require(\'./missing\');";',
+      "const otherFixture = 'const y = require(\"./also-missing\");';",
+      "const real = require('./real');",
+    ].join("\n");
     const imports = extractRelativeImports(source);
     assert.deepEqual(imports, [
       { importPath: "./real", lineNum: 3 },
