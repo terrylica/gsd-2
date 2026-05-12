@@ -204,4 +204,37 @@ describe("auto-worktree workspace registry", () => {
     );
     try { process.chdir(savedCwd); } catch { /* ignore */ }
   });
+
+  test("mergeMilestoneToMain cleans up already-merged milestone after main advances", (t) => {
+    const tempDir = createTempRepo(t);
+    const msDir = join(tempDir, ".gsd", "milestones", "M004");
+    mkdirSync(msDir, { recursive: true });
+    writeFileSync(join(msDir, "CONTEXT.md"), "# M004 Context\n");
+    git(["add", "."], tempDir);
+    git(["commit", "-m", "add milestone"], tempDir);
+
+    createAutoWorktree(tempDir, "M004");
+    const wtDir = join(tempDir, ".gsd", "worktrees", "M004");
+    writeFileSync(join(wtDir, "feature.txt"), "implemented\n");
+    git(["add", "feature.txt"], wtDir);
+    git(["commit", "-m", "feat: implement M004"], wtDir);
+
+    process.chdir(tempDir);
+    git(["merge", "--no-ff", "milestone/M004", "-m", "merge M004"], tempDir);
+    writeFileSync(join(tempDir, "hotfix.txt"), "later main work\n");
+    git(["add", "hotfix.txt"], tempDir);
+    git(["commit", "-m", "fix: advance main"], tempDir);
+
+    process.chdir(wtDir);
+    const result = mergeMilestoneToMain(tempDir, "M004", "# M004\n- [x] **S01: Done**\n");
+
+    assert.equal(result.codeFilesChanged, true);
+    assert.equal(existsSync(wtDir), false, "worktree directory is removed");
+    assert.throws(
+      () => git(["rev-parse", "--verify", "milestone/M004"], tempDir),
+      /Command failed/,
+      "already-merged milestone branch is deleted",
+    );
+    try { process.chdir(savedCwd); } catch { /* ignore */ }
+  });
 });
