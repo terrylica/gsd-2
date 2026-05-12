@@ -1484,46 +1484,6 @@ function autoCommitDirtyState(cwd: string): boolean {
   }
 }
 
-function findRegularMergeChangedPaths(
-  basePath: string,
-  mainBranch: string,
-  milestoneBranch: string,
-): Set<string> | null {
-  try {
-    const mergeLog = execFileSync(
-      "git",
-      ["log", "--merges", "--reverse", "--format=%H", `${milestoneBranch}..${mainBranch}`],
-      { cwd: basePath, stdio: ["ignore", "pipe", "pipe"], encoding: "utf-8" },
-    ).trim();
-    if (!mergeLog) return null;
-
-    for (const mergeSha of mergeLog.split("\n").filter(Boolean)) {
-      const parentLine = execFileSync(
-        "git",
-        ["rev-list", "--parents", "-n", "1", mergeSha],
-        { cwd: basePath, stdio: ["ignore", "pipe", "pipe"], encoding: "utf-8" },
-      ).trim();
-      const [, ...parents] = parentLine.split(/\s+/);
-      const mergedParent = parents.slice(1).find((parent) =>
-        nativeIsAncestor(basePath, milestoneBranch, parent),
-      );
-      if (!mergedParent) continue;
-
-      return new Set(
-        nativeDiffNumstat(basePath, `${mergeSha}^1`, mergeSha)
-          .filter((entry) => !entry.path.startsWith(".gsd/"))
-          .map((entry) => entry.path),
-      );
-    }
-  } catch (err) {
-    debugLog("mergeMilestoneToMain", {
-      action: "regular-merge-path-detect-failed",
-      reason: String(err),
-    });
-  }
-  return null;
-}
-
 /**
  * Squash-merge the milestone branch into main with a rich commit message
  * listing all completed slices, then tear down the worktree.
@@ -1780,36 +1740,6 @@ export function mergeMilestoneToMain(
   }
 
   if (nativeIsAncestor(originalBasePath_, milestoneBranch, mainBranch)) {
-    const mergeBaseNumstat = nativeDiffNumstat(
-      originalBasePath_,
-      mainBranch,
-      milestoneBranch,
-      true,
-    );
-    const mergeChangedPaths = findRegularMergeChangedPaths(
-      originalBasePath_,
-      mainBranch,
-      milestoneBranch,
-    );
-    const numstat = mergeBaseNumstat.length > 0
-      ? mergeBaseNumstat
-      : nativeDiffNumstat(originalBasePath_, mainBranch, milestoneBranch);
-    const codeChanges = numstat.filter(
-      (entry) =>
-        !entry.path.startsWith(".gsd/") &&
-        (mergeBaseNumstat.length > 0 ||
-          mergeChangedPaths === null ||
-          mergeChangedPaths.has(entry.path)),
-    );
-    if (codeChanges.length > 0) {
-      process.chdir(previousCwd);
-      throw new GSDError(
-        GSD_GIT_ERROR,
-        `Milestone branch "${milestoneBranch}" is reachable from "${mainBranch}" ` +
-          `but still has ${codeChanges.length} milestone-touched code file(s) not on current "${mainBranch}". ` +
-          `Aborting worktree teardown to prevent data loss.`,
-      );
-    }
     debugLog("mergeMilestoneToMain", {
       action: "skip-squash-already-merged",
       milestoneId,

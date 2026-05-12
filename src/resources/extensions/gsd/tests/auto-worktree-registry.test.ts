@@ -196,6 +196,8 @@ describe("auto-worktree workspace registry", () => {
     const result = mergeMilestoneToMain(tempDir, "M003", "# M003\n- [x] **S01: Done**\n");
 
     assert.equal(result.codeFilesChanged, true);
+    assert.equal(result.pushed, false);
+    assert.equal(result.prCreated, false);
     assert.equal(existsSync(wtDir), false, "worktree directory is removed");
     assert.throws(
       () => git(["rev-parse", "--verify", "milestone/M003"], tempDir),
@@ -229,6 +231,8 @@ describe("auto-worktree workspace registry", () => {
     const result = mergeMilestoneToMain(tempDir, "M004", "# M004\n- [x] **S01: Done**\n");
 
     assert.equal(result.codeFilesChanged, true);
+    assert.equal(result.pushed, false);
+    assert.equal(result.prCreated, false);
     assert.equal(existsSync(wtDir), false, "worktree directory is removed");
     assert.throws(
       () => git(["rev-parse", "--verify", "milestone/M004"], tempDir),
