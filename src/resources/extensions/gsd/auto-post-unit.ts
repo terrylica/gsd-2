@@ -41,6 +41,7 @@ import {
   resolveExpectedArtifactPath,
   writeBlockerPlaceholder,
   diagnoseExpectedArtifact,
+  diagnoseWorktreeIntegrityFailure,
 } from "./auto-recovery.js";
 import { regenerateIfMissing } from "./workflow-projections.js";
 import { WorktreeStateProjection } from "./worktree-state-projection.js";
@@ -430,6 +431,11 @@ function artifactValidationKind(unitType: string): "project" | "requirements" | 
 }
 
 function describeArtifactVerificationFailure(unitType: string, unitId: string, basePath: string): string {
+  const worktreeFailure = diagnoseWorktreeIntegrityFailure(basePath);
+  if (worktreeFailure) {
+    return `${worktreeFailure} Unit: ${unitType} ${unitId}.`;
+  }
+
   const artifactPath = resolveExpectedArtifactPath(unitType, unitId, basePath);
   if (!artifactPath) {
     return `Artifact verification failed: ${unitType} "${unitId}" has no resolvable artifact path.`;
@@ -1175,6 +1181,24 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
           "warning",
         );
         // Fall through to "continue" — do NOT enter the retry or db-unavailable paths.
+      } else if (!triggerArtifactVerified && diagnoseWorktreeIntegrityFailure(s.basePath)) {
+        const retryKey = `${s.currentUnit.type}:${s.currentUnit.id}`;
+        const worktreeFailure = diagnoseWorktreeIntegrityFailure(s.basePath)!;
+        s.pendingVerificationRetry = null;
+        s.verificationRetryCount.delete(retryKey);
+        s.verificationRetryFailureHashes.delete(retryKey);
+        debugLog("postUnit", {
+          phase: "worktree-integrity-failure",
+          unitType: s.currentUnit.type,
+          unitId: s.currentUnit.id,
+          basePath: s.basePath,
+        });
+        ctx.ui.notify(
+          `${worktreeFailure} Retry ${s.currentUnit.id} after repair.`,
+          "error",
+        );
+        await pauseAuto(ctx, pi);
+        return "dispatched";
       } else if (!triggerArtifactVerified && !isDbAvailable()) {
         debugLog("postUnit", { phase: "artifact-verify-skip-db-unavailable", unitType: s.currentUnit.type, unitId: s.currentUnit.id });
         const dbSkipDiag = diagnoseExpectedArtifact(s.currentUnit.type, s.currentUnit.id, s.basePath);
