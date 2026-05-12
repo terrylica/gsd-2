@@ -20,6 +20,7 @@ import {
   assertWorktreeMaterialized,
   nativeBranchDelete,
   nativeCommit,
+  nativeGetCurrentBranch,
   nativeIsRepo,
   nativeResetHard,
   nativeWorktreeAdd,
@@ -119,7 +120,17 @@ describe("native-git-bridge #4180: fallback runtime behaviour", () => {
   test("nativeBranchDelete throws when git cannot delete the branch", () => {
     assert.throws(
       () => nativeBranchDelete(repo, "does-not-exist"),
-      /GSD_GIT_ERROR|git branch -D does-not-exist failed/,
+      /git branch -D does-not-exist failed[\s\S]*does-not-exist/,
+    );
+  });
+
+  test("nativeGetCurrentBranch preserves git stderr in fallback errors", (t) => {
+    const dir = mkdtempSync(join(tmpdir(), "ngb-stderr-notrepo-"));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+    assert.throws(
+      () => nativeGetCurrentBranch(dir),
+      /git branch --show-current failed[\s\S]*(not a git repository|not a git repo|fatal:)/,
     );
   });
 
