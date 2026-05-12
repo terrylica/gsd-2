@@ -1740,6 +1740,23 @@ export function mergeMilestoneToMain(
   }
 
   if (nativeIsAncestor(originalBasePath_, milestoneBranch, mainBranch)) {
+    const numstat = nativeDiffNumstat(
+      originalBasePath_,
+      mainBranch,
+      milestoneBranch,
+    );
+    const codeChanges = numstat.filter(
+      (entry) => !entry.path.startsWith(".gsd/"),
+    );
+    if (codeChanges.length > 0) {
+      process.chdir(previousCwd);
+      throw new GSDError(
+        GSD_GIT_ERROR,
+        `Milestone branch "${milestoneBranch}" is reachable from "${mainBranch}" ` +
+          `but still has ${codeChanges.length} code file(s) not on "${mainBranch}". ` +
+          `Aborting worktree teardown to prevent data loss.`,
+      );
+    }
     debugLog("mergeMilestoneToMain", {
       action: "skip-squash-already-merged",
       milestoneId,
