@@ -58,7 +58,10 @@ export {
 // ─── Artifact Resolution & Verification ───────────────────────────────────────
 
 export function diagnoseWorktreeIntegrityFailure(basePath: string): string | null {
-  if (!isGsdWorktreePath(basePath) || !existsSync(basePath)) return null;
+  if (!isGsdWorktreePath(basePath)) return null;
+  if (!existsSync(basePath)) {
+    return `Worktree integrity failure: ${basePath} does not exist. Repair or recreate the worktree before retrying.`;
+  }
 
   const gitPath = join(basePath, ".git");
   if (!existsSync(gitPath)) {
