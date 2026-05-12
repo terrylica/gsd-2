@@ -469,6 +469,13 @@ export async function autoCommitUnit(
   }
 }
 
+/**
+ * Execute the turn-level git action (commit, snapshot, or status-only).
+ *
+ * @param opts.softFailure - Defaults to false. When true, retry git failures,
+ * warn, and continue without pausing auto-mode; use for best-effort deferred
+ * closeout work where a git failure should not block the run.
+ */
 async function runCloseoutGitAction(
   pctx: PostUnitContext,
   unit: NonNullable<AutoSession["currentUnit"]>,
@@ -601,7 +608,7 @@ async function runCloseoutGitAction(
     s.lastGitActionFailure = message;
     s.lastGitActionStatus = "failed";
     debugLog("postUnit", { phase: "git-action", error: message, action: turnAction });
-    ctx.ui.notify(`Git ${turnAction} failed: ${message.split("\n")[0]}`, uokFlags.gitops && !opts?.softFailure ? "error" : "warning");
+    ctx.ui.notify(`Git ${turnAction} failed: ${message.split("\n")[0]}`, opts?.softFailure ? "warning" : "error");
     if (opts?.softFailure) {
       return "continue";
     }
