@@ -15,6 +15,9 @@ import { deriveState, invalidateStateCache } from '../state.ts';
 function makeTmpBase(): string {
   const base = mkdtempSync(join(tmpdir(), 'gsd-plan-slice-'));
   mkdirSync(join(base, '.gsd', 'milestones', 'M001', 'slices', 'S02', 'tasks'), { recursive: true });
+  mkdirSync(join(base, 'src', 'resources', 'extensions', 'gsd', 'tools'), { recursive: true });
+  writeFileSync(join(base, 'src', 'resources', 'extensions', 'gsd', 'tools', 'plan-milestone.ts'), '// fixture\n', 'utf-8');
+  writeFileSync(join(base, 'src', 'resources', 'extensions', 'gsd', 'tools', 'plan-task.ts'), '// fixture\n', 'utf-8');
   return base;
 }
 
@@ -218,6 +221,63 @@ test('handlePlanSlice rejects absolute task IO paths outside the active worktree
     assert.ok('error' in result);
     assert.match(result.error, /validation failed: tasks\[0\]\.inputs contains absolute path outside working directory/);
     assert.equal(getSliceTasks('M001', 'S02').length, 0, 'invalid planning IO must not persist tasks');
+  } finally {
+    cleanup(base);
+  }
+});
+
+test('handlePlanSlice rejects missing task input paths before persisting tasks', async () => {
+  const base = makeTmpBase();
+  openDatabase(join(base, '.gsd', 'gsd.db'));
+
+  try {
+    seedParentSlice();
+    const result = await handlePlanSlice({
+      ...validParams(),
+      tasks: [
+        {
+          ...validParams().tasks[0],
+          inputs: ['fixtures/missing-source.json'],
+        },
+      ],
+    }, base);
+
+    assert.ok('error' in result);
+    assert.match(result.error, /pre-execution validation failed:/);
+    assert.match(result.error, /fixtures\/missing-source\.json/);
+    assert.equal(getSliceTasks('M001', 'S02').length, 0, 'invalid planning IO must not persist tasks');
+  } finally {
+    cleanup(base);
+  }
+});
+
+test('handlePlanSlice rejects task input paths created by later tasks before persisting tasks', async () => {
+  const base = makeTmpBase();
+  openDatabase(join(base, '.gsd', 'gsd.db'));
+
+  try {
+    seedParentSlice();
+    const params = validParams();
+    const result = await handlePlanSlice({
+      ...params,
+      tasks: [
+        {
+          ...params.tasks[0],
+          inputs: ['generated/report.json'],
+          expectedOutput: ['generated/summary.json'],
+        },
+        {
+          ...params.tasks[1],
+          inputs: [],
+          expectedOutput: ['generated/report.json'],
+        },
+      ],
+    }, base);
+
+    assert.ok('error' in result);
+    assert.match(result.error, /pre-execution validation failed:/);
+    assert.match(result.error, /sequence violation/);
+    assert.equal(getSliceTasks('M001', 'S02').length, 0, 'invalid task ordering must not persist tasks');
   } finally {
     cleanup(base);
   }

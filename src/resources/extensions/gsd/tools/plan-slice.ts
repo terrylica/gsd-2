@@ -20,6 +20,8 @@ import { writeManifest } from "../workflow-manifest.js";
 import { appendEvent } from "../workflow-events.js";
 import { logWarning } from "../workflow-logger.js";
 import { validatePlanningPathScope } from "../planning-path-scope.js";
+import { checkFilePathConsistency, checkTaskOrdering } from "../pre-execution-checks.js";
+import type { TaskRow } from "../db-task-slice-rows.js";
 
 export interface PlanSliceTaskInput {
   taskId: string;
@@ -132,6 +134,56 @@ function validateParams(params: PlanSliceParams): PlanSliceParams {
   };
 }
 
+function toTaskRows(params: PlanSliceParams): TaskRow[] {
+  return params.tasks.map((task, index) => ({
+    milestone_id: params.milestoneId,
+    slice_id: params.sliceId,
+    id: task.taskId,
+    title: task.title,
+    status: "pending",
+    one_liner: "",
+    narrative: "",
+    verification_result: "",
+    duration: "",
+    completed_at: null,
+    blocker_discovered: false,
+    deviations: "",
+    known_issues: "",
+    key_files: [],
+    key_decisions: [],
+    full_summary_md: "",
+    description: task.description,
+    estimate: task.estimate,
+    files: task.files,
+    verify: task.verify,
+    inputs: task.inputs,
+    expected_output: task.expectedOutput,
+    observability_impact: task.observabilityImpact ?? "",
+    full_plan_md: task.fullPlanMd ?? "",
+    sequence: index + 1,
+    blocker_source: "",
+    escalation_pending: 0,
+    escalation_awaiting_review: 0,
+    escalation_artifact_path: null,
+    escalation_override_applied_at: null,
+  }));
+}
+
+function validateTaskPathsBeforePersist(params: PlanSliceParams, basePath: string): string | null {
+  const taskRows = toTaskRows(params);
+  const checks = [
+    ...checkFilePathConsistency(taskRows, basePath),
+    ...checkTaskOrdering(taskRows, basePath),
+  ];
+  const blocking = checks.filter((check) => !check.passed && check.blocking);
+
+  if (blocking.length === 0) return null;
+
+  return blocking
+    .map((check) => `[${check.category}] ${check.target}: ${check.message}`)
+    .join("\n");
+}
+
 export async function handlePlanSlice(
   rawParams: PlanSliceParams,
   basePath: string,
@@ -153,6 +205,11 @@ export async function handlePlanSlice(
   );
   if (pathScopeError) {
     return { error: `validation failed: ${pathScopeError}` };
+  }
+
+  const pathError = validateTaskPathsBeforePersist(params, basePath);
+  if (pathError) {
+    return { error: `pre-execution validation failed:\n${pathError}` };
   }
 
   // ── Guards + DB writes inside a single transaction (prevents TOCTOU) ───
