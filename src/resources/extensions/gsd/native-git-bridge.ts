@@ -428,16 +428,21 @@ export function nativeDiffNameStatus(
 
 /**
  * Get numstat diff between two refs.
+ * useMergeBase: if true, uses three-dot semantics.
  * Native: libgit2 patch line stats.
  * Fallback: `git diff --numstat`.
  */
-export function nativeDiffNumstat(basePath: string, fromRef: string, toRef: string): GitNumstat[] {
+export function nativeDiffNumstat(basePath: string, fromRef: string, toRef: string, useMergeBase?: boolean): GitNumstat[] {
   const native = loadNative();
-  if (native) {
+  if (native && !useMergeBase) {
     return native.gitDiffNumstat(basePath, fromRef, toRef);
   }
 
-  const result = gitExec(basePath, ["diff", "--numstat", fromRef, toRef], true);
+  const refspec = useMergeBase ? `${fromRef}...${toRef}` : undefined;
+  const args = refspec
+    ? ["diff", "--numstat", refspec]
+    : ["diff", "--numstat", fromRef, toRef];
+  const result = gitExec(basePath, args, true);
   if (!result) return [];
 
   return result.split("\n").filter(Boolean).map(line => {
