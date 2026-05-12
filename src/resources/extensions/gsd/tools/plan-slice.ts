@@ -189,19 +189,6 @@ export async function handlePlanSlice(
         return;
       }
 
-      if (isDeferredStatus(parentSlice.status)) {
-        updateSliceStatus(params.milestoneId, params.sliceId, "pending");
-      }
-      setSliceSketchFlag(params.milestoneId, params.sliceId, false);
-
-      upsertSlicePlanning(params.milestoneId, params.sliceId, {
-        goal: params.goal,
-        successCriteria: params.successCriteria,
-        proofLevel: params.proofLevel,
-        integrationClosure: params.integrationClosure,
-        observabilityImpact: params.observabilityImpact,
-      });
-
       const newTaskIds = new Set(params.tasks.map((task) => task.taskId));
       const existingTasks = getSliceTasks(params.milestoneId, params.sliceId);
       omittedTaskIds = existingTasks
@@ -214,6 +201,19 @@ export async function handlePlanSlice(
           return;
         }
       }
+
+      if (isDeferredStatus(parentSlice.status)) {
+        updateSliceStatus(params.milestoneId, params.sliceId, "pending");
+      }
+      setSliceSketchFlag(params.milestoneId, params.sliceId, false);
+
+      upsertSlicePlanning(params.milestoneId, params.sliceId, {
+        goal: params.goal,
+        successCriteria: params.successCriteria,
+        proofLevel: params.proofLevel,
+        integrationClosure: params.integrationClosure,
+        observabilityImpact: params.observabilityImpact,
+      });
 
       for (const taskId of omittedTaskIds) {
         deleteTask(params.milestoneId, params.sliceId, taskId);
