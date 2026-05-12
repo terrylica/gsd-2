@@ -381,6 +381,23 @@ export function buildStepCompleteMessage(nextState: import("./types.js").GSDStat
     + `Run /clear, then /gsd to continue (or /gsd auto to run continuously).`;
 }
 
+/**
+ * Decide whether step mode should stop at the step wizard after a unit finishes.
+ *
+ * @param currentUnitType The just-finished unit type, such as "execute-task" or
+ *   "complete-milestone"; may be null/undefined when no current unit is known.
+ * @param phaseAfterUnit The freshly derived next phase, such as "executing" or
+ *   "complete"; may be null/undefined if state derivation failed.
+ * @returns true to show the step wizard; false to keep the loop running so
+ *   terminal milestone completion can reach the merge/finalization path.
+ */
+export function shouldReturnStepWizardAfterUnit(
+  currentUnitType: string | null | undefined,
+  phaseAfterUnit: string | null | undefined,
+): boolean {
+  return currentUnitType !== "complete-milestone" && phaseAfterUnit !== "complete";
+}
+
 export interface PreVerificationOpts {
   skipSettleDelay?: boolean;
   skipWorktreeSync?: boolean;
@@ -1693,14 +1710,18 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
   // Without this notify(), /gsd in step mode finishes a unit and silently
   // exits the loop, leaving the user with no hint to /clear and /gsd again.
   if (s.stepMode) {
+    let phaseAfterUnit: string | null = null;
     try {
       const nextState = await deriveState(s.canonicalProjectRoot);
+      phaseAfterUnit = nextState.phase;
       ctx.ui.notify(buildStepCompleteMessage(nextState), "info");
     } catch (e) {
       debugLog("postUnit", { phase: "step-wizard-notify", error: String(e) });
       ctx.ui.notify(STEP_COMPLETE_FALLBACK_MESSAGE, "info");
     }
-    return "step-wizard";
+    return shouldReturnStepWizardAfterUnit(s.currentUnit?.type, phaseAfterUnit)
+      ? "step-wizard"
+      : "continue";
   }
 
   return "continue";

@@ -818,14 +818,18 @@ export async function bootstrapAutoSession(
     // worktree cleanup) was never run — the survivor branch must be merged.
     // Applies to both worktree and branch isolation modes.
     let hasSurvivorBranch = false;
+    let survivorMilestoneId = state.activeMilestone?.id ?? null;
+    if (!survivorMilestoneId && state.phase === "complete") {
+      survivorMilestoneId = findUnmergedCompletedMilestone(base, getIsolationMode(base));
+    }
     if (
-      state.activeMilestone &&
+      survivorMilestoneId &&
       (state.phase === "pre-planning" || state.phase === "complete") &&
       getIsolationMode(base) !== "none" &&
       !detectWorktreeName(base) &&
       !base.includes(`${pathSep}.gsd${pathSep}worktrees${pathSep}`)
     ) {
-      const milestoneBranch = `milestone/${state.activeMilestone.id}`;
+      const milestoneBranch = `milestone/${survivorMilestoneId}`;
       const { nativeBranchExists } = await import("./native-git-bridge.js");
       hasSurvivorBranch = nativeBranchExists(base, milestoneBranch);
       if (hasSurvivorBranch) {
@@ -869,7 +873,7 @@ export async function bootstrapAutoSession(
     // Re-evaluate via the helper — the discuss branch above may have cleared
     // hasSurvivorBranch after a successful promotion.
     if (decideSurvivorAction(hasSurvivorBranch, state.phase) === "finalize") {
-      const mid = state.activeMilestone!.id;
+      const mid = survivorMilestoneId!;
       // Commit 68ef58a3c made `_mergeBranchMode` throw on wrong-branch
       // instead of returning false silently. Wrap the call so the throw is
       // converted into an error notify + clean bootstrap abort, not an
