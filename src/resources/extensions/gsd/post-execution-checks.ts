@@ -132,6 +132,10 @@ export function extractRelativeImports(
         continue;
       }
 
+      if (isInsideStringOrTemplateLiteral(line, match.index)) {
+        continue;
+      }
+
       imports.push({
         importPath: match[2],
         lineNum: i + 1,
@@ -144,6 +148,38 @@ export function extractRelativeImports(
   }
 
   return imports;
+}
+
+function isInsideStringOrTemplateLiteral(line: string, index: number): boolean {
+  let quote: "'" | '"' | "`" | null = null;
+  let escaped = false;
+
+  for (let i = 0; i < index; i++) {
+    const char = line[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (quote !== null) {
+      if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+    }
+  }
+
+  return quote !== null;
 }
 
 /**

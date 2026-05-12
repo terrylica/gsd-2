@@ -156,6 +156,31 @@ import realThing from "./real-thing";
     ]);
   });
 
+  test("ignores require() inside string literals", () => {
+    const source = `
+const fixture = "const x = require('./missing');";
+const real = require('./real');
+`;
+    const imports = extractRelativeImports(source);
+    assert.deepEqual(imports, [
+      { importPath: "./real", lineNum: 3 },
+    ]);
+  });
+
+  test("ignores require() inside template literals", () => {
+    const source = [
+      "const fixture = `",
+      "const x = require('./missing');",
+      "`;",
+      "",
+      "const real = require('./real');",
+    ].join("\n");
+    const imports = extractRelativeImports(source);
+    assert.deepEqual(imports, [
+      { importPath: "./real", lineNum: 5 },
+    ]);
+  });
+
   test("handles empty source", () => {
     const imports = extractRelativeImports("");
     assert.deepEqual(imports, []);
