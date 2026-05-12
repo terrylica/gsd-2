@@ -270,16 +270,26 @@ function isExcludedScopedPath(path: string, exclusions: readonly string[]): bool
   return false;
 }
 
-function isInsideSubmodule(basePath: string, path: string): boolean {
-  const normalizedPath = path.replace(/\\/g, "/");
-  const output = runGit(basePath, ["ls-files", "--stage"], { allowFailure: true });
-  if (!output) return false;
+function submodulePathsFromLsFiles(output: string): Set<string> {
+  const submodulePaths = new Set<string>();
+  if (!output) return submodulePaths;
 
   for (const line of output.split("\n")) {
     const match = line.match(/^160000\s+\S+\s+\d+\t(.+)$/);
     if (!match) continue;
-    const submodulePath = match[1].replace(/\\/g, "/").replace(/\/+$/, "");
-    if (normalizedPath.startsWith(`${submodulePath}/`)) return true;
+    submodulePaths.add(match[1].replace(/\\/g, "/").replace(/\/+$/, ""));
+  }
+  return submodulePaths;
+}
+
+function isInsideSubmodule(path: string, submodulePaths: ReadonlySet<string>): boolean {
+  const normalizedPath = path.replace(/\\/g, "/");
+  if (submodulePaths.has(normalizedPath)) return true;
+
+  let slashIndex = normalizedPath.lastIndexOf("/");
+  while (slashIndex > 0) {
+    if (submodulePaths.has(normalizedPath.slice(0, slashIndex))) return true;
+    slashIndex = normalizedPath.lastIndexOf("/", slashIndex - 1);
   }
   return false;
 }
@@ -780,8 +790,11 @@ export class GitServiceImpl {
 
     const scopedPaths: string[] = [];
     const submodulePaths: string[] = [];
+    const repoSubmodules = submodulePathsFromLsFiles(
+      runGit(this.basePath, ["ls-files", "--stage"], { allowFailure: true }),
+    );
     for (const path of normalized) {
-      if (isInsideSubmodule(this.basePath, path)) {
+      if (isInsideSubmodule(path, repoSubmodules)) {
         submodulePaths.push(path);
       } else {
         scopedPaths.push(path);

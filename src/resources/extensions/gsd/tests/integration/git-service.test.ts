@@ -470,6 +470,51 @@ describe('git-service', async () => {
     }
   });
 
+  test('GitServiceImpl: all keyFiles inside submodules falls back to smartStage', () => {
+    const repo = initTempRepo();
+    const subSrc = mkdtempSync(join(tmpdir(), "gsd-git-all-submodule-src-"));
+
+    try {
+      gitRun(["init", "-b", "main"], subSrc);
+      gitRun(["config", "user.name", "Pi Test"], subSrc);
+      gitRun(["config", "user.email", "pi@example.com"], subSrc);
+      createFile(subSrc, "tracked.txt", "initial\n");
+      gitRun(["add", "-A"], subSrc);
+      gitRun(["commit", "-m", "init submodule"], subSrc);
+
+      gitRun(["-c", "protocol.file.allow=always", "submodule", "add", `file://${subSrc}`, "sub"], repo);
+      gitRun(["commit", "-m", "add submodule"], repo);
+
+      createFile(repo, "sub/file1.txt", "inside submodule\n");
+      createFile(repo, "sub/file2.txt", "also inside\n");
+      createFile(repo, "src/real.ts", "export const real = true;\n");
+
+      const svc = new GitServiceImpl(repo);
+      const taskContext: TaskCommitContext = {
+        taskId: "S01/T02",
+        taskDisplayId: "T02",
+        taskTitle: "all keyFiles inside submodule",
+        milestoneId: "M001",
+        milestoneTitle: "Submodule auto commit",
+        sliceId: "S01",
+        sliceTitle: "Commit scoped files",
+        oneLiner: "Fell back when all key files are inside submodules",
+        keyFiles: ["sub", "sub/file1.txt", "sub/file2.txt"],
+      };
+
+      const result = svc.autoCommit("execute-task", "M001/S01/T02", [], taskContext);
+
+      assert.ok(result !== null, "autoCommit falls back to smartStage when all keyFiles are filtered");
+      const committed = gitRun(["show", "--name-only", "--format=", "HEAD"], repo);
+      assert.ok(!committed.includes("sub/file1.txt"), "submodule keyFile is not committed");
+      assert.ok(!committed.includes("sub/file2.txt"), "submodule keyFile is not committed");
+      assert.ok(committed.includes("src/real.ts"), "smartStage fallback commits other dirty files");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+      rmSync(subSrc, { recursive: true, force: true });
+    }
+  });
+
   // ─── GitServiceImpl: smart staging excludes tracked runtime files ──────
 
   test('GitServiceImpl: smart staging excludes tracked runtime files', () => {
