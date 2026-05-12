@@ -359,8 +359,15 @@ export const HTML_SHELL_JS = `
     }
   });
 })();
+function safeLocalStorageSet(key,value){
+  try{localStorage.setItem(key,value)}catch(e){}
+}
+function safeLocalStorageGet(key){
+  try{return localStorage.getItem(key)}catch(e){return null}
+}
 (function(){
-  var saved=JSON.parse(localStorage.getItem('gsd-collapsed')||'{}');
+  var saved={};
+  try{saved=JSON.parse(safeLocalStorageGet('gsd-collapsed')||'{}')}catch(e){}
   document.querySelectorAll('section[id]').forEach(function(sec){
     var h2=sec.querySelector('h2');
     if(!h2)return;
@@ -376,7 +383,7 @@ export const HTML_SHELL_JS = `
       toggleSection(sec,collapsed);
       btn.textContent=collapsed?'+':'-';
       saved[sec.id]=collapsed;
-      localStorage.setItem('gsd-collapsed',JSON.stringify(saved));
+      safeLocalStorageSet('gsd-collapsed',JSON.stringify(saved));
     });
   });
   function toggleSection(sec,hide){
@@ -389,15 +396,16 @@ export const HTML_SHELL_JS = `
 (function(){
   var hr=document.querySelector('.header-right');
   if(!hr)return;
+  var stored=safeLocalStorageGet('gsd-theme');
   var btn=document.createElement('button');
   btn.className='theme-toggle';
-  btn.textContent=localStorage.getItem('gsd-theme')==='light'?'Dark':'Light';
-  if(localStorage.getItem('gsd-theme')==='light')document.documentElement.classList.add('light-theme');
+  btn.textContent=stored==='light'?'Dark':'Light';
+  if(stored==='light')document.documentElement.classList.add('light-theme');
   btn.addEventListener('click',function(){
     document.documentElement.classList.toggle('light-theme');
     var isLight=document.documentElement.classList.contains('light-theme');
     btn.textContent=isLight?'Dark':'Light';
-    localStorage.setItem('gsd-theme',isLight?'light':'dark');
+    safeLocalStorageSet('gsd-theme',isLight?'light':'dark');
   });
   hr.prepend(btn);
 })();

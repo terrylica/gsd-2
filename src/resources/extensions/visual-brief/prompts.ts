@@ -98,18 +98,26 @@ export function parseVisualBriefArgs(args: string): VisualBriefRequest | null {
 	};
 }
 
+export interface VisualBriefPromptOptions {
+	outputDir: string;
+	/** GSD version rendered in the shell header/footer. Falls back to "0.0.0" when not provided. */
+	version?: string;
+}
+
 export function buildVisualBriefPrompt(
 	request: VisualBriefRequest,
-	options: { outputDir: string },
+	options: VisualBriefPromptOptions,
 ): string {
 	const profile = getVisualBriefModeProfile(request.mode, request.slides);
 	const artifactPolicy = createVisualBriefArtifactPolicy(options.outputDir);
 	const outputFormat = request.slides ? "slide deck" : "scrollable explanation page";
+	const version = options.version?.trim() || undefined;
 	const shell = renderHtmlShellTemplate({
 		title: request.subject,
 		documentTitle: `GSD ${VISUAL_BRIEF_KIND[request.mode]} - ${request.subject}`,
 		subtitle: "Visual brief",
 		kind: VISUAL_BRIEF_KIND[request.mode],
+		version,
 		mainPlaceholder: "{{MAIN_HTML}}",
 		footerNote: request.subject,
 	});
