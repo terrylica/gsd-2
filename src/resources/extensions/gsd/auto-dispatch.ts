@@ -1322,19 +1322,19 @@ export const DISPATCH_RULES: DispatchRule[] = [
         }
       }
 
-      // Safety guard (#2675): block completion when VALIDATION verdict is
-      // needs-remediation. The state machine treats needs-remediation as
-      // terminal (to prevent validate-milestone loops per #832), but
-      // completing-milestone should NOT proceed — remediation work is needed.
+      // Safety guard (#2675, #5747): block completion when VALIDATION
+      // verdict is non-passing. The state machine treats these verdicts as
+      // terminal, but completing-milestone should NOT proceed — remediation
+      // or human attention is needed.
       const validationFile = resolveMilestoneFile(basePath, mid, "VALIDATION");
       if (validationFile) {
         const validationContent = await loadFile(validationFile);
         if (validationContent) {
           const verdict = extractVerdict(validationContent);
-          if (verdict === "needs-remediation") {
+          if (verdict === "needs-remediation" || verdict === "needs-attention") {
             return {
               action: "stop",
-              reason: `Cannot complete milestone ${mid}: VALIDATION verdict is "needs-remediation". Address the remediation findings and re-run validation, or update the verdict manually.`,
+              reason: `Cannot complete milestone ${mid}: VALIDATION verdict is "${verdict}". Address the validation findings and re-run validation, or update the verdict manually.`,
               level: "warning",
             };
           }
