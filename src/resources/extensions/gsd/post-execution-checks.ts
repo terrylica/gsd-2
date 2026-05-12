@@ -62,13 +62,22 @@ export function extractRelativeImports(
   //   import './path'
   //   require('./path')
   //   require("../path")
-  const importPattern = /(?:import\s+(?:.*?\s+from\s+)?|require\s*\(\s*)(['"])(\.\.?\/[^'"]+)\1/g;
+  const importPattern = /(?:^|[;{}]\s*)import\s+(?:.*?\s+from\s+)?(['"])(\.\.?\/[^'"]+)\1/g;
+  const requirePattern = /require\s*\(\s*(['"])(\.\.?\/[^'"]+)\1/g;
 
   // Track if we're inside a block comment
   let inBlockComment = false;
+  let inTemplateLiteral = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    if (inTemplateLiteral) {
+      if ((line.match(/(?<!\\)`/g) ?? []).length % 2 === 1) {
+        inTemplateLiteral = false;
+      }
+      continue;
+    }
 
     // Handle block comment boundaries
     if (inBlockComment) {
@@ -101,6 +110,7 @@ export function extractRelativeImports(
 
     // Reset lastIndex for each line
     importPattern.lastIndex = 0;
+    requirePattern.lastIndex = 0;
 
     while ((match = importPattern.exec(line)) !== null) {
       // Check if this match is after a // comment marker on the same line
@@ -113,6 +123,23 @@ export function extractRelativeImports(
         importPath: match[2],
         lineNum: i + 1,
       });
+    }
+
+    while ((match = requirePattern.exec(line)) !== null) {
+      // Check if this match is after a // comment marker on the same line
+      const beforeMatch = line.substring(0, match.index);
+      if (beforeMatch.includes("//")) {
+        continue;
+      }
+
+      imports.push({
+        importPath: match[2],
+        lineNum: i + 1,
+      });
+    }
+
+    if ((line.match(/(?<!\\)`/g) ?? []).length % 2 === 1) {
+      inTemplateLiteral = true;
     }
   }
 
