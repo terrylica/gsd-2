@@ -381,6 +381,16 @@ export function buildStepCompleteMessage(nextState: import("./types.js").GSDStat
     + `Run /clear, then /gsd to continue (or /gsd auto to run continuously).`;
 }
 
+/**
+ * Decide whether step mode should stop at the step wizard after a unit finishes.
+ *
+ * @param currentUnitType The just-finished unit type, such as "execute-task" or
+ *   "complete-milestone"; may be null/undefined when no current unit is known.
+ * @param phaseAfterUnit The freshly derived next phase, such as "executing" or
+ *   "complete"; may be null/undefined if state derivation failed.
+ * @returns true to show the step wizard; false to keep the loop running so
+ *   terminal milestone completion can reach the merge/finalization path.
+ */
 export function shouldReturnStepWizardAfterUnit(
   currentUnitType: string | null | undefined,
   phaseAfterUnit: string | null | undefined,
