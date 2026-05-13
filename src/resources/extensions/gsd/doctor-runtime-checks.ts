@@ -7,7 +7,7 @@ import { milestonesDir, gsdRoot, resolveGsdRootFile } from "./paths.js";
 import { deriveState, isGhostMilestone, isReusableGhostMilestone } from "./state.js";
 import { saveFile } from "./files.js";
 import { nativeIsRepo, nativeForEachRef, nativeUpdateRef } from "./native-git-bridge.js";
-import { readCrashLock, isLockProcessAlive, clearLock } from "./crash-recovery.js";
+import { readCrashLock, isLockProcessAlive, clearStaleWorkerLock } from "./crash-recovery.js";
 import { getActiveAutoWorkers } from "./db/auto-workers.js";
 import { normalizeRealPath } from "./paths.js";
 import { ensureGitignore, isGsdGitignored } from "./gitignore.js";
@@ -56,7 +56,7 @@ export async function checkRuntimeHealth(
         });
 
         if (shouldFix("stale_crash_lock")) {
-          clearLock(basePath);
+          clearStaleWorkerLock(basePath);
           fixesApplied.push("cleared stale auto-mode worker state");
         }
       }
