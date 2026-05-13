@@ -272,6 +272,22 @@ test("buildPhaseHandoffOutcome summarizes the last phase result", () => {
   assert.match(snapshot.nextAction, /next phase/);
 });
 
+test("buildPhaseHandoffOutcome ignores non-assistant trailing messages", () => {
+  const snapshot = buildPhaseHandoffOutcome({
+    unitType: "plan-slice",
+    unitId: "M005/S01",
+    agentEndMessages: [
+      { message: { role: "assistant", content: "Assistant summary to hand off." } },
+      { role: "tool", content: "Tool output should not be shown." },
+      { role: "user", content: "User follow-up should not be shown." },
+    ],
+  });
+
+  assert.match(snapshot.detail ?? "", /Assistant summary/);
+  assert.doesNotMatch(snapshot.detail ?? "", /Tool output/);
+  assert.doesNotMatch(snapshot.detail ?? "", /User follow-up/);
+});
+
 test("updateProgressWidget preserves the phase handoff during session switching", () => {
   const calls: Array<[string, unknown]> = [];
   updateProgressWidget(
