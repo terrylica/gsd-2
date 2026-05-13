@@ -249,7 +249,7 @@ export class FooterComponent implements Component {
 		const footerRight = [rightSide, extStatusText].filter(Boolean).join(" ");
 		const gsdSegment = theme.fg("accent", "● GSD");
 		const dimStatsLeft = theme.fg("dim", statsLeft);
-		const innerWidth = Math.max(1, Math.max(20, width) - 2);
+		const innerWidth = Math.max(1, width - 2);
 		const rightWidth = visibleWidth(footerRight);
 		const leftBudget = footerRight ? Math.max(1, innerWidth - rightWidth - 3) : innerWidth;
 		const sepWidth = visibleWidth("  │  ");

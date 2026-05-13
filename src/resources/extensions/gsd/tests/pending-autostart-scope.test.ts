@@ -11,6 +11,7 @@ import {
   clearPendingAutoStart,
   _getPendingAutoStart,
 } from "../guided-flow.ts";
+import type { PendingAutoStartInput } from "../pending-auto-start.ts";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -65,7 +66,11 @@ describe("pendingAutoStart scope pinning (C1)", () => {
 
   test("setPendingAutoStart rejects entries without ctx and pi before storing them", () => {
     assert.throws(
-      () => setPendingAutoStart(base, { basePath: base, milestoneId: "M001" }),
+      () =>
+        setPendingAutoStart(base, {
+          basePath: base,
+          milestoneId: "M001",
+        } as PendingAutoStartInput),
       /requires ctx and pi/,
       "pending entries must include the handles later used by auto-start recovery",
     );

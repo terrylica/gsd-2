@@ -19,8 +19,8 @@ export interface PendingAutoStartEntry {
 export interface PendingAutoStartInput {
   basePath: string;
   milestoneId: string;
-  ctx?: ExtensionCommandContext;
-  pi?: ExtensionAPI;
+  ctx: ExtensionCommandContext;
+  pi: ExtensionAPI;
   step?: boolean;
   createdAt?: number;
 }
