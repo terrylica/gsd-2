@@ -101,6 +101,7 @@ import { getSessionModelOverride } from "./session-model-override.js";
 export interface BootstrapDeps {
   shouldUseWorktreeIsolation: (basePath?: string) => boolean;
   registerSigtermHandler: (basePath: string) => void;
+  registerAutoWorkerForSession: (basePath: string) => void;
   lockBase: () => string;
   buildLifecycle: () => WorktreeLifecycle;
 }
@@ -533,6 +534,7 @@ export async function bootstrapAutoSession(
   const {
     shouldUseWorktreeIsolation,
     registerSigtermHandler,
+    registerAutoWorkerForSession,
     lockBase,
     buildLifecycle,
   } = deps;
@@ -722,6 +724,7 @@ export async function bootstrapAutoSession(
     // consult DB status and avoid clearing runtime units for milestones that
     // only have a failure-path SUMMARY on disk (#4663).
     await openProjectDbIfPresent(base);
+    registerAutoWorkerForSession(base);
 
     // Clean stale runtime unit files for completed milestones (#887).
     // DB-authoritative: when DB is available, require DB status to be closed

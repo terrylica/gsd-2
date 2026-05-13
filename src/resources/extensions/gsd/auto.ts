@@ -2473,6 +2473,8 @@ export async function startAuto(
     s.unitLifetimeDispatches.clear();
     if (!getLedger()) initMetrics(base);
     if (s.currentMilestoneId) setActiveMilestoneId(base, s.currentMilestoneId);
+    await openProjectDbIfPresent(base);
+    registerAutoWorkerForSession(s, base);
 
     // Re-register health level notification callback lost across process restart
     setLevelChangeCallback((_from, to, summary) => {
@@ -2601,6 +2603,7 @@ export async function startAuto(
   const bootstrapDeps: BootstrapDeps = {
     shouldUseWorktreeIsolation,
     registerSigtermHandler,
+    registerAutoWorkerForSession: (projectRoot) => registerAutoWorkerForSession(s, projectRoot),
     lockBase,
     buildLifecycle,
   };
