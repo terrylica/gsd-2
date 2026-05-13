@@ -252,7 +252,17 @@ function gitPathspecForWorktreePath(basePath: string, targetPath: string): strin
   let base = basePath;
   let target = targetPath;
   try {
-    base = realpathSync.native(basePath);
+    base = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: basePath,
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf-8",
+    }).trim() || basePath;
+  } catch {
+    /* keep original */
+    void base;
+  }
+  try {
+    base = realpathSync.native(base);
   } catch {
     /* keep original */
     void base;
@@ -267,6 +277,10 @@ function gitPathspecForWorktreePath(basePath: string, targetPath: string): strin
   const rel = relative(base, target);
   if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return null;
   return rel.replaceAll("\\", "/");
+}
+
+export function _gitPathspecForWorktreePath(basePath: string, targetPath: string): string | null {
+  return gitPathspecForWorktreePath(basePath, targetPath);
 }
 
 function gitRemoteExists(basePath: string, remote: string): boolean {
