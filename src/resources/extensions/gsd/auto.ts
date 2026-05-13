@@ -58,6 +58,7 @@ import {
 import {
   writeLock,
   clearLock,
+  clearStaleWorkerLock,
   readCrashLock,
   isLockProcessAlive,
   formatCrashInfo,
@@ -2422,7 +2423,7 @@ export async function startAuto(
     // This closes the journal gap reported in #3348 where the worker wrote side
     // effects (SUMMARY.md, DB updates) but died before emitting unit-end.
     emitCrashRecoveredUnitEnd(base, freshStartAssessment.lock);
-    clearLock(base);
+    clearStaleWorkerLock(base);
   }
 
   if (!s.paused) {
