@@ -487,17 +487,18 @@ export function registerDbTools(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Use gsd_plan_milestone for milestone planning instead of writing ROADMAP.md directly.",
       "Keep parameters flat and provide the full milestone planning payload, including slices.",
+      "Milestone and slice titles must not contain forward slash (/), en dash, or em dash characters.",
       "The tool validates input, writes milestone and slice planning data transactionally, renders ROADMAP.md from DB, and clears both state and parse caches after success.",
       "Use the canonical name gsd_plan_milestone; gsd_milestone_plan is only an alias.",
     ],
     parameters: Type.Object({
       // ── Core identification + content (required) ──────────────────────
       milestoneId: Type.String({ description: "Milestone ID (e.g. M001)" }),
-      title: Type.String({ description: "Milestone title" }),
+      title: Type.String({ description: "Milestone title; must not contain forward slash (/), en dash, or em dash characters" }),
       vision: Type.String({ description: "Milestone vision" }),
       slices: Type.Array(Type.Object({
         sliceId: Type.String({ description: "Slice ID (e.g. S01)" }),
-        title: Type.String({ description: "Slice title" }),
+        title: Type.String({ description: "Slice title; must not contain forward slash (/), en dash, or em dash characters" }),
         risk: Type.String({ description: "Slice risk" }),
         depends: Type.Array(Type.String(), { description: "Slice dependency IDs" }),
         demo: Type.String({ description: "Roadmap demo text / After this" }),
