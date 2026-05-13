@@ -201,6 +201,14 @@ export function resolveAgentEndErrorDisplay(
   return rawErrorMsg;
 }
 
+export function isTerminalDeletedWorktreeProviderError(
+  message: string | undefined | null,
+): boolean {
+  if (!message) return false;
+  if (!/\bdoes not exist\b/i.test(message)) return false;
+  return /[/\\]\.gsd[/\\](?:projects[/\\][^/\\]+[/\\])?worktrees[/\\][^/\\\s"']+/i.test(message);
+}
+
 async function pauseTransientWithBackoff(
   cls: ErrorClass,
   pi: ExtensionAPI,
@@ -249,9 +257,10 @@ export async function handleAgentEnd(
   // falsely report files as missing — producing a spurious "ready signal
   // rejected" loop even though the files are on disk.
   clearPathCache();
+  const basePath = resolveAgentEndBasePath();
 
   try {
-    if (await checkDeepProjectSetupAfterTurn(event, ctx, resolveAgentEndBasePath())) {
+    if (await checkDeepProjectSetupAfterTurn(event, ctx, basePath)) {
       return;
     }
   } catch (err) {
@@ -259,8 +268,8 @@ export async function handleAgentEnd(
     logWarning("bootstrap", `checkDeepProjectSetupAfterTurn failed: ${message}`);
   }
 
-  if (checkAutoStartAfterDiscuss()) {
-    clearDiscussionFlowState(resolveAgentEndBasePath() ?? process.cwd());
+  if (checkAutoStartAfterDiscuss(basePath)) {
+    clearDiscussionFlowState(basePath ?? process.cwd());
     return;
   }
 
@@ -268,14 +277,14 @@ export async function handleAgentEnd(
   // are missing, `checkAutoStartAfterDiscuss` returns false silently. Surface
   // that and nudge the LLM to complete the writes before the user hits the
   // downstream "All milestones complete" warning loop.
-  if (maybeHandleReadyPhraseWithoutFiles(event)) return;
+  if (maybeHandleReadyPhraseWithoutFiles(event, basePath)) return;
 
   // #4573 — Empty-turn recovery: if the LLM announced intent in prose but
   // emitted no tool calls, nudge it to execute. Fires only when auto-mode is
   // active or a discussion autostart is pending (non-auto interactive discuss
   // is user-driven). Runs before `isAutoActive` early return so pending
   // discussions (where isAutoActive may be false) still get recovered.
-  if (maybeHandleEmptyIntentTurn(event, isAutoActive())) return;
+  if (maybeHandleEmptyIntentTurn(event, isAutoActive(), basePath)) return;
 
   if (!isAutoActive()) return;
 
@@ -360,6 +369,17 @@ export async function handleAgentEnd(
       rawErrorMsg,
       "content" in lastMsg ? lastMsg.content : undefined,
     );
+    if (
+      isAutoCompletionStopInProgress() &&
+      isTerminalDeletedWorktreeProviderError(`${rawErrorMsg}\n${displayMsg}`)
+    ) {
+      resetRetryState(retryState);
+      logWarning(
+        "bootstrap",
+        `Ignoring stale deleted-worktree provider error during terminal completion reroot: ${displayMsg || rawErrorMsg}`,
+      );
+      return;
+    }
     const errorDetail = displayMsg ? `: ${displayMsg}` : "";
     const explicitRetryAfterMs = ("retryAfterMs" in lastMsg && typeof lastMsg.retryAfterMs === "number") ? lastMsg.retryAfterMs : undefined;
 

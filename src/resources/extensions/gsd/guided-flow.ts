@@ -69,8 +69,23 @@ import {
   formatPriorContextBrief,
 } from "./preparation.js";
 import { verifyExpectedArtifact } from "./auto-recovery.js";
-import { createWorkspace, scopeMilestone, type MilestoneScope } from "./workspace.js";
+import type { MilestoneScope } from "./workspace.js";
 import { getPendingGate, extractDepthVerificationMilestoneId } from "./bootstrap/write-gate.js";
+import {
+  _getPendingAutoStart,
+  clearPendingAutoStart,
+  deletePendingAutoStart,
+  getDiscussionMilestoneId,
+  hasPendingAutoStart,
+  setPendingAutoStart,
+} from "./pending-auto-start.js";
+
+export {
+  _getPendingAutoStart,
+  clearPendingAutoStart,
+  getDiscussionMilestoneId,
+  setPendingAutoStart,
+} from "./pending-auto-start.js";
 
 export function shouldSkipGitBootstrapAfterInit(result: { gitEnabled?: boolean }): boolean {
   return result.gitEnabled === false;
@@ -234,26 +249,6 @@ function buildDocsCommitInstruction(_message: string): string {
 
 // ─── Auto-start after discuss ─────────────────────────────────────────────────
 
-/** Pending auto-start context, keyed by basePath for session isolation (#2985). */
-interface PendingAutoStartEntry {
-  ctx: ExtensionCommandContext;
-  pi: ExtensionAPI;
-  basePath: string;
-  milestoneId: string; // the milestone being discussed
-  step?: boolean; // preserve step mode through discuss → auto transition
-  createdAt: number; // timestamp for staleness detection (#3274)
-  // #4573: counter for how many times the LLM emitted the ready phrase
-  // without writing the required artifacts. Cleared on entry delete/recreate.
-  readyRejectCount?: number;
-  // C1: scope is pinned at reservation time so path resolution is immune to
-  // cwd-drift between discuss and checkAutoStartAfterDiscuss.
-  // TODO(C3): basePath becomes redundant once all consumers migrate to scope.
-  scope: MilestoneScope;
-  // H1: retry counter for Gate 1b plan-blocked recovery. Capped at
-  // MAX_PLAN_BLOCKED_RECOVERIES to prevent infinite recovery loops (#5012).
-  planBlockedRecoveryCount: number;
-}
-
 interface PendingDeepProjectSetupEntry {
   ctx: ExtensionCommandContext;
   pi: ExtensionAPI;
@@ -279,7 +274,6 @@ const MAX_PLAN_BLOCKED_RECOVERIES = 3;
 // suffix) with optional trailing punctuation.
 const READY_PHRASE_RE = /\bMilestone\s+M\d{3}[A-Z0-9-]*\s+ready\.?/i;
 
-const pendingAutoStartMap = new Map<string, PendingAutoStartEntry>();
 const pendingDeepProjectSetupMap = new Map<string, PendingDeepProjectSetupEntry>();
 const USER_DRIVEN_DEEP_SETUP_UNITS = new Set([
   "discuss-project",
@@ -305,17 +299,6 @@ This stage is running inside the foreground \`/gsd new-project --deep\` intervie
 
 - Do NOT call \`ask_user_questions\`, \`AskUserQuestion\`, or ToolSearch to discover user-input tools.
 - Ask one focused round, then stop and wait for the user's normal chat response.`;
-
-/**
- * Backward-compat bridge: returns a mutable reference to the entry matching
- * basePath, or the sole entry when only one session exists.
- * Exported for testing — internal use only in production code.
- */
-export function _getPendingAutoStart(basePath?: string): PendingAutoStartEntry | null {
-  if (basePath) return pendingAutoStartMap.get(basePath) ?? null;
-  if (pendingAutoStartMap.size === 1) return pendingAutoStartMap.values().next().value!;
-  return null;
-}
 
 function hasNestedFileOrSymlink(dir: string): boolean {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -350,52 +333,12 @@ function clearEmptyLegacyDeepSetupPseudoMilestones(basePath: string, entries: st
   return remaining;
 }
 
-/**
- * Store pending auto-start state for a project.
- * Exported for testing (#2985).
- */
-export function setPendingAutoStart(basePath: string, entry: { basePath: string; milestoneId: string; ctx?: ExtensionCommandContext; pi?: ExtensionAPI; step?: boolean; createdAt?: number }): void {
-  const ws = createWorkspace(entry.basePath);
-  const scope = scopeMilestone(ws, entry.milestoneId);
-  pendingAutoStartMap.set(basePath, { createdAt: Date.now(), planBlockedRecoveryCount: 0, ...entry, scope } as PendingAutoStartEntry);
-}
-
-/**
- * Clear pending auto-start state.
- * If basePath is given, clears only that project.  Otherwise clears all.
- * Exported for testing (#2985).
- */
-export function clearPendingAutoStart(basePath?: string): void {
-  if (basePath) {
-    pendingAutoStartMap.delete(basePath);
-  } else {
-    pendingAutoStartMap.clear();
-  }
-}
-
 export function clearPendingDeepProjectSetup(basePath?: string): void {
   if (basePath) {
     pendingDeepProjectSetupMap.delete(basePath);
   } else {
     pendingDeepProjectSetupMap.clear();
   }
-}
-
-/**
- * Returns the milestoneId being discussed for the given project.
- * When basePath is omitted and only one session is active, returns that
- * session's milestoneId for backward compatibility.  Returns null when
- * multiple sessions exist and basePath is not specified (#2985 Bug 4).
- */
-export function getDiscussionMilestoneId(basePath?: string): string | null {
-  if (basePath) {
-    return pendingAutoStartMap.get(basePath)?.milestoneId ?? null;
-  }
-  // Backward compat: return the sole entry's milestoneId, or null if ambiguous
-  if (pendingAutoStartMap.size === 1) {
-    return pendingAutoStartMap.values().next().value!.milestoneId;
-  }
-  return null;
 }
 
 function _getPendingDeepProjectSetup(basePath?: string): PendingDeepProjectSetupEntry | null {
@@ -556,8 +499,8 @@ async function dispatchNextDeepProjectSetupStage(entry: PendingDeepProjectSetupE
 }
 
 /** Called from agent_end to check if auto-mode should start after discuss */
-export function checkAutoStartAfterDiscuss(): boolean {
-  const entry = _getPendingAutoStart();
+export function checkAutoStartAfterDiscuss(lookupBasePath?: string): boolean {
+  const entry = _getPendingAutoStart(lookupBasePath);
   if (!entry) return false;
 
   const { ctx, pi, basePath, milestoneId, step } = entry;
@@ -742,7 +685,7 @@ export function checkAutoStartAfterDiscuss(): boolean {
     }
   }
 
-  pendingAutoStartMap.delete(basePath);
+  deletePendingAutoStart(basePath);
   ctx.ui.notify(`Milestone ${milestoneId} ready.`, "success");
   scheduleAutoStartAfterIdle(ctx, pi, basePath, false, { step });
   return true;
@@ -813,8 +756,8 @@ function hasToolUse(msg: any): boolean {
  * Returns true when a nudge (or give-up) was emitted, signaling the caller to
  * skip `resolveAgentEnd`.
  */
-export function maybeHandleReadyPhraseWithoutFiles(event: { messages: any[] }): boolean {
-  const entry = _getPendingAutoStart();
+export function maybeHandleReadyPhraseWithoutFiles(event: { messages: any[] }, lookupBasePath?: string): boolean {
+  const entry = _getPendingAutoStart(lookupBasePath);
   if (!entry) return false;
   const { ctx, pi, basePath, milestoneId } = entry;
 
@@ -861,7 +804,7 @@ export function maybeHandleReadyPhraseWithoutFiles(event: { messages: any[] }): 
   if (entry.readyRejectCount > MAX_READY_REJECTS) {
     // Give up: clear state and tell the user to re-run /gsd. Avoids an
     // infinite nudge loop when the LLM never produces the writes.
-    pendingAutoStartMap.delete(basePath);
+    deletePendingAutoStart(basePath);
     ctx.ui.notify(
       `Milestone ${milestoneId}: LLM signaled "ready" ${entry.readyRejectCount} times without writing files. ` +
       `Stopping auto-nudge. Run /gsd to try again.`,
@@ -942,10 +885,11 @@ export function resetEmptyTurnCounter(basePath?: string): void {
 export function maybeHandleEmptyIntentTurn(
   event: { messages: any[] },
   isAuto: boolean,
+  lookupBasePath?: string,
 ): boolean {
   // Gate: only fire when there is system-driven work in flight. Interactive
   // /gsd discuss (user-driven) produces legitimate text-only turns.
-  if (!isAuto && pendingAutoStartMap.size === 0) return false;
+  if (!isAuto && !hasPendingAutoStart(lookupBasePath)) return false;
 
   const lastMsg = event.messages[event.messages.length - 1];
   if (!lastMsg) return false;
@@ -972,7 +916,7 @@ export function maybeHandleEmptyIntentTurn(
 
   // Resolve the target basePath + pi for injection. Prefer the pending
   // autostart entry (discuss flow); otherwise we cannot inject.
-  const entry = _getPendingAutoStart();
+  const entry = _getPendingAutoStart(lookupBasePath);
   if (!entry) return false;
   const { ctx, pi, basePath } = entry;
 
@@ -2203,17 +2147,17 @@ export async function showSmartEntry(
     // Both /gsd and /gsd auto reach this branch when no milestone exists yet.
     // Without this guard, every subsequent /gsd call overwrites the pending auto-start
     // and fires another dispatchWorkflow, resetting the conversation mid-interview.
-    if (pendingAutoStartMap.has(basePath)) {
+    if (hasPendingAutoStart(basePath)) {
       // #3274: If /clear interrupted the discussion, the pending entry is stale.
       // Detect staleness: no manifest, no milestone CONTEXT artifact, AND entry is older than
       // 30s (avoids race between .set() and LLM writing first artifact).
-      const entry = pendingAutoStartMap.get(basePath)!;
+      const entry = _getPendingAutoStart(basePath)!;
       const ageMs = Date.now() - (entry.createdAt || 0);
       const manifestExists = existsSync(join(gsdRoot(basePath), "DISCUSSION-MANIFEST.json"));
       const milestoneHasContext = !!resolveMilestoneFile(basePath, entry.milestoneId, "CONTEXT");
       if (!manifestExists && !milestoneHasContext && ageMs > 30_000) {
         // Stale entry from an interrupted discussion — clear and continue
-        pendingAutoStartMap.delete(basePath);
+        deletePendingAutoStart(basePath);
       } else {
         ctx.ui.notify("Discussion already in progress — answer the question above to continue.", "info");
         return;

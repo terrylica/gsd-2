@@ -129,3 +129,44 @@ test("checkAutoStartAfterDiscuss ignores missing manifest for single-milestone d
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("checkAutoStartAfterDiscuss(basePath) selects the matching pending entry when multiple sessions exist", () => {
+  const projectA = mkdtempSync(join(tmpdir(), "gsd-auto-start-project-a-"));
+  const projectB = mkdtempSync(join(tmpdir(), "gsd-auto-start-project-b-"));
+
+  function writeReadyArtifacts(base: string, milestoneId: string): void {
+    const gsdDir = join(base, ".gsd");
+    const milestoneDir = join(gsdDir, "milestones", milestoneId);
+    mkdirSync(milestoneDir, { recursive: true });
+    writeFileSync(join(gsdDir, "PROJECT.md"), `# Project\n\n| ${milestoneId} | Milestone | active |\n`);
+    writeFileSync(join(gsdDir, "STATE.md"), "# State\n");
+    writeFileSync(join(milestoneDir, `${milestoneId}-CONTEXT.md`), "# Context\n");
+  }
+
+  try {
+    clearPendingAutoStart();
+    writeReadyArtifacts(projectA, "M001");
+    writeReadyArtifacts(projectB, "M002");
+    setPendingAutoStart(projectA, {
+      basePath: projectA,
+      milestoneId: "M001",
+      ctx: { ui: { notify: () => undefined } } as any,
+      pi: { setActiveTools: () => undefined, getActiveTools: () => [] } as any,
+    });
+    setPendingAutoStart(projectB, {
+      basePath: projectB,
+      milestoneId: "M002",
+      ctx: { ui: { notify: () => undefined } } as any,
+      pi: { setActiveTools: () => undefined, getActiveTools: () => [] } as any,
+    });
+
+    assert.equal(checkAutoStartAfterDiscuss(), false, "ambiguous pending sessions should not auto-start");
+    assert.equal(checkAutoStartAfterDiscuss(projectB), true, "explicit basePath should select projectB");
+    assert.equal(getDiscussionMilestoneId(projectA), "M001", "projectA should remain pending");
+    assert.equal(getDiscussionMilestoneId(projectB), null, "projectB should be cleared after start");
+  } finally {
+    clearPendingAutoStart();
+    rmSync(projectA, { recursive: true, force: true });
+    rmSync(projectB, { recursive: true, force: true });
+  }
+});
