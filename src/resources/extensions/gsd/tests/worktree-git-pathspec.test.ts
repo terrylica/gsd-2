@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 import { _gitPathspecForWorktreePath } from "../auto-worktree.ts";
 
-function run(cmd: string, cwd: string): string {
-  return execSync(cmd, { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf-8" }).trim();
+function run(cmd: string, args: string[], cwd: string): string {
+  return execFileSync(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"], encoding: "utf-8" }).trim();
 }
 
 describe("worktree git pathspec", () => {
@@ -21,7 +21,7 @@ describe("worktree git pathspec", () => {
       mkdirSync(repo, { recursive: true });
       mkdirSync(join(externalGsd, "milestones", "M002-wa00fm"), { recursive: true });
       mkdirSync(join(externalGsd, "runtime", "units"), { recursive: true });
-      run("git init", repo);
+      run("git", ["init"], repo);
       writeFileSync(join(repo, "README.md"), "# test\n");
 
       assert.equal(
