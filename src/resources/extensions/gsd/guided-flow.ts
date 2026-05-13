@@ -1004,12 +1004,13 @@ async function dispatchWorkflow(
   customType = "gsd-run",
   ctx?: ExtensionContext,
   unitType?: string,
-  options: DispatchWorkflowOptions = {},
+  options?: DispatchWorkflowOptions,
 ): Promise<void> {
-  const projectRoot = resolveGuidedDispatchProjectRoot(options.basePath);
-  const loadPreferences = options.deps?.loadPreferences ?? loadEffectiveGSDPreferences;
-  const selectModel = options.deps?.selectModel ?? selectAndApplyModel;
-  const getTransportSupportError = options.deps?.getTransportSupportError ?? getWorkflowTransportSupportError;
+  const resolvedOptions = options ?? {};
+  const projectRoot = resolveGuidedDispatchProjectRoot(resolvedOptions.basePath);
+  const loadPreferences = resolvedOptions.deps?.loadPreferences ?? loadEffectiveGSDPreferences;
+  const selectModel = resolvedOptions.deps?.selectModel ?? selectAndApplyModel;
+  const getTransportSupportError = resolvedOptions.deps?.getTransportSupportError ?? getWorkflowTransportSupportError;
 
   // Route through the dynamic routing pipeline (complexity classification,
   // tier downgrade, fallback chains) — same path as auto-mode dispatches (#2958).
