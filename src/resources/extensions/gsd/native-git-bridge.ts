@@ -144,9 +144,9 @@ function gitExec(basePath: string, args: string[], allowFailure = false): string
       encoding: "utf-8",
       env: GIT_NO_PROMPT_ENV,
     }).trim();
-  } catch {
+  } catch (err) {
     if (allowFailure) return "";
-    throw new GSDError(GSD_GIT_ERROR, `git ${args.join(" ")} failed in ${basePath}`);
+    throw new GSDError(GSD_GIT_ERROR, `git ${args.join(" ")} failed in ${basePath}: ${getErrorMessage(err)}`);
   }
 }
 
@@ -159,9 +159,9 @@ function gitFileExec(basePath: string, args: string[], allowFailure = false): st
       encoding: "utf-8",
       env: GIT_NO_PROMPT_ENV,
     }).trim();
-  } catch {
+  } catch (err) {
     if (allowFailure) return "";
-    throw new GSDError(GSD_GIT_ERROR, `git ${args.join(" ")} failed in ${basePath}`);
+    throw new GSDError(GSD_GIT_ERROR, `git ${args.join(" ")} failed in ${basePath}: ${getErrorMessage(err)}`);
   }
 }
 
