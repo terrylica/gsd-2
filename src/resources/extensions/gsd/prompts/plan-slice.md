@@ -26,7 +26,7 @@ Before planning, validate roadmap assumptions against code and dependency summar
 
 {{sourceFilePaths}}
 
-If slice research is inlined, trust it. Explore enough code to confirm paths, boundaries, and verification. Executors later get only task plans, slice excerpt, and prior summaries, so put required paths, steps, inputs, and outputs in task plans.
+If slice research is inlined, trust its architectural findings, but verify every concrete file path you place in task `inputs` or `expectedOutput` against the current tree or prior/same-task outputs. Explore enough code to confirm paths, boundaries, and verification. Executors later get only task plans, slice excerpt, and prior summaries, so put required paths, steps, inputs, and outputs in task plans.
 
 {{executorContextConstraints}}
 
