@@ -13,6 +13,7 @@ import {
   formatWidgetTokens,
   estimateTimeRemaining,
   extractUatSliceId,
+  buildPhaseHandoffOutcome,
   updateProgressWidget,
   setAutoOutcomeWidget,
   getRoadmapSlicesSync,
@@ -253,6 +254,60 @@ test("setAutoOutcomeWidget renders a durable next-action handoff", () => {
   assert.match(output, /Paused by user request/);
   assert.match(output, /researching M005\/S01/);
   assert.match(output, /\/gsd auto/);
+});
+
+test("buildPhaseHandoffOutcome summarizes the last phase result", () => {
+  const snapshot = buildPhaseHandoffOutcome({
+    unitType: "plan-slice",
+    unitId: "M005/S01",
+    agentEndMessages: [
+      { message: { role: "assistant", content: "Planned S01 with category-aware filtering and validation steps." } },
+    ],
+  });
+
+  assert.equal(snapshot.status, "complete");
+  assert.equal(snapshot.title, "PLAN complete");
+  assert.match(snapshot.detail ?? "", /category-aware filtering/);
+  assert.equal(snapshot.unitLabel, "planning M005/S01");
+  assert.match(snapshot.nextAction, /next phase/);
+});
+
+test("updateProgressWidget preserves the phase handoff during session switching", () => {
+  const calls: Array<[string, unknown]> = [];
+  updateProgressWidget(
+    {
+      hasUI: true,
+      ui: {
+        setWidget(key: string, factory: unknown) {
+          calls.push([key, factory]);
+        },
+        setHeader() {},
+        setStatus() {},
+      },
+    } as any,
+    "execute-task",
+    "M005/S01/T01",
+    {
+      phase: "executing",
+      activeSlice: { id: "S01", title: "Filter chip bar" },
+      activeTask: { id: "T01", title: "Add category filter" },
+    } as any,
+    {
+      getAutoStartTime: () => Date.now(),
+      isStepMode: () => false,
+      getCmdCtx: () => null,
+      getBasePath: () => "",
+      isVerbose: () => false,
+      isSessionSwitching: () => true,
+      getCurrentDispatchedModelId: () => null,
+    },
+  );
+
+  assert.ok(calls.some(([key]) => key === "gsd-progress"));
+  assert.ok(
+    !calls.some(([key, value]) => key === "gsd-outcome" && value === undefined),
+    "handoff widget should stay visible until the next progress frame renders",
+  );
 });
 
 test("shouldRenderRoadmapProgress hides pre-roadmap zero-slice progress", () => {
