@@ -1921,6 +1921,7 @@ export async function runUnitPhase(
   const prevUnitModel = s.currentUnitModel;
   const prevDispatchedModelId = s.currentDispatchedModelId;
   const prevSessionModel = ctx.model;
+  const prevSessionThinkingLevel = pi.getThinkingLevel();
   const modelResult = await deps.selectAndApplyModel(
     ctx,
     pi,
@@ -1993,10 +1994,17 @@ export async function runUnitPhase(
     s.currentUnitRouting = prevUnitRouting;
     s.currentUnitModel = prevUnitModel;
     s.currentDispatchedModelId = prevDispatchedModelId;
+    if (s.checkpointSha) {
+      cleanupCheckpoint(s.basePath, unitId);
+      s.checkpointSha = null;
+    }
     if (prevSessionModel) {
-      await pi.setModel(prevSessionModel, { persist: false });
-      if (s.autoModeStartThinkingLevel) {
-        pi.setThinkingLevel(s.autoModeStartThinkingLevel);
+      const ok = await pi.setModel(prevSessionModel, { persist: false });
+      if (!ok) {
+        ctx.ui.notify("Failed to restore previous session model after compatibility check failure.", "warning");
+      }
+      if (prevSessionThinkingLevel) {
+        pi.setThinkingLevel(prevSessionThinkingLevel);
       }
     }
     ctx.ui.notify(compatibilityError, "error");
