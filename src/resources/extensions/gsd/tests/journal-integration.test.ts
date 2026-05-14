@@ -161,6 +161,8 @@ function makeIC(
     pi: {
       sendMessage: () => {},
       setModel: async () => true,
+      getThinkingLevel: () => "off",
+      setThinkingLevel: () => {},
     } as any,
     s: makeSession(),
     deps,
