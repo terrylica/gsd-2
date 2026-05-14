@@ -406,6 +406,9 @@ export function writeIntegrationBranch(
   milestoneId: string,
   branch: string,
 ): void {
+  // Never persist milestone branches as integration targets.
+  // They are ephemeral execution branches and can cause self-diff corruption.
+  if (branch.startsWith("milestone/")) return;
   // Don't record slice branches as the integration target
   if (SLICE_BRANCH_RE.test(branch)) return;
   // Don't record quick-task branches — they are ephemeral and merge back
