@@ -121,7 +121,8 @@ function createRepo(root: string): { repo: string; worktree: string } {
 test("mergeMilestoneToMain keeps the Windows DB cycle closed through squash merge", () => {
   const savedCwd = process.cwd();
   const originalPath = process.env.PATH ?? "";
-  const originalGitEnvPath = GIT_NO_PROMPT_ENV.PATH;
+  const gitEnv = GIT_NO_PROMPT_ENV as NodeJS.ProcessEnv;
+  const originalGitEnvPath = gitEnv.PATH;
   const originalHome = process.env.HOME;
   const originalGsdHome = process.env.GSD_HOME;
 
@@ -147,7 +148,7 @@ test("mergeMilestoneToMain keeps the Windows DB cycle closed through squash merg
       assert.equal(existsSync(join(repo, ".gsd", "gsd.db-shm")), true);
 
       process.env.PATH = `${bin}${delimiter}${originalPath}`;
-      GIT_NO_PROMPT_ENV.PATH = process.env.PATH;
+      gitEnv.PATH = process.env.PATH;
       process.chdir(worktree);
 
       const result = mergeMilestoneToMain(repo, "M001", "# M001: Windows DB cycle\n");
@@ -160,7 +161,7 @@ test("mergeMilestoneToMain keeps the Windows DB cycle closed through squash merg
     closeDatabase();
     process.chdir(savedCwd);
     process.env.PATH = originalPath;
-    GIT_NO_PROMPT_ENV.PATH = originalGitEnvPath;
+    gitEnv.PATH = originalGitEnvPath;
     if (originalHome === undefined) {
       delete process.env.HOME;
     } else {
