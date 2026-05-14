@@ -111,8 +111,8 @@ const providerLoader = createSqliteProviderLoader({
 
 export const SCHEMA_VERSION = 28;
 
-function initSchema(db: DbAdapter, fileBacked: boolean): void {
-  const conservativeFilePragmas = fileBacked && _isLikelyWslDrvFsPathForTest(currentPath);
+function initSchema(db: DbAdapter, fileBacked: boolean, dbPath: string | null): void {
+  const conservativeFilePragmas = fileBacked && _isLikelyWslDrvFsPathForTest(dbPath);
   if (fileBacked) db.exec(conservativeFilePragmas ? "PRAGMA journal_mode=DELETE" : "PRAGMA journal_mode=WAL");
   if (fileBacked) db.exec("PRAGMA busy_timeout = 5000");
   if (fileBacked) db.exec(conservativeFilePragmas ? "PRAGMA synchronous = FULL" : "PRAGMA synchronous = NORMAL");
@@ -617,14 +617,14 @@ export function openDatabase(path: string): boolean {
   const adapter = createDbAdapter(rawDb);
   const fileBacked = path !== ":memory:";
   try {
-    initSchema(adapter, fileBacked);
+    initSchema(adapter, fileBacked, path);
   } catch (err) {
     // Corrupt freelist: DDL fails with "malformed" but VACUUM can rebuild.
     // Attempt VACUUM recovery before giving up (see #2519).
     if (fileBacked && err instanceof Error && err.message?.includes("malformed")) {
       try {
         adapter.exec("VACUUM");
-        initSchema(adapter, fileBacked);
+        initSchema(adapter, fileBacked, path);
         process.stderr.write("gsd-db: recovered corrupt database via VACUUM\n");
       } catch (retryErr) {
         _dbOpenState.recordError("vacuum-recovery", retryErr);
