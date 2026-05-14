@@ -90,7 +90,6 @@ describe("completing-milestone dispatch guard (#4324)", () => {
     base = makeBase();
     rmSync(join(base, "implementation.txt"), { force: true });
     initGitRepo(base);
-    execFileSync("git", ["checkout", "-b", "feat/planning-only"], { cwd: base, stdio: "ignore" });
     writeFileSync(join(base, ".gsd", "milestones", "M001", "M001-SUMMARY.md"), "# Milestone Summary\n");
     execFileSync("git", ["add", "."], { cwd: base, stdio: "ignore" });
     execFileSync("git", ["commit", "-m", "chore: planning artifacts only"], { cwd: base, stdio: "ignore" });
