@@ -280,6 +280,7 @@ export async function dispatchDirectPhase(
       unitType,
       authMode: ctx.model?.provider ? ctx.modelRegistry.getProviderAuthMode(ctx.model.provider) : undefined,
       baseUrl: ctx.model?.baseUrl,
+      activeTools: pi.getActiveTools(),
     },
   );
   if (compatibilityError) {
