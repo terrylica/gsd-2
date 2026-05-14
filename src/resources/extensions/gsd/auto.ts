@@ -1731,7 +1731,6 @@ export async function pauseAuto(
   restoreProjectRootEnv();
   restoreMilestoneLockEnv();
   s.pendingVerificationRetry = null;
-  s.verificationRetryCount.clear();
   ctx?.ui.setStatus("gsd-auto", "paused");
   ctx?.ui.setWidget("gsd-progress", undefined);
   const resumeCmd = s.stepMode ? "/gsd next" : "/gsd auto";
