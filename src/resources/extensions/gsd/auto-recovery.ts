@@ -201,9 +201,15 @@ export function hasImplementationArtifacts(basePath: string, milestoneId?: strin
     // Strategy: check `git diff --name-only` against the merge-base with the
     // main branch. This captures ALL files changed during the milestone's
     // lifetime while running on a milestone branch.
-    const integrationBranch = milestoneId
-      ? readIntegrationBranch(basePath, milestoneId) ?? detectMainBranch(basePath)
-      : detectMainBranch(basePath);
+    const recordedIntegrationBranch = milestoneId
+      ? readIntegrationBranch(basePath, milestoneId)
+      : null;
+    let integrationBranch: string;
+    if (recordedIntegrationBranch?.startsWith("milestone/")) {
+      integrationBranch = detectMainBranch(basePath);
+    } else {
+      integrationBranch = recordedIntegrationBranch ?? detectMainBranch(basePath);
+    }
     const currentBranch = getCurrentBranch(basePath);
     const branchDiff = getChangedFilesSinceBranch(basePath, integrationBranch);
     if (!branchDiff.ok) return "unknown";
