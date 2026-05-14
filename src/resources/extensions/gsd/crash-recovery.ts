@@ -33,6 +33,7 @@ import {
   markWorkerCrashed,
   type AutoWorkerRow,
 } from "./db/auto-workers.js";
+import { forceReleaseLeasesForWorker } from "./db/milestone-leases.js";
 import { markLatestActiveForWorkerCanceled, type DispatchStatus } from "./db/unit-dispatches.js";
 import { getRuntimeKv, setRuntimeKv, deleteRuntimeKv } from "./db/runtime-kv.js";
 import { _getAdapter, isDbAvailable } from "./gsd-db.js";
@@ -219,6 +220,13 @@ export function clearLock(basePath: string): void {
   if (!isDbAvailable()) return;
   try {
     const projectRoot = normalizeRealPath(basePath);
+    const staleWorker = findStaleWorkerForProject(projectRoot);
+    if (staleWorker) {
+      markWorkerCrashed(staleWorker.worker_id);
+      forceReleaseLeasesForWorker(staleWorker.worker_id);
+      deleteRuntimeKv("worker", staleWorker.worker_id, SESSION_FILE_KV_KEY);
+      return;
+    }
     const worker = findActiveWorkerForCurrentProcess(projectRoot);
     if (!worker) return;
     deleteRuntimeKv("worker", worker.worker_id, SESSION_FILE_KV_KEY);
