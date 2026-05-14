@@ -556,11 +556,13 @@ function commitMatchesMilestone(basePath: string, message: string, milestoneId: 
   // rather than Mxx/Sxx/Tyy. Bind those commits back to the milestone when
   // either the commit touched this milestone's artifacts, or — for projects
   // where .gsd/ is gitignored/external (#5033) — the message explicitly
-  // names the milestone or local GSD state proves the task belongs here.
+  // names the milestone, local GSD state proves the task belongs here, or the
+  // commit is implementation-bearing evidence itself (#5100).
   if (/^GSD-Task:\s*S[^/\s]+\/T\S+/m.test(message)) {
     if (files.some((file) => isMilestoneArtifactPath(file, milestoneId))) return true;
     if (commitMessageMentionsMilestone(message, milestoneId)) return true;
     if (commitTaskTrailerBelongsToMilestone(basePath, message, milestoneId)) return true;
+    if (MILESTONE_ID_RE.test(milestoneId) && classifyImplementationFiles(files) === "present") return true;
   }
 
   return false;

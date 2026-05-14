@@ -1043,7 +1043,7 @@ test("hasImplementationArtifacts binds GSD-Task trailer to milestone via DB stat
   }
 });
 
-test("hasImplementationArtifacts does not bind GSD-Task trailer without milestone ownership evidence", () => {
+test("hasImplementationArtifacts accepts implementation-bearing GSD-Task commits when .gsd is gitignored/external (#5100)", () => {
   const base = makeGitBase();
   try {
     writeFileSync(join(base, ".git", "info", "exclude"), ".gsd/\n");
@@ -1059,8 +1059,8 @@ test("hasImplementationArtifacts does not bind GSD-Task trailer without mileston
     const result = hasImplementationArtifacts(base, "M001");
     assert.equal(
       result,
-      "absent",
-      "S01/T01 shape alone must not bind an implementation commit to M001",
+      "present",
+      "GSD-Task commits with implementation changes should count as milestone evidence when .gsd artifacts are unavailable",
     );
   } finally {
     cleanup(base);
