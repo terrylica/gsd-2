@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { cleanupAfterLoopExit, rerootCommandSession, stopAuto } from "../auto.ts";
+import { cleanupAfterLoopExit, pauseAuto, rerootCommandSession, stopAuto } from "../auto.ts";
 import { autoSession } from "../auto-runtime-state.ts";
 import { closeDatabase, insertMilestone, insertSlice, openDatabase } from "../gsd-db.ts";
 import { WorktreeLifecycle } from "../worktree-lifecycle.ts";
@@ -114,6 +114,34 @@ test("cleanupAfterLoopExit clears progress widget after stopAuto reset", async (
     assert.equal(autoSession.completionStopInProgress, false);
   } finally {
     autoSession.reset();
+  }
+});
+
+test("pauseAuto preserves artifact retry counts across pause/resume", async () => {
+  const base = mkdtempSync(join(tmpdir(), "gsd-pause-retry-count-"));
+  const previousCwd = process.cwd();
+  const retryKey = "execute-task:M001/S01/T01";
+
+  autoSession.reset();
+  autoSession.active = true;
+  autoSession.verificationRetryCount.set(retryKey, 2);
+  autoSession.pendingVerificationRetry = {
+    unitId: "M001/S01/T01",
+    failureContext: "Missing expected artifact (attempt 2/3).",
+    attempt: 2,
+  };
+
+  try {
+    process.chdir(base);
+    await pauseAuto();
+
+    assert.equal(autoSession.paused, true);
+    assert.equal(autoSession.pendingVerificationRetry, null);
+    assert.equal(autoSession.verificationRetryCount.get(retryKey), 2);
+  } finally {
+    autoSession.reset();
+    process.chdir(previousCwd);
+    rmSync(base, { recursive: true, force: true });
   }
 });
 
