@@ -1021,7 +1021,12 @@ export function checkoutBranchWithStashGuard(
   const status = nativeWorkingTreeStatus(basePath).trim();
   if (status.length > 0) {
     stashMarker = `gsd-checkout-stash:${reason}:${process.pid}:${Date.now()}:${process.hrtime.bigint().toString(36)}`;
-    const output = execFileSync(
+    const stashListBefore = execFileSync("git", ["stash", "list"], {
+      cwd: basePath,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+    });
+    execFileSync(
       "git",
       ["stash", "push", "--include-untracked", "-m", `gsd: checkout stash [${stashMarker}]`],
       {
@@ -1030,7 +1035,12 @@ export function checkoutBranchWithStashGuard(
         encoding: "utf-8",
       },
     );
-    stashed = !output.includes("No local changes to save");
+    const stashListAfter = execFileSync("git", ["stash", "list"], {
+      cwd: basePath,
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf-8",
+    });
+    stashed = stashListAfter !== stashListBefore;
   }
 
   // Checkout and stash-restore are split so we can distinguish two failure

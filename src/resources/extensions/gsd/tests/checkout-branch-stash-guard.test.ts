@@ -1,7 +1,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -42,8 +42,10 @@ describe("checkoutBranchWithStashGuard", () => {
     assert.equal(branch, "milestone/M001");
     const content = git(["show", "HEAD:note.txt"], repo).trim();
     assert.equal(content, "base");
-    const wtContent = git(["status", "--porcelain"], repo);
-    assert.match(wtContent, /note\.txt/);
+    const wtContent = readFileSync(join(repo, "note.txt"), "utf8");
+    assert.equal(wtContent, "dirty\n");
+    const status = git(["status", "--porcelain"], repo);
+    assert.match(status, /note\.txt/);
   });
 
   test("restores dirty working tree when checkout throws", (t) => {
