@@ -136,10 +136,11 @@ function syncTopLevelMilestoneArtifacts(
       const dstMilestoneDir = join(dstMilestonesDir, milestoneEntry.name);
 
       try {
+        mkdirSync(dstMilestoneDir, { recursive: true });
         for (const fileEntry of readdirSync(srcMilestoneDir, { withFileTypes: true })) {
           if (!fileEntry.isFile()) continue;
           if (!fileEntry.name.endsWith(".md") && !fileEntry.name.endsWith(".json")) continue;
-          safeCopy(
+
             join(srcMilestoneDir, fileEntry.name),
             join(dstMilestoneDir, fileEntry.name),
             { force: false },
