@@ -1992,14 +1992,6 @@ export function mergeMilestoneToMain(
     logWarning("worktree", `git stash failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  if (needsDbCycle && dbPathToReopen) {
-    try {
-      openDatabase(dbPathToReopen);
-    } catch (err) {
-      logWarning("worktree", `post-stash db reopen failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
   // 7b. Clean up stale merge state before attempting squash merge (#2912).
   // A leftover MERGE_HEAD (from a previous failed merge, libgit2 native path,
   // or interrupted operation) causes `git merge --squash` to refuse with
@@ -2009,6 +2001,13 @@ export function mergeMilestoneToMain(
 
   // 8. Squash merge — auto-resolve .gsd/ state file conflicts (#530)
   const mergeResult = nativeMergeSquash(originalBasePath_, milestoneBranch);
+  if (needsDbCycle && dbPathToReopen) {
+    try {
+      openDatabase(dbPathToReopen);
+    } catch (err) {
+      logWarning("worktree", `post-merge db reopen failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
   if (!mergeResult.success) {
     // Dirty working tree — the merge was rejected before it started (e.g.
