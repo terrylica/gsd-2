@@ -388,6 +388,9 @@ export function readIntegrationBranch(basePath: string, milestoneId: string): st
   }
 }
 
+/** Re-export for backward compatibility — canonical definitions in branch-patterns.ts */
+export { QUICK_BRANCH_RE, WORKFLOW_BRANCH_RE } from "./branch-patterns.js";
+
 /**
  * Persist the integration branch for a milestone.
  *
@@ -398,9 +401,6 @@ export function readIntegrationBranch(basePath: string, milestoneId: string): st
  *
  * The file is committed immediately so the metadata is persisted in git.
  */
-/** Re-export for backward compatibility — canonical definitions in branch-patterns.ts */
-export { QUICK_BRANCH_RE, WORKFLOW_BRANCH_RE } from "./branch-patterns.js";
-
 export function writeIntegrationBranch(
   basePath: string,
   milestoneId: string,
