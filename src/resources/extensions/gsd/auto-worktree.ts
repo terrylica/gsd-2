@@ -1007,7 +1007,45 @@ export function enterBranchModeForMilestone(
     });
   }
 
-  nativeCheckoutBranch(basePath, branch);
+  checkoutBranchWithStashGuard(basePath, branch, `enter-branch-mode:${milestoneId}`);
+}
+
+export function checkoutBranchWithStashGuard(
+  basePath: string,
+  branch: string,
+  reason: string,
+): void {
+  let stashMarker: string | null = null;
+  let stashed = false;
+  try {
+    const status = nativeWorkingTreeStatus(basePath).trim();
+    if (status.length > 0) {
+      stashMarker = `gsd-checkout-stash:${reason}:${process.pid}:${Date.now()}:${process.hrtime.bigint().toString(36)}`;
+      const output = execFileSync(
+        "git",
+        ["stash", "push", "--include-untracked", "-m", `gsd: checkout stash [${stashMarker}]`],
+        {
+          cwd: basePath,
+          stdio: ["ignore", "pipe", "pipe"],
+          encoding: "utf-8",
+        },
+      );
+      stashed = !output.includes("No local changes to save");
+    }
+
+    nativeCheckoutBranch(basePath, branch);
+
+    if (stashed) popStashByRef(basePath, stashMarker);
+  } catch (err) {
+    if (stashed) {
+      try {
+        popStashByRef(basePath, stashMarker);
+      } catch (restoreErr) {
+        logWarning("worktree", `git stash pop failed during checkout restore: ${restoreErr instanceof Error ? restoreErr.message : String(restoreErr)}`);
+      }
+    }
+    throw err;
+  }
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────
