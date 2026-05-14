@@ -2017,6 +2017,7 @@ export async function runUnitPhase(
           ? ctx.modelRegistry.getProviderAuthMode(ctx.model.provider)
           : undefined,
       baseUrl: (s.currentUnitModel as any)?.baseUrl ?? ctx.model?.baseUrl,
+      activeTools: typeof pi.getActiveTools === "function" ? pi.getActiveTools() : [],
     },
   );
   if (compatibilityError) {
