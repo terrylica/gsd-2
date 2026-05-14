@@ -1043,24 +1043,50 @@ test("hasImplementationArtifacts binds GSD-Task trailer to milestone via DB stat
   }
 });
 
-test("hasImplementationArtifacts does not bind GSD-Task trailer without milestone ownership evidence", () => {
+test("hasImplementationArtifacts does not claim Sxx/Tyy commit trailers across milestones when ownership points elsewhere", () => {
   const base = makeGitBase();
   try {
     writeFileSync(join(base, ".git", "info", "exclude"), ".gsd/\n");
+    mkdirSync(join(base, ".gsd"), { recursive: true });
+    openDatabase(join(base, ".gsd", "gsd.db"));
+    insertMilestone({ id: "M001", title: "Milestone One", status: "active" });
+    insertMilestone({ id: "M002", title: "Milestone Two", status: "active" });
+    insertSlice({
+      id: "S01",
+      milestoneId: "M002",
+      title: "Slice One",
+      status: "complete",
+      risk: "low",
+      depends: [],
+    });
+    insertTask({
+      id: "T01",
+      sliceId: "S01",
+      milestoneId: "M002",
+      title: "Task One",
+      status: "complete",
+    });
+
     mkdirSync(join(base, "src"), { recursive: true });
     writeFileSync(join(base, "src", "feature.ts"), "export function feature() {}\n");
     execFileSync("git", ["add", "."], { cwd: base, stdio: "ignore" });
     execFileSync(
       "git",
-      ["commit", "-m", "feat: add feature\n\nGSD-Task: S01/T01"],
+      ["commit", "-m", "feat: add sibling feature\n\nGSD-Task: S01/T01"],
       { cwd: base, stdio: "ignore" },
     );
 
-    const result = hasImplementationArtifacts(base, "M001");
+    const m001Result = hasImplementationArtifacts(base, "M001");
+    const m002Result = hasImplementationArtifacts(base, "M002");
     assert.equal(
-      result,
+      m001Result,
       "absent",
-      "S01/T01 shape alone must not bind an implementation commit to M001",
+      "Sxx/Tyy commit trailers owned by M002 must not be attributed to M001",
+    );
+    assert.equal(
+      m002Result,
+      "present",
+      "the owning milestone should still claim the implementation-bearing commit",
     );
   } finally {
     cleanup(base);
