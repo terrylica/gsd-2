@@ -1359,16 +1359,12 @@ export const DISPATCH_RULES: DispatchRule[] = [
         };
       }
 
-      // Safety guard (#1703): verify the milestone produced implementation
-      // artifacts (non-.gsd/ files). A milestone with only plan files and
-      // zero implementation code should not be marked complete.
+      // Safety signal (#1703, #5097): detect milestones with only .gsd/
+      // artifacts. This no longer hard-blocks completion because some
+      // milestones are intentionally planning/documentation-only.
       const artifactCheck = hasImplementationArtifacts(basePath, mid);
       if (artifactCheck === "absent") {
-        return {
-          action: "stop",
-          reason: `Cannot complete milestone ${mid}: no implementation files found outside .gsd/. The milestone has only plan files — actual code changes are required.`,
-          level: "error",
-        };
+        logWarning("dispatch", `Milestone ${mid} has no implementation files outside .gsd/ — continuing complete-milestone dispatch (planning-only/documentation-only milestone).`);
       }
       if (artifactCheck === "unknown") {
         logWarning("dispatch", `Implementation artifact check inconclusive for ${mid} — proceeding (git context unavailable)`);
