@@ -421,9 +421,11 @@ export async function autoLoop(
         logIterationComplete: () => debugLog("autoLoop", { phase: "iteration-complete", iteration }),
       });
     };
+    let stuckStatePersistedThisIteration = false;
     const finishIncompleteIteration = (details: Record<string, unknown>): void => {
       emitIterationEnd(details);
       saveStuckState(s, loopState);
+      stuckStatePersistedThisIteration = true;
     };
 
     try {
@@ -995,6 +997,7 @@ export async function autoLoop(
         logWriteFailure: logDispatchLedgerWriteFailure,
       }) || dispatchSettled;
       completeIteration();
+      stuckStatePersistedThisIteration = true;
       finishTurn("completed");
     } catch (loopErr) {
       // ── Blanket catch: absorb unexpected exceptions, apply graduated recovery ──
@@ -1142,6 +1145,10 @@ export async function autoLoop(
         ctx.ui.notify(errorDecision.notifyMessage, "warning");
       }
       finishTurn(errorDecision.turnStatus, "execution", msg);
+    } finally {
+      if (!stuckStatePersistedThisIteration) {
+        saveStuckState(s, loopState);
+      }
     }
   }
 
