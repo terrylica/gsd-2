@@ -284,6 +284,7 @@ import type {
   UnitRouting,
   StartModel,
   AutoSession,
+  PendingOrchestrationDispatch,
 } from "./auto/session.js";
 export {
   STUB_RECOVERY_THRESHOLD,
@@ -1801,6 +1802,7 @@ export function createWiredDispatchAdapter(
   ctx: ExtensionContext,
   pi: ExtensionAPI,
   dispatchBasePath: string,
+  session?: AutoSession,
 ): DispatchAdapter {
   return {
     async decideNextUnit(input) {
@@ -1849,13 +1851,29 @@ export function createWiredDispatchAdapter(
       });
 
       if (action.action === "stop") {
+        if (session) session.pendingOrchestrationDispatch = null;
         return {
           kind: "blocked",
           reason: action.reason,
           action: action.level === "warning" ? "pause" : "stop",
         };
       }
-      if (action.action !== "dispatch") return null;
+      if (action.action !== "dispatch") {
+        if (session) session.pendingOrchestrationDispatch = null;
+        return null;
+      }
+      if (session) {
+        const pending: PendingOrchestrationDispatch = {
+          unitType: action.unitType,
+          unitId: action.unitId,
+          prompt: action.prompt,
+          pauseAfterUatDispatch: action.pauseAfterDispatch ?? false,
+          state,
+          mid: active.id,
+          midTitle: active.title,
+        };
+        session.pendingOrchestrationDispatch = pending;
+      }
       return {
         unitType: action.unitType,
         unitId: action.unitId,
@@ -1904,7 +1922,7 @@ export function createWiredAutoOrchestrationModule(
         };
       },
     },
-    dispatch: createWiredDispatchAdapter(ctx, pi, dispatchBasePath),
+    dispatch: createWiredDispatchAdapter(ctx, pi, dispatchBasePath, s),
     recovery: {
       async classifyAndRecover(input) {
         const recovery = classifyFailure(input);
