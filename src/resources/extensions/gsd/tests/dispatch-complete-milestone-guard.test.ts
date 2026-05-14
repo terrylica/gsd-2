@@ -25,7 +25,7 @@ function makeBase(): string {
 }
 
 function initGitRepo(base: string): void {
-  execFileSync("git", ["init", "--initial-branch=main"], { cwd: base, stdio: "ignore" });
+  execFileSync("git", ["init"], { cwd: base, stdio: "ignore" });
   execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: base, stdio: "ignore" });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: base, stdio: "ignore" });
   execFileSync("git", ["add", "."], { cwd: base, stdio: "ignore" });

@@ -28,6 +28,10 @@ When progressive planning is enabled, GSD fully plans the first slice and may le
 
 Milestone completion is safe to retry. If a `complete-milestone` unit is redispatched after the database already marks the milestone as closed, GSD treats the call as successful instead of returning an error. The existing summary projection is left intact, no duplicate completion event is appended, and the tool response includes `alreadyComplete: true` in its details so operators and integrations can distinguish a retry from the first completion.
 
+### Planning-Only Milestone Closeout
+
+When milestone history contains only `.gsd/` artifact changes (for example planning-only or documentation-only closeout), auto mode now continues `complete-milestone` dispatch instead of blocking completion for missing implementation files outside `.gsd/`. GSD emits a warning so operators can distinguish this path from implementation-bearing milestones.
+
 ### State Authority
 
 The SQLite database is the runtime source of truth for milestones, slices, tasks, requirements, summaries, and completion status. Durable decisions and project knowledge use the same database through the `memories` table: decisions are stored as `architecture` memories, and KNOWLEDGE patterns/lessons are stored as `pattern`/`gotcha` memories.
