@@ -26,6 +26,7 @@ import {
   executeTaskComplete,
   executeMilestoneStatus,
   executeSliceComplete,
+  executeSliceReopen,
   executeValidateMilestone,
 } from "../tools/workflow-tool-executors.ts";
 
@@ -212,6 +213,45 @@ test("executeSliceComplete preserves omitted optional requirement arrays", async
     const summary = readFileSync(summaryPath, "utf-8");
     assert.match(summary, /R010 — advanced/);
     assert.match(summary, /R010 — validated/);
+
+    const reopenResult = await inProjectDir(base, () => executeSliceReopen({
+      milestoneId: "M001",
+      sliceId: "S01",
+      reason: "validate idempotent overwrite behavior",
+    }, base));
+    assert.equal(reopenResult.details.operation, "reopen_slice");
+    await inProjectDir(base, () => executeTaskComplete({
+      milestoneId: "M001",
+      sliceId: "S01",
+      taskId: "T01",
+      oneLiner: "done (updated)",
+      narrative: "done (updated)",
+      verification: "ok",
+    }, base));
+
+    const recallResult = await inProjectDir(base, () => executeSliceComplete({
+      milestoneId: "M001",
+      sliceId: "S01",
+      sliceTitle: "Slice",
+      oneLiner: "done (updated)",
+      narrative: "done (updated)",
+      verification: "ok",
+      uatContent: "ok",
+    }, base));
+
+    assert.equal(recallResult.details.operation, "complete_slice");
+    const recallSummaryPath = String(recallResult.details.summaryPath);
+    const recallSummary = readFileSync(recallSummaryPath, "utf-8");
+    assert.match(
+      recallSummary,
+      /R010 — advanced/,
+      "requirementsAdvanced should be preserved from first call",
+    );
+    assert.match(
+      recallSummary,
+      /R010 — validated/,
+      "requirementsValidated should be preserved from first call",
+    );
   } finally {
     closeDatabase();
     cleanup(base);

@@ -8,6 +8,7 @@ import {
   getActiveRequirements,
   insertMilestone,
   getMilestone,
+  getSlice,
   getSliceStatusSummary,
   getSliceTaskCounts,
   readTransaction,
@@ -527,16 +528,44 @@ export async function executeSliceComplete(
       v == null ? [] : Array.isArray(v) ? v : [v];
     const wrapOptionalArray = (v: unknown): unknown[] | undefined =>
       v == null ? undefined : Array.isArray(v) ? v : [v];
+    const parseRequirementSection = (
+      summaryMd: string,
+      heading: "Requirements Advanced" | "Requirements Validated" | "Requirements Invalidated or Re-scoped",
+      field: "how" | "proof" | "what",
+    ): Array<{ id: string; how?: string; proof?: string; what?: string }> => {
+      const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const match = summaryMd.match(new RegExp(`## ${escaped}\\n\\n([\\s\\S]*?)(?:\\n\\n## |$)`));
+      if (!match) return [];
+      return match[1]
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith("- "))
+        .map((line) => line.slice(2).trim())
+        .map((line) => {
+          const [id, detail] = splitPair(line);
+          if (!id || !detail) return null;
+          return { id, [field]: detail };
+        })
+        .filter((entry): entry is { id: string; how?: string; proof?: string; what?: string } => entry !== null);
+    };
 
     const coerced = { ...params } as CompleteSliceParams & Record<string, unknown>;
-    if (params.provides !== undefined) coerced.provides = wrapArray(params.provides) as string[];
-    if (params.keyFiles !== undefined) coerced.keyFiles = wrapArray(params.keyFiles) as string[];
-    if (params.keyDecisions !== undefined) coerced.keyDecisions = wrapArray(params.keyDecisions) as string[];
-    if (params.patternsEstablished !== undefined) coerced.patternsEstablished = wrapArray(params.patternsEstablished) as string[];
-    if (params.observabilitySurfaces !== undefined) coerced.observabilitySurfaces = wrapArray(params.observabilitySurfaces) as string[];
-    if (params.requirementsSurfaced !== undefined) coerced.requirementsSurfaced = wrapArray(params.requirementsSurfaced) as string[];
-    if (params.drillDownPaths !== undefined) coerced.drillDownPaths = wrapArray(params.drillDownPaths) as string[];
-    if (params.affects !== undefined) coerced.affects = wrapArray(params.affects) as string[];
+    const provides = wrapOptionalArray(params.provides);
+    if (provides !== undefined) coerced.provides = provides as string[];
+    const keyFiles = wrapOptionalArray(params.keyFiles);
+    if (keyFiles !== undefined) coerced.keyFiles = keyFiles as string[];
+    const keyDecisions = wrapOptionalArray(params.keyDecisions);
+    if (keyDecisions !== undefined) coerced.keyDecisions = keyDecisions as string[];
+    const patternsEstablished = wrapOptionalArray(params.patternsEstablished);
+    if (patternsEstablished !== undefined) coerced.patternsEstablished = patternsEstablished as string[];
+    const observabilitySurfaces = wrapOptionalArray(params.observabilitySurfaces);
+    if (observabilitySurfaces !== undefined) coerced.observabilitySurfaces = observabilitySurfaces as string[];
+    const requirementsSurfaced = wrapOptionalArray(params.requirementsSurfaced);
+    if (requirementsSurfaced !== undefined) coerced.requirementsSurfaced = requirementsSurfaced as string[];
+    const drillDownPaths = wrapOptionalArray(params.drillDownPaths);
+    if (drillDownPaths !== undefined) coerced.drillDownPaths = drillDownPaths as string[];
+    const affects = wrapOptionalArray(params.affects);
+    if (affects !== undefined) coerced.affects = affects as string[];
     const filesModified = wrapOptionalArray(params.filesModified);
     if (filesModified !== undefined) coerced.filesModified = filesModified.map((f) => {
       if (typeof f !== "string") return f;
@@ -567,6 +596,28 @@ export async function executeSliceComplete(
       const [id, what] = splitPair(r);
       return { id, what };
     }) as Array<{ id: string; what: string }>;
+    if (
+      requirementsAdvanced === undefined ||
+      requirementsValidated === undefined ||
+      requirementsInvalidated === undefined
+    ) {
+      const existing = getSlice(params.milestoneId, params.sliceId);
+      const summaryMd = existing?.full_summary_md?.trim() ?? "";
+      if (summaryMd) {
+        if (requirementsAdvanced === undefined) {
+          const parsed = parseRequirementSection(summaryMd, "Requirements Advanced", "how");
+          if (parsed.length > 0) coerced.requirementsAdvanced = parsed as Array<{ id: string; how: string }>;
+        }
+        if (requirementsValidated === undefined) {
+          const parsed = parseRequirementSection(summaryMd, "Requirements Validated", "proof");
+          if (parsed.length > 0) coerced.requirementsValidated = parsed as Array<{ id: string; proof: string }>;
+        }
+        if (requirementsInvalidated === undefined) {
+          const parsed = parseRequirementSection(summaryMd, "Requirements Invalidated or Re-scoped", "what");
+          if (parsed.length > 0) coerced.requirementsInvalidated = parsed as Array<{ id: string; what: string }>;
+        }
+      }
+    }
 
     const result = await handleCompleteSlice(coerced as CompleteSliceParams, basePath);
     if ("error" in result) {
