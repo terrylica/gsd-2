@@ -240,7 +240,7 @@ test('#4934: only execution units and complete-milestone may use tools.mode "all
       assert.ok(
         allowedAllUnits.has(unitType),
         `manifest "${unitType}" declares tools.mode = "all" but is not explicitly allowed. ` +
-        'Only execute-task, reactive-execute, and complete-milestone should have full source write access; ' +
+        'Only execute-task, reactive-execute, quick-task, and complete-milestone should have full source write access; ' +
         'planning/discuss/research units must use "planning" or "planning-dispatch" (or "docs" for rewrite-docs).',
       );
     }

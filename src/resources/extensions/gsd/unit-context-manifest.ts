@@ -99,7 +99,8 @@ export type ContextModePolicy =
   | "execution"
   | "verification"
   | "orchestration"
-  | "docs";
+  | "docs"
+  | "triage";
 
 /**
  * Tool-access policy per unit type (#4934).
