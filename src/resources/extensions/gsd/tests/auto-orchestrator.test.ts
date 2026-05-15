@@ -446,7 +446,7 @@ test("advance() is idempotent for the same active unit", async () => {
   assert.deepEqual(first.unit, { unitType: "execute-task", unitId: "T01" });
   assert.equal(second.kind, "blocked");
   assert.equal(second.reason, "idempotent advance: unit already active");
-  assert.equal(second.action, "stop");
+  assert.equal(second.action, "pause");
 
   const prepareCalls = calls.filter((c) => c === "worktree.prepare").length;
   assert.equal(prepareCalls, 1);
@@ -741,7 +741,7 @@ test("stuck-loop: ring saturated with same unit blocks with action 'stop' and st
     assert.equal(r.kind, "blocked", `round ${i} should be blocked`);
     if (r.kind !== "blocked") return;
     assert.equal(r.reason, "idempotent advance: unit already active");
-    assert.equal(r.action, "stop");
+    assert.equal(r.action, "pause");
   }
 
   // The final call (ring now holds STUCK_WINDOW_SIZE copies) returns stuck-loop.
@@ -764,7 +764,7 @@ test("stuck-loop: idempotency block continues to fire with its own reason before
   assert.equal(first.kind, "advanced");
   assert.equal(second.kind, "blocked");
   assert.equal(second.reason, "idempotent advance: unit already active");
-  assert.equal(second.action, "stop");
+  assert.equal(second.action, "pause");
 });
 
 test("stuck-loop: start() resets the ring so a fresh saturation cycle is required", async () => {
@@ -785,7 +785,7 @@ test("stuck-loop: start() resets the ring so a fresh saturation cycle is require
   const next = await orchestrator.advance();
   assert.equal(next.kind, "blocked");
   assert.equal(next.reason, "idempotent advance: unit already active");
-  assert.equal(next.action, "stop");
+  assert.equal(next.action, "pause");
 });
 
 test("stuck-loop: resume() resets the ring", async () => {
@@ -802,7 +802,7 @@ test("stuck-loop: resume() resets the ring", async () => {
   const next = await orchestrator.advance();
   assert.equal(next.kind, "blocked");
   assert.equal(next.reason, "idempotent advance: unit already active");
-  assert.equal(next.action, "stop");
+  assert.equal(next.action, "pause");
 });
 
 test("stuck-loop: stop() resets the ring", async () => {
