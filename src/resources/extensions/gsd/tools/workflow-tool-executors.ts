@@ -528,27 +528,6 @@ export async function executeSliceComplete(
       v == null ? [] : Array.isArray(v) ? v : [v];
     const wrapOptionalArray = (v: unknown): unknown[] | undefined =>
       v == null ? undefined : Array.isArray(v) ? v : [v];
-    const parseRequirementSection = (
-      summaryMd: string,
-      heading: "Requirements Advanced" | "Requirements Validated" | "Requirements Invalidated or Re-scoped",
-      field: "how" | "proof" | "what",
-    ): Array<{ id: string; how?: string; proof?: string; what?: string }> => {
-      const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const match = summaryMd.match(new RegExp(`## ${escaped}\\n\\n([\\s\\S]*?)(?:\\n\\n## |$)`));
-      if (!match) return [];
-      return match[1]
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.startsWith("- "))
-        .map((line) => line.slice(2).trim())
-        .map((line) => {
-          const [id, detail] = splitPair(line);
-          if (!id || !detail) return null;
-          return { id, [field]: detail };
-        })
-        .filter((entry): entry is { id: string; how?: string; proof?: string; what?: string } => entry !== null);
-    };
-
     const coerced = Object.fromEntries(
       Object.entries(params).filter(([, value]) => value !== undefined && value !== null),
     ) as CompleteSliceParams & Record<string, unknown>;
@@ -598,28 +577,6 @@ export async function executeSliceComplete(
       const [id, what] = splitPair(r);
       return { id, what };
     }) as Array<{ id: string; what: string }>;
-    if (
-      requirementsAdvanced === undefined ||
-      requirementsValidated === undefined ||
-      requirementsInvalidated === undefined
-    ) {
-      const existing = getSlice(params.milestoneId, params.sliceId);
-      const summaryMd = existing?.full_summary_md?.trim() ?? "";
-      if (summaryMd) {
-        if (requirementsAdvanced === undefined) {
-          const parsed = parseRequirementSection(summaryMd, "Requirements Advanced", "how");
-          if (parsed.length > 0) coerced.requirementsAdvanced = parsed as Array<{ id: string; how: string }>;
-        }
-        if (requirementsValidated === undefined) {
-          const parsed = parseRequirementSection(summaryMd, "Requirements Validated", "proof");
-          if (parsed.length > 0) coerced.requirementsValidated = parsed as Array<{ id: string; proof: string }>;
-        }
-        if (requirementsInvalidated === undefined) {
-          const parsed = parseRequirementSection(summaryMd, "Requirements Invalidated or Re-scoped", "what");
-          if (parsed.length > 0) coerced.requirementsInvalidated = parsed as Array<{ id: string; what: string }>;
-        }
-      }
-    }
 
     const result = await handleCompleteSlice(coerced as CompleteSliceParams, basePath);
     if ("error" in result) {
