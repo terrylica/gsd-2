@@ -205,6 +205,22 @@ test("deriveState returns blocked when needs-remediation has no incomplete slice
   }
 });
 
+test("deriveState parks milestone when validation verdict is needs-attention and no summary (#6136)", async () => {
+  const base = makeTmpBase();
+  try {
+    writeRoadmap(base, "M001", ALL_DONE_ROADMAP);
+    writeValidation(base, "M001", "---\nverdict: needs-attention\nremediation_round: 0\n---\n\n# Validation\nNeeds attention.");
+
+    const state = await deriveState(base);
+    assert.equal(state.phase, "pre-planning");
+    assert.equal(state.activeMilestone, null);
+    assert.equal(state.registry.find(entry => entry.id === "M001")?.status, "parked");
+    assert.ok(state.nextAction.includes("parked"));
+  } finally {
+    cleanup(base);
+  }
+});
+
 test("deriveState returns complete when both VALIDATION and SUMMARY exist", async () => {
   const base = makeTmpBase();
   try {
