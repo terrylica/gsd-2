@@ -237,10 +237,15 @@ function parseRequirementSection(
   heading: "Requirements Advanced" | "Requirements Validated" | "Requirements Invalidated or Re-scoped",
   field: "how" | "proof" | "what",
 ): Array<{ id: string; how?: string; proof?: string; what?: string }> {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = summaryMd.match(new RegExp(`## ${escaped}\\n\\n([\\s\\S]*?)(?:\\n\\n## |$)`));
-  if (!match) return [];
-  return match[1]
+  const headingLine = `## ${heading}\n\n`;
+  const start = summaryMd.indexOf(headingLine);
+  if (start === -1) return [];
+  const contentStart = start + headingLine.length;
+  const nextHeading = summaryMd.indexOf("\n\n## ", contentStart);
+  const content = nextHeading === -1
+    ? summaryMd.slice(contentStart)
+    : summaryMd.slice(contentStart, nextHeading);
+  return content
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.startsWith("- "))
@@ -374,6 +379,9 @@ export async function handleCompleteSlice(
 
   const effectiveParams: CompleteSliceParams = { ...params };
   if (existingSummaryMd) {
+    // Keep these heading names in lock-step with renderSliceSummaryMarkdown's
+    // section titles so omitted CompleteSliceParams requirement fields can be
+    // backfilled from previously rendered summary markdown.
     if (effectiveParams.requirementsAdvanced === undefined) {
       const parsed = parseRequirementSection(existingSummaryMd, "Requirements Advanced", "how");
       if (parsed.length > 0) effectiveParams.requirementsAdvanced = parsed as Array<{ id: string; how: string }>;

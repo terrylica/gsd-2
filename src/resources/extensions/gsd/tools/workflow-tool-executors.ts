@@ -8,7 +8,6 @@ import {
   getActiveRequirements,
   insertMilestone,
   getMilestone,
-  getSlice,
   getSliceStatusSummary,
   getSliceTaskCounts,
   readTransaction,
@@ -524,8 +523,6 @@ export async function executeSliceComplete(
       const m = s.match(/^(.+?)\s*(?:—|-)\s+(.+)$/);
       return m ? [m[1].trim(), m[2].trim()] : [s.trim(), ""];
     };
-    const wrapArray = (v: unknown): unknown[] =>
-      v == null ? [] : Array.isArray(v) ? v : [v];
     const wrapOptionalArray = (v: unknown): unknown[] | undefined =>
       v == null ? undefined : Array.isArray(v) ? v : [v];
     const coerced = Object.fromEntries(
