@@ -83,6 +83,7 @@ import {
 import { annotateBackgroundable } from "./delegation-policy.js";
 import { invalidateAllCaches } from "./cache.js";
 import { insertMilestoneValidationGates } from "./milestone-validation-gates.js";
+import { nativeHasChanges } from "./native-git-bridge.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -1314,7 +1315,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
   },
   {
     name: "completing-milestone → complete-milestone",
-    match: async ({ state, mid, midTitle, basePath }) => {
+    match: async ({ state, mid, midTitle, basePath, prefs }) => {
       if (state.phase !== "completing-milestone") return null;
 
       // Defense-in-depth (#4324): skip dispatch if the DB already marks
@@ -1325,6 +1326,45 @@ export const DISPATCH_RULES: DispatchRule[] = [
         const milestone = getMilestone(mid);
         if (milestone && isClosedStatus(milestone.status)) {
           return { action: "skip" };
+        }
+      }
+
+      // Safety guard (#6132): refuse closure with uncommitted git changes.
+      if (nativeHasChanges(basePath)) {
+        return {
+          action: "stop",
+          reason: "Cannot complete milestone: uncommitted changes detected. Commit or stash before closing.",
+          level: "warning",
+        };
+      }
+
+      // Safety guard (#6132): when UAT dispatch is enabled, enforce a PASS
+      // verdict for each closed slice before milestone closure.
+      if (prefs?.uat_dispatch) {
+        let closedSliceIds: string[];
+        if (isDbAvailable()) {
+          closedSliceIds = getMilestoneSlices(mid)
+            .filter(s => isClosedStatus(s.status))
+            .map(s => s.id);
+        } else {
+          const roadmapFile = resolveMilestoneFile(basePath, mid, "ROADMAP");
+          const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
+          if (!roadmapContent) return null;
+          const roadmap = parseRoadmap(roadmapContent);
+          closedSliceIds = roadmap.slices.filter(s => s.done).map(s => s.id);
+        }
+
+        for (const sliceId of closedSliceIds) {
+          const result = await readUatGateVerdict(basePath, mid, sliceId);
+          if (!result) continue;
+          const { verdict, uatType } = result;
+          if (!isAcceptableUatVerdict(verdict, uatType)) {
+            return {
+              action: "stop",
+              reason: `Cannot complete milestone ${mid}: UAT verdict for ${sliceId} is "${verdict}". Manual UAT sign-off (PASS) is required before milestone closure.`,
+              level: "warning",
+            };
+          }
         }
       }
 
