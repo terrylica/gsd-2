@@ -53,6 +53,29 @@ It checks:
 
 **Fix:** This was fixed in v2.14+. If you're on an older version, update. The dispatch prompt now includes explicit working directory instructions.
 
+### Milestone entry blocked by degraded worktree isolation
+
+**Symptoms:** Auto mode fails milestone entry with an isolation-degraded warning, often after a previous worktree cleanup/create problem on Windows.
+
+**Current behavior:** When isolation is configured as `worktree`, GSD now attempts a safe fallback to milestone `branch` mode instead of hard-failing immediately. Bootstrap also surfaces a specific isolation-degraded notification so the cause is visible.
+
+**Fix:**
+- Close editors, terminals, or antivirus tools that may be locking `.gsd/worktrees/*` paths.
+- Retry `/gsd auto`; if fallback succeeds, continue in branch mode for that milestone.
+- Run `/gsd doctor` after recovery to verify overall worktree health.
+
+### Windows `EPERM` / `EBUSY` while removing stale worktree directories
+
+**Symptoms:** Startup or milestone entry fails during stale worktree cleanup with `EPERM` or `EBUSY` from directory removal.
+
+**Cause:** A process still holds a handle under an old worktree path, preventing cleanup.
+
+**Current behavior:** GSD now fails with a targeted error explaining that file locks blocked cleanup and advising you to close locking tools before retrying.
+
+**Fix:**
+- Close apps that might hold file locks (editors, shells in old worktree paths, antivirus/indexers).
+- Retry the command after a short delay.
+
 ### `command not found: gsd` after install
 
 **Symptoms:** `npm install -g gsd-pi` succeeds but `gsd` isn't found.

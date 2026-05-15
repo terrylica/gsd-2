@@ -225,7 +225,6 @@ test("enterMilestone returns ok:false reason:isolation-degraded when session deg
   }
   assert.equal(s.basePath, "/project");
   assert.equal(s.milestoneLeaseToken, null);
-  assert.equal(deps.calls.filter((c) => c.fn === "getIsolationMode").length, 0);
 });
 
 test("enterMilestone falls back to branch mode when session is degraded in worktree isolation", (t) => {
