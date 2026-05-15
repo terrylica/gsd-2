@@ -549,7 +549,9 @@ export async function executeSliceComplete(
         .filter((entry): entry is { id: string; how?: string; proof?: string; what?: string } => entry !== null);
     };
 
-    const coerced = { ...params } as CompleteSliceParams & Record<string, unknown>;
+    const coerced = Object.fromEntries(
+      Object.entries(params).filter(([, value]) => value !== undefined && value !== null),
+    ) as CompleteSliceParams & Record<string, unknown>;
     const provides = wrapOptionalArray(params.provides);
     if (provides !== undefined) coerced.provides = provides as string[];
     const keyFiles = wrapOptionalArray(params.keyFiles);
