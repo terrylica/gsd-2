@@ -434,7 +434,7 @@ console.log('\n=== complete-slice: backfills omitted requirements from rendered 
 
   const seededSummary = fs.readFileSync(seeded.summaryPath, 'utf-8');
   transaction(() => {
-    updateSliceStatus('M001', 'S01', 'pending', null);
+    updateSliceStatus('M001', 'S01', 'pending', undefined);
     setSliceSummaryMd('M001', 'S01', seededSummary, '');
   });
 
