@@ -448,6 +448,14 @@ console.log('\n=== complete-slice: backfills omitted requirements from rendered 
     const summary = fs.readFileSync(backfilled.summaryPath, 'utf-8');
     assertMatch(summary, /## Requirements Advanced/, 'summary should include advanced requirements heading');
     assertMatch(summary, /- R001 — Handler validates task completion/, 'advanced requirement should be backfilled from summary markdown');
+
+    const sliceAfterBackfill = getSlice('M001', 'S01');
+    assertTrue(sliceAfterBackfill !== null, 'slice should exist after backfill');
+    assertMatch(
+      sliceAfterBackfill!.full_summary_md,
+      /- R001 — Handler validates task completion/,
+      'DB full_summary_md should persist the backfilled advanced requirement',
+    );
   }
 
   cleanupDir(basePath);
