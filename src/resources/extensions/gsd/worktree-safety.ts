@@ -247,8 +247,8 @@ export function createWorktreeSafetyModule(
           return failure(
             "worktree-unregistered",
             `Worktree root ${unitRoot} is not registered with git worktree list.`,
-            wasPreviouslyTracked
-              ? "Worktree recovery was already attempted for this root. Recreate or re-register the milestone worktree before dispatching the source-writing Unit."
+            attemptedPrune || wasPreviouslyTracked
+              ? "Worktree recovery was attempted but the root is still unregistered. Recreate or re-register the milestone worktree before dispatching the source-writing Unit."
               : "Run 'git worktree prune'. If still unregistered, recreate or re-register the milestone worktree before dispatching the source-writing Unit.",
             { unitRoot, attemptedPrune, trackedAsFailed: unregisteredRecoveryFailed.has(unitRoot) },
           );
