@@ -463,6 +463,13 @@ async function buildRegistryAndFindActive(
       }
 
       if (allSlicesDone) {
+        const validation = getLatestAssessmentByScope(m.id, "milestone-validation");
+        const verdict = typeof validation?.status === "string" ? validation.status : undefined;
+        if (verdict === "needs-attention") {
+          registry.push({ id: m.id, title, status: "parked", ...(deps.length > 0 ? { dependsOn: deps } : {}) });
+          continue;
+        }
+
         activeMilestone = { id: m.id, title };
         activeMilestoneSlices = slices;
         activeMilestoneFound = true;
@@ -1074,6 +1081,10 @@ export async function _deriveStateImpl(
       const validationContent = validationFile ? await cachedLoadFile(validationFile) : null;
       const validationTerminal = validationContent ? isValidationTerminal(validationContent) : false;
       const verdict = validationContent ? extractVerdict(validationContent) : undefined;
+      if (verdict === "needs-attention") {
+        registry.push({ id: mid, title, status: "parked" });
+        continue;
+      }
       // needs-remediation is terminal but requires re-validation (#3596)
       const needsRevalidation = !validationTerminal || verdict === 'needs-remediation';
 
@@ -1091,7 +1102,7 @@ export async function _deriveStateImpl(
         // Needs (re-)validation, but another milestone is already active
         registry.push({ id: mid, title, status: 'pending' });
       } else if (!activeMilestoneFound) {
-        // Terminal validation (pass/needs-attention) but no summary → completing-milestone
+        // Terminal passing validation but no summary → completing-milestone
         activeMilestone = { id: mid, title };
         activeRoadmap = roadmap;
         activeMilestoneFound = true;

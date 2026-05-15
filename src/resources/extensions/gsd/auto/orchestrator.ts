@@ -54,7 +54,7 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
           rationale: "resource version guard blocked dispatch",
           findings: staleMsg,
         });
-        const blocked: AutoAdvanceResult = { kind: "blocked", reason: staleMsg, action: "stop" };
+        const blocked: AutoAdvanceResult = { kind: "blocked", reason: staleMsg, action: "pause" };
         await this.deps.runtime.journalTransition({ name: "advance-blocked", reason: blocked.reason });
         await this.deps.health.postAdvanceRecord(blocked);
         return blocked;
@@ -159,7 +159,7 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
       // stuck-loop for the saturated-window case.
       const matchingCount = this.dispatchKeyWindow.filter((k) => k === nextKey).length;
       if (this.lastAdvanceKey === nextKey && matchingCount < STUCK_WINDOW_SIZE) {
-        const blocked: AutoAdvanceResult = { kind: "blocked", reason: "idempotent advance: unit already active", action: "stop" };
+        const blocked: AutoAdvanceResult = { kind: "blocked", reason: "idempotent advance: unit already active", action: "pause" };
         await this.deps.runtime.journalTransition({
           name: "advance-blocked",
           reason: blocked.reason,

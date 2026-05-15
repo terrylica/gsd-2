@@ -78,6 +78,7 @@ import { createWorktreeSafetyModule, type WorktreeSafetyResult } from "../worktr
 import { isSuspiciousGhostCompletion } from "../auto-unit-closeout.js";
 import { decideVerificationRetry, verificationRetryKey } from "./verification-retry-policy.js";
 import { buildPhaseHandoffOutcome, setAutoOutcomeWidget } from "../auto-dashboard.js";
+import { getConsecutiveDispatchBlocker } from "../dispatch-guard.js";
 
 // ─── Path Comparison Helper ───────────────────────────────────────────────
 /** Compare two paths for physical identity, tolerating trailing slashes and symlinks. */
@@ -1353,6 +1354,18 @@ export async function runDispatch(
     return { action: "break", reason: "prior-slice-blocker" };
   }
 
+  const consecutiveDispatchBlocker = getConsecutiveDispatchBlocker(
+    loopState,
+    state.phase,
+    unitType,
+    unitId,
+  );
+  if (consecutiveDispatchBlocker) {
+    await deps.stopAuto(ctx, pi, consecutiveDispatchBlocker);
+    debugLog("autoLoop", { phase: "exit", reason: "consecutive-dispatch-blocker" });
+    return { action: "break", reason: "consecutive-dispatch-blocker" };
+  }
+
   const worktreeSafetyBlock = await validateSourceWriteWorktreeSafety(
     ic,
     unitType,
@@ -1426,7 +1439,6 @@ export async function runDispatch(
           );
           deps.invalidateAllCaches();
           loopState.recentUnits.length = 0;
-          loopState.stuckRecoveryAttempts = 0;
           return { action: "continue" };
         }
         ctx.ui.notify(
@@ -2366,18 +2378,17 @@ export async function runUnitPhase(
     }
   }
 
-  if (s.currentUnitRouting) {
-    deps.recordOutcome(
-      unitType,
-      s.currentUnitRouting.tier as "light" | "standard" | "heavy",
-      true, // success assumed; dispatch will re-dispatch if artifact missing
-    );
-  }
-
   const skipArtifactVerification = unitType.startsWith("hook/") || unitType === "custom-step";
   const artifactVerified =
     skipArtifactVerification ||
     verifyExpectedArtifact(unitType, unitId, s.basePath);
+  if (s.currentUnitRouting) {
+    deps.recordOutcome(
+      unitType,
+      s.currentUnitRouting.tier as "light" | "standard" | "heavy",
+      artifactVerified,
+    );
+  }
   if (artifactVerified) {
     s.unitDispatchCount.delete(dispatchKey);
     s.unitRecoveryCount.delete(`${unitType}/${unitId}`);
@@ -2481,6 +2492,8 @@ export async function runFinalize(
   const preUnitSnapshot = s.currentUnit
     ? { type: s.currentUnit.type, id: s.currentUnit.id, startedAt: s.currentUnit.startedAt }
     : null;
+  s.currentUnit = null;
+  clearCurrentPhase();
   const preResultGuard = await withTimeout(
     deps.postUnitPreVerification(postUnitCtx, preVerificationOpts),
     FINALIZE_PRE_TIMEOUT_MS,
@@ -2653,9 +2666,6 @@ export async function runFinalize(
       });
     }
   }
-  s.currentUnit = null;
-  clearCurrentPhase();
-
   // Surface accumulated workflow-logger issues for this unit to the user.
   // Warnings/errors logged during the unit are buffered in the logger and
   // drained here so the user sees a single consolidated post-unit alert.

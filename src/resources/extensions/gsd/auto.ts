@@ -284,6 +284,7 @@ import type {
   UnitRouting,
   StartModel,
   AutoSession,
+  PendingOrchestrationDispatch,
 } from "./auto/session.js";
 export {
   STUB_RECOVERY_THRESHOLD,
@@ -1193,6 +1194,8 @@ export async function stopAuto(
         ? "merge-conflict"
         : rawReason.startsWith("Merge error") || rawReason.startsWith("Merge failed")
           ? "merge-failed"
+          : rawReason.startsWith("Slice-parallel dispatched")
+            ? "stop"
           : rawReason.startsWith("slice-merge-conflict")
             ? "slice-merge-conflict"
             : rawReason === "All milestones complete"
@@ -1806,6 +1809,7 @@ export function createWiredDispatchAdapter(
   ctx: ExtensionContext,
   pi: ExtensionAPI,
   dispatchBasePath: string,
+  session?: AutoSession,
 ): DispatchAdapter {
   return {
     async decideNextUnit(input) {
@@ -1847,6 +1851,7 @@ export function createWiredDispatchAdapter(
         midTitle: active.title,
         state,
         prefs,
+        session: input.session,
         structuredQuestionsAvailable,
         sessionContextWindow,
         sessionProvider,
@@ -1854,13 +1859,29 @@ export function createWiredDispatchAdapter(
       });
 
       if (action.action === "stop") {
+        if (session) session.pendingOrchestrationDispatch = null;
         return {
           kind: "blocked",
           reason: action.reason,
           action: action.level === "warning" ? "pause" : "stop",
         };
       }
-      if (action.action !== "dispatch") return null;
+      if (action.action !== "dispatch") {
+        if (session) session.pendingOrchestrationDispatch = null;
+        return null;
+      }
+      if (session) {
+        const pending: PendingOrchestrationDispatch = {
+          unitType: action.unitType,
+          unitId: action.unitId,
+          prompt: action.prompt,
+          pauseAfterUatDispatch: action.pauseAfterDispatch ?? false,
+          state,
+          mid: active.id,
+          midTitle: active.title,
+        };
+        session.pendingOrchestrationDispatch = pending;
+      }
       return {
         unitType: action.unitType,
         unitId: action.unitId,
@@ -1909,7 +1930,7 @@ export function createWiredAutoOrchestrationModule(
         };
       },
     },
-    dispatch: createWiredDispatchAdapter(ctx, pi, dispatchBasePath),
+    dispatch: createWiredDispatchAdapter(ctx, pi, dispatchBasePath, s),
     recovery: {
       async classifyAndRecover(input) {
         const recovery = classifyFailure(input);
@@ -2005,22 +2026,22 @@ export function createWiredAutoOrchestrationModule(
       },
       async journalTransition(event) {
         const eventType = event.name === "start"
-          ? "iteration-start"
+          ? "orchestrator-iteration-start"
           : event.name === "resume"
-            ? "iteration-start"
+            ? "orchestrator-iteration-start"
             : event.name === "advance"
-              ? "dispatch-match"
+              ? "orchestrator-dispatch-match"
               : event.name === "advance-blocked"
-                ? "guard-block"
+                ? "orchestrator-guard-block"
                 : event.name === "advance-stopped"
-                  ? "dispatch-stop"
+                  ? "orchestrator-dispatch-stop"
                   : event.name === "advance-error"
-                    ? "iteration-end"
+                    ? "orchestrator-iteration-end"
                     : event.name === "advance-paused" || event.name === "advance-retry"
-                      ? "guard-block"
+                      ? "orchestrator-guard-block"
                       : event.name === "stop"
-                      ? "terminal"
-                      : "iteration-end";
+                      ? "orchestrator-terminal"
+                      : "orchestrator-iteration-end";
 
         _emitJournalEvent(runtimeBasePath, {
           ts: new Date().toISOString(),
