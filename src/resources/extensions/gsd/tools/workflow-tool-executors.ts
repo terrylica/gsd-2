@@ -525,37 +525,44 @@ export async function executeSliceComplete(
     };
     const wrapArray = (v: unknown): unknown[] =>
       v == null ? [] : Array.isArray(v) ? v : [v];
+    const wrapOptionalArray = (v: unknown): unknown[] | undefined =>
+      v == null ? undefined : Array.isArray(v) ? v : [v];
 
     const coerced = { ...params } as CompleteSliceParams & Record<string, unknown>;
-    coerced.provides = wrapArray(params.provides) as string[];
-    coerced.keyFiles = wrapArray(params.keyFiles) as string[];
-    coerced.keyDecisions = wrapArray(params.keyDecisions) as string[];
-    coerced.patternsEstablished = wrapArray(params.patternsEstablished) as string[];
-    coerced.observabilitySurfaces = wrapArray(params.observabilitySurfaces) as string[];
-    coerced.requirementsSurfaced = wrapArray(params.requirementsSurfaced) as string[];
-    coerced.drillDownPaths = wrapArray(params.drillDownPaths) as string[];
-    coerced.affects = wrapArray(params.affects) as string[];
-    coerced.filesModified = wrapArray(params.filesModified).map((f) => {
+    if (params.provides !== undefined) coerced.provides = wrapArray(params.provides) as string[];
+    if (params.keyFiles !== undefined) coerced.keyFiles = wrapArray(params.keyFiles) as string[];
+    if (params.keyDecisions !== undefined) coerced.keyDecisions = wrapArray(params.keyDecisions) as string[];
+    if (params.patternsEstablished !== undefined) coerced.patternsEstablished = wrapArray(params.patternsEstablished) as string[];
+    if (params.observabilitySurfaces !== undefined) coerced.observabilitySurfaces = wrapArray(params.observabilitySurfaces) as string[];
+    if (params.requirementsSurfaced !== undefined) coerced.requirementsSurfaced = wrapArray(params.requirementsSurfaced) as string[];
+    if (params.drillDownPaths !== undefined) coerced.drillDownPaths = wrapArray(params.drillDownPaths) as string[];
+    if (params.affects !== undefined) coerced.affects = wrapArray(params.affects) as string[];
+    const filesModified = wrapOptionalArray(params.filesModified);
+    if (filesModified !== undefined) coerced.filesModified = filesModified.map((f) => {
       if (typeof f !== "string") return f;
       const [path, description] = splitPair(f);
       return { path, description };
     }) as Array<{ path: string; description: string }>;
-    coerced.requires = wrapArray(params.requires).map((r) => {
+    const requires = wrapOptionalArray(params.requires);
+    if (requires !== undefined) coerced.requires = requires.map((r) => {
       if (typeof r !== "string") return r;
       const [slice, provides] = splitPair(r);
       return { slice, provides };
     }) as Array<{ slice: string; provides: string }>;
-    coerced.requirementsAdvanced = wrapArray(params.requirementsAdvanced).map((r) => {
+    const requirementsAdvanced = wrapOptionalArray(params.requirementsAdvanced);
+    if (requirementsAdvanced !== undefined) coerced.requirementsAdvanced = requirementsAdvanced.map((r) => {
       if (typeof r !== "string") return r;
       const [id, how] = splitPair(r);
       return { id, how };
     }) as Array<{ id: string; how: string }>;
-    coerced.requirementsValidated = wrapArray(params.requirementsValidated).map((r) => {
+    const requirementsValidated = wrapOptionalArray(params.requirementsValidated);
+    if (requirementsValidated !== undefined) coerced.requirementsValidated = requirementsValidated.map((r) => {
       if (typeof r !== "string") return r;
       const [id, proof] = splitPair(r);
       return { id, proof };
     }) as Array<{ id: string; proof: string }>;
-    coerced.requirementsInvalidated = wrapArray(params.requirementsInvalidated).map((r) => {
+    const requirementsInvalidated = wrapOptionalArray(params.requirementsInvalidated);
+    if (requirementsInvalidated !== undefined) coerced.requirementsInvalidated = requirementsInvalidated.map((r) => {
       if (typeof r !== "string") return r;
       const [id, what] = splitPair(r);
       return { id, what };
