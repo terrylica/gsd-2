@@ -110,8 +110,10 @@ test("Context Mode: every manifest declares the expected contextMode lane", () =
     "reassess-roadmap": "planning",
     "execute-task": "execution",
     "reactive-execute": "execution",
+    "quick-task": "execution",
     "run-uat": "verification",
     "gate-evaluate": "verification",
+    "triage-captures": "triage",
     "validate-milestone": "verification",
     "complete-slice": "verification",
     "complete-milestone": "verification",
@@ -231,7 +233,7 @@ test("#4934: tools.mode is one of the declared policies", () => {
 });
 
 test('#4934: only execution units and complete-milestone may use tools.mode "all"', () => {
-  const allowedAllUnits = new Set(["execute-task", "reactive-execute", "complete-milestone"]);
+  const allowedAllUnits = new Set(["execute-task", "reactive-execute", "quick-task", "complete-milestone"]);
   for (const [unitType, manifest] of Object.entries(UNIT_MANIFESTS)) {
     const mode = (manifest as { tools: { mode: string } }).tools.mode;
     if (mode === "all") {

@@ -343,6 +343,9 @@ export const KNOWN_UNIT_TYPES = [
   "run-uat",
   "gate-evaluate",
   "rewrite-docs",
+  // Sidecar units (triage, quick-task)
+  "triage-captures",
+  "quick-task",
   // Deep planning mode (project-level) units
   "workflow-preferences",
   "discuss-project",
@@ -631,6 +634,36 @@ export const UNIT_MANIFESTS: Record<UnitType, UnitContextManifest> = {
     tools: TOOLS_DOCS,
     artifacts: {
       inline: ["project", "requirements", "decisions", "templates"],
+      excerpt: [],
+      onDemand: [],
+    },
+    maxSystemPromptChars: COMMON_BUDGET_MEDIUM,
+  },
+  "triage-captures": {
+    skills: { mode: "all" },
+    knowledge: "scoped",
+    memory: "prompt-relevant",
+    codebaseMap: false,
+    preferences: "active-only",
+    contextMode: "triage",
+    tools: TOOLS_PLANNING,
+    artifacts: {
+      inline: ["roadmap", "slice-plan", "slice-summary", "requirements", "decisions", "templates"],
+      excerpt: [],
+      onDemand: [],
+    },
+    maxSystemPromptChars: COMMON_BUDGET_MEDIUM,
+  },
+  "quick-task": {
+    skills: { mode: "all" },
+    knowledge: "full",
+    memory: "prompt-relevant",
+    codebaseMap: true,
+    preferences: "active-only",
+    contextMode: "execution",
+    tools: TOOLS_ALL,
+    artifacts: {
+      inline: ["roadmap", "slice-plan", "task-plan", "requirements", "decisions", "templates"],
       excerpt: [],
       onDemand: [],
     },
