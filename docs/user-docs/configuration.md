@@ -508,6 +508,8 @@ Enable automatic UAT (User Acceptance Test) runs after slice completion:
 uat_dispatch: true
 ```
 
+When enabled, milestone completion is also gated on explicit UAT PASS verdicts for closed slices; missing or non-PASS verdicts will block automatic milestone closure until manually signed off.
+
 ### Verification (v2.26)
 
 Configure shell commands that run automatically after every task execution. Failures trigger auto-fix retries before advancing.

@@ -129,6 +129,24 @@ describe("completing-milestone dispatch guard (#4324)", () => {
     assert.equal(result?.action, "stop");
     assert.match(result?.reason ?? "", /manual UAT sign-off \(PASS\) is required/i);
   });
+
+  test("blocks complete-milestone dispatch when UAT verdict is missing and uat_dispatch is enabled (#6132)", async () => {
+    base = makeBase();
+    openDatabase(join(base, ".gsd", "gsd.db"));
+    insertMilestone({ id: "M001", title: "Milestone One", status: "active" });
+    insertSlice({ milestoneId: "M001", id: "S01", title: "Done", status: "complete" });
+    writeFileSync(
+      join(base, ".gsd", "milestones", "M001", "slices", "S01", "S01-ASSESSMENT.md"),
+      "# UAT\n\nNo verdict yet.\n",
+    );
+
+    const ctx = buildDispatchCtx(base);
+    ctx.prefs = { uat_dispatch: true } as DispatchContext["prefs"];
+    const result = await rule.match(ctx);
+
+    assert.equal(result?.action, "stop");
+    assert.match(result?.reason ?? "", /manual UAT sign-off \(PASS\) is required/i);
+  });
 });
 
 describe("complete phase dispatch guard (#5683)", () => {

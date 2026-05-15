@@ -1349,14 +1349,26 @@ export const DISPATCH_RULES: DispatchRule[] = [
         } else {
           const roadmapFile = resolveMilestoneFile(basePath, mid, "ROADMAP");
           const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
-          if (!roadmapContent) return null;
+          if (!roadmapContent) {
+            return {
+              action: "stop",
+              reason: `Cannot complete milestone ${mid}: unable to verify UAT verdicts because ROADMAP is unavailable while DB is not accessible.`,
+              level: "warning",
+            };
+          }
           const roadmap = parseRoadmap(roadmapContent);
           closedSliceIds = roadmap.slices.filter(s => s.done).map(s => s.id);
         }
 
         for (const sliceId of closedSliceIds) {
           const result = await readUatGateVerdict(basePath, mid, sliceId);
-          if (!result) continue;
+          if (!result) {
+            return {
+              action: "stop",
+              reason: `Cannot complete milestone ${mid}: missing UAT PASS verdict for ${sliceId}. Manual UAT sign-off (PASS) is required before milestone closure.`,
+              level: "warning",
+            };
+          }
           const { verdict, uatType } = result;
           if (!isAcceptableUatVerdict(verdict, uatType)) {
             return {
