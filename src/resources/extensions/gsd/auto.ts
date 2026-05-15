@@ -1953,6 +1953,9 @@ export function createWiredAutoOrchestrationModule(
             reason: `No Unit manifest is registered for ${unitType}`,
           };
         }
+        if (getIsolationMode(runtimeBasePath) !== "worktree") {
+          return { ok: true, reason: "not-required" };
+        }
         const writeScope =
           manifest.tools.mode === "all" || manifest.tools.mode === "docs"
             ? "source-writing"
@@ -2637,10 +2640,13 @@ export async function startAuto(
 
     try {
       const resumeResult = await s.orchestration?.resume();
-      if (resumeResult?.kind === "blocked") {
+      if (resumeResult?.kind === "blocked" && resumeResult.action === "stop") {
         notifyResumeBlocked(ctx, resumeResult);
         await cleanupAfterLoopExit(ctx);
         return;
+      }
+      if (resumeResult?.kind === "blocked") {
+        notifyResumeBlocked(ctx, resumeResult);
       }
     } catch (err) {
       debugLog("resume-orchestration-resume", { error: err instanceof Error ? err.message : String(err) });
