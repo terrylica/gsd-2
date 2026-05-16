@@ -239,8 +239,7 @@ test("buildLoopRemediationSteps returns steps for execute-task", () => {
   try {
     const steps = buildLoopRemediationSteps("execute-task", "M001/S01/T01", base);
     assert.ok(steps);
-    assert.ok(steps!.includes("T01"));
-    assert.ok(steps!.includes("gsd undo-task"));
+    assert.ok(steps!.includes("gsd undo-task M001/S01/T01"));
   } finally {
     cleanup(base);
   }
@@ -263,8 +262,7 @@ test("buildLoopRemediationSteps returns steps for complete-slice", () => {
   try {
     const steps = buildLoopRemediationSteps("complete-slice", "M001/S01", base);
     assert.ok(steps);
-    assert.ok(steps!.includes("S01"));
-    assert.ok(steps!.includes("gsd reset-slice"));
+    assert.ok(steps!.includes("gsd reset-slice M001/S01"));
   } finally {
     cleanup(base);
   }

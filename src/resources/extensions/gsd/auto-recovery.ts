@@ -1088,7 +1088,7 @@ export function buildLoopRemediationSteps(
     case "execute-task": {
       if (!mid || !sid || !tid) break;
       return [
-        `   1. Run \`gsd undo-task ${tid}\` to reset the task state`,
+        `   1. Run \`gsd undo-task ${mid}/${sid}/${tid}\` to reset the task state`,
         `   2. Resume auto-mode — it will re-execute the task`,
         `   3. If the task keeps failing, run \`gsd recover\` to rebuild DB state from disk`,
       ].join("\n");
@@ -1109,7 +1109,7 @@ export function buildLoopRemediationSteps(
     case "complete-slice": {
       if (!mid || !sid) break;
       return [
-        `   1. Run \`gsd reset-slice ${sid}\` to reset the slice and all its tasks`,
+        `   1. Run \`gsd reset-slice ${mid}/${sid}\` to reset the slice and all its tasks`,
         `   2. Resume auto-mode — it will re-execute incomplete tasks and re-complete the slice`,
         `   3. If the slice keeps failing, run \`gsd recover\` to rebuild DB state from disk`,
       ].join("\n");
