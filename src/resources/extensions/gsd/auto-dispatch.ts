@@ -269,10 +269,16 @@ function isRegistryMilestoneComplete(state: GSDState, mid: string): boolean {
 }
 
 function hasMilestonePassedDiscuss(basePath: string, mid: string): boolean {
-  const slices = getMilestoneSlices(mid);
-  for (const slice of slices) {
-    const planPath = resolveSliceFile(basePath, mid, slice.id, "PLAN");
-    if (planPath && existsSync(planPath)) return true;
+  if (isDbAvailable()) {
+    try {
+      const slices = getMilestoneSlices(mid);
+      for (const slice of slices) {
+        const planPath = resolveSliceFile(basePath, mid, slice.id, "PLAN");
+        if (planPath && existsSync(planPath)) return true;
+      }
+    } catch {
+      // Fall through to filesystem checks when DB access is degraded.
+    }
   }
   const milestonePath = resolveMilestonePath(basePath, mid);
   if (milestonePath) {
