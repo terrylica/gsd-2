@@ -471,6 +471,55 @@ export function _synthesizePausedSessionRecoveryForTest(
   return synthesizePausedSessionRecovery(basePath, unitType, unitId, sessionFile);
 }
 
+type PausedResumeRecoverySessionState = {
+  pausedSessionFile: string | null;
+  currentUnit: { type: string; id: string } | null;
+  pausedUnitType: string | null;
+  pausedUnitId: string | null;
+  pendingCrashRecovery: string | null;
+};
+
+function handlePausedSessionResumeRecovery(
+  basePath: string,
+  state: PausedResumeRecoverySessionState,
+  notify: (message: string) => void,
+): { skippedReplay: boolean } {
+  if (!state.pausedSessionFile) return { skippedReplay: false };
+
+  const pausedRecoveryUnitType = state.currentUnit?.type ?? state.pausedUnitType ?? "unknown";
+  const pausedRecoveryUnitId = state.currentUnit?.id ?? state.pausedUnitId ?? "unknown";
+  const completedPausedUnit = verifyExpectedArtifact(
+    pausedRecoveryUnitType,
+    pausedRecoveryUnitId,
+    basePath,
+  );
+
+  if (completedPausedUnit) {
+    state.pausedSessionFile = null;
+    return { skippedReplay: true };
+  }
+
+  const recovery = synthesizePausedSessionRecovery(
+    basePath,
+    pausedRecoveryUnitType,
+    pausedRecoveryUnitId,
+    state.pausedSessionFile,
+  );
+  if (recovery && recovery.trace.toolCallCount > 0) {
+    state.pendingCrashRecovery = recovery.prompt;
+    notify(`Recovered ${recovery.trace.toolCallCount} tool calls from paused session. Resuming with context.`);
+  }
+  state.pausedSessionFile = null;
+  return { skippedReplay: false };
+}
+
+export function _handlePausedSessionResumeRecoveryForTest(
+  basePath: string,
+  state: PausedResumeRecoverySessionState,
+): { skippedReplay: boolean } {
+  return handlePausedSessionResumeRecovery(basePath, state, () => {});
+}
+
 // `_resolvePausedResumeBasePathForTest` was retired in ADR-016 phase 2 / B3
 // (#5621). Production callers go through
 // `WorktreeLifecycle.resumeFromPausedSession`; the pure helper for tests is
@@ -2608,34 +2657,11 @@ export async function startAuto(
     }
     invalidateAllCaches();
 
-    if (s.pausedSessionFile) {
-      const pausedRecoveryUnitType = s.currentUnit?.type ?? s.pausedUnitType ?? "unknown";
-      const pausedRecoveryUnitId = s.currentUnit?.id ?? s.pausedUnitId ?? "unknown";
-      const completedPausedUnit = verifyExpectedArtifact(
-        pausedRecoveryUnitType,
-        pausedRecoveryUnitId,
-        s.basePath,
-      );
-
-      if (completedPausedUnit) {
-        s.pausedSessionFile = null;
-      } else {
-      const recovery = synthesizePausedSessionRecovery(
-        s.basePath,
-        pausedRecoveryUnitType,
-        pausedRecoveryUnitId,
-        s.pausedSessionFile,
-      );
-      if (recovery && recovery.trace.toolCallCount > 0) {
-        s.pendingCrashRecovery = recovery.prompt;
-        ctx.ui.notify(
-          `Recovered ${recovery.trace.toolCallCount} tool calls from paused session. Resuming with context.`,
-          "info",
-        );
-      }
-      s.pausedSessionFile = null;
-      }
-    }
+    handlePausedSessionResumeRecovery(
+      s.basePath,
+      s,
+      (message) => ctx.ui.notify(message, "info"),
+    );
 
     captureProjectRootEnv(s.originalBasePath || s.basePath);
     registerAutoWorkerForSession(s);
