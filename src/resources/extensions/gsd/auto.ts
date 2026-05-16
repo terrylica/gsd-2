@@ -499,6 +499,9 @@ function handlePausedSessionResumeRecovery(
 
   if (completedPausedUnit) {
     state.pausedSessionFile = null;
+    state.pausedUnitType = null;
+    state.pausedUnitId = null;
+    state.pendingCrashRecovery = null;
     return { skippedReplay: true };
   }
 
@@ -513,6 +516,8 @@ function handlePausedSessionResumeRecovery(
     notify(`Recovered ${recovery.trace.toolCallCount} tool calls from paused session. Resuming with context.`);
   }
   state.pausedSessionFile = null;
+  state.pausedUnitType = null;
+  state.pausedUnitId = null;
   return { skippedReplay: false };
 }
 
@@ -2683,8 +2688,8 @@ export async function startAuto(
         "resuming",
         s.currentMilestoneId ?? "unknown",
       );
-      clearPausedSession("paused-session DB cleanup failed (resume activation)");
     }
+    clearPausedSession("paused-session DB cleanup failed (resume activation)");
     pi.events.emit(CMUX_CHANNELS.LOG, { preferences: loadEffectiveGSDPreferences(s.basePath || undefined)?.preferences, message: s.stepMode ? "Step-mode resumed." : "Auto-mode resumed.", level: "progress" });
 
     try {
