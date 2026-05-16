@@ -35,13 +35,25 @@ function setWorkerPid(workerId: string, pid: number): void {
   ).run({ ":pid": pid, ":worker_id": workerId });
 }
 
+function findDeadPidCandidate(): number {
+  const candidates = [99_999, 199_999, 299_999, 399_999];
+  for (const pid of candidates) {
+    try {
+      process.kill(pid, 0);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ESRCH") return pid;
+    }
+  }
+  throw new Error("Could not find a dead PID candidate for stale-lock test");
+}
+
 test("checkRemoteAutoSession clears stale lock state when lock PID is dead", (t) => {
   const base = makeBase();
   t.after(() => cleanup(base));
 
   openDatabase(join(base, ".gsd", "gsd.db"));
   const workerId = registerAutoWorker({ projectRootRealpath: normalizeRealPath(base) });
-  setWorkerPid(workerId, 99999);
+  setWorkerPid(workerId, findDeadPidCandidate());
   expireWorker(workerId);
 
   assert.ok(readCrashLock(base), "precondition: stale lock exists before remote session check");
