@@ -245,7 +245,6 @@ function resolveArtifactBasePath(
   if (
     session?.basePath &&
     session.currentMilestoneId === mid &&
-    session.basePath !== session.originalBasePath &&
     existsSync(session.basePath)
   ) {
     return session.basePath;
