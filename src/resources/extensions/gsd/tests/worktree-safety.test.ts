@@ -129,6 +129,50 @@ describe("Worktree Safety module", () => {
     assert.equal(result.details?.expectedRoot, unitRoot);
   });
 
+  test("accepts project root for source-writing Unit when isolation mode is none", () => {
+    const safety = createWorktreeSafetyModule({
+      existsSync: () => true,
+      lstatSync: () => ({ isFile: () => true }),
+      listRegisteredWorktrees: () => [{ path: projectRoot, branch: "main" }],
+    });
+
+    const result = safety.validateUnitRoot({
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      writeScope: "source-writing",
+      projectRoot,
+      unitRoot: projectRoot,
+      milestoneId: "M001",
+      isolationMode: "none",
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.kind, "safe");
+  });
+
+  test("rejects non-project root for source-writing Unit when isolation mode is none", () => {
+    const safety = createWorktreeSafetyModule({
+      existsSync: () => true,
+      lstatSync: () => ({ isFile: () => true }),
+      listRegisteredWorktrees: () => [{ path: unitRoot, branch: "main" }],
+    });
+
+    const result = safety.validateUnitRoot({
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      writeScope: "source-writing",
+      projectRoot,
+      unitRoot,
+      milestoneId: "M001",
+      isolationMode: "none",
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, "invalid-root");
+    assert.equal(result.details?.expectedRoot, projectRoot);
+    assert.equal(result.details?.unitRoot, unitRoot);
+  });
+
   test("rejects a standalone repository masquerading as a worktree", () => {
     unlinkSync(join(unitRoot, ".git"));
     mkdirSync(join(unitRoot, ".git"), { recursive: true });
