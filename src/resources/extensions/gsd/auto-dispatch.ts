@@ -527,11 +527,10 @@ export const DISPATCH_RULES: DispatchRule[] = [
         const { verdict, uatType } = result;
 
         if (!isAcceptableUatVerdict(verdict, uatType)) {
-          return {
-            action: "stop" as const,
-            reason: `UAT verdict for ${sliceId} is "${verdict}" — blocking progression until resolved.\nReview the UAT result and update the verdict to PASS, or re-run /gsd auto after fixing.`,
-            level: "warning" as const,
-          };
+          // Do not hard-stop auto-mode on non-PASS verdicts. Allow progression
+          // so follow-up slices can remediate, while complete-milestone still
+          // enforces manual UAT PASS sign-off before closure.
+          continue;
         }
       }
       return null;
