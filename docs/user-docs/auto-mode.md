@@ -85,6 +85,8 @@ Every task, research phase, and planning step gets a clean context window. No ac
 
 Each auto-mode unit has a `UnitContextManifest` with a `ToolsPolicy`, and GSD enforces that policy before tool calls execute. Execution units use `all` mode and may edit project files, run shell commands, and dispatch subagents. Most planning and discussion units use `planning` mode: they can read broadly, write planning artifacts under `.gsd/`, run only read-only shell commands, and cannot dispatch subagents. Selected planning and closeout units use `planning-dispatch` mode, which keeps the same source-write and bash restrictions but allows `subagent` dispatch for isolated recon, planning, or review work. Documentation units use `docs` mode, which keeps the same restrictions but also allows writes to the manifest's explicit documentation globs such as `docs/**`, top-level `README*.md`, `CHANGELOG.md`, and top-level `*.md`.
 
+The sidecar unit types now have distinct manifest behavior: `triage-captures` runs in `contextMode: triage` with `planning`-mode tools (read-heavy, `.gsd/`-scoped writes, no subagent dispatch), while `quick-task` runs in `contextMode: execution` with `all`-mode tools so it can apply and verify small inline fixes.
+
 Writes outside those allowed paths, unsafe bash commands, and subagent dispatch from non-dispatch planning units are blocked with a hard policy error instead of relying on prompt compliance. In `planning-dispatch` units, prompts steer the parent agent toward read-only specialists such as `scout`, `planner`, `researcher`, `reviewer`, `security`, or `tester`; implementation-tier agents still belong in `execute-task`.
 
 ### Pre-Dispatch Runtime Blocks
@@ -121,6 +123,8 @@ The amount of context inlined is controlled by your [token profile](./token-opti
 ### Context Mode
 
 Context Mode is enabled by default for auto-mode runs. Eligible auto-mode units receive manifest-driven guidance to preserve the conversation window: use `gsd_exec` for noisy codebase scans, builds, tests, and diagnostics; use `gsd_exec_search` before repeating a prior sandboxed run; and use `gsd_resume` after compaction or session resume to read a prior compaction snapshot from `.gsd/last-snapshot.md` when one exists.
+
+`contextMode: triage` is used specifically for capture triage turns so they stay focused on classification and routing decisions instead of implementation work.
 
 `gsd_exec` writes capped stdout/stderr and metadata under `.gsd/exec/`; output may be truncated. It then returns only a short digest to the agent. This keeps large command output out of the LLM context while preserving exact evidence on disk. To opt out of Context Mode guidance, snapshot injection, `gsd_exec`, `gsd_exec_search`, and `gsd_resume`, set:
 

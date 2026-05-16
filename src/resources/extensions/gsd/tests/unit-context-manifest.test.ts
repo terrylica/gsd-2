@@ -110,8 +110,10 @@ test("Context Mode: every manifest declares the expected contextMode lane", () =
     "reassess-roadmap": "planning",
     "execute-task": "execution",
     "reactive-execute": "execution",
+    "quick-task": "execution",
     "run-uat": "verification",
     "gate-evaluate": "verification",
+    "triage-captures": "triage",
     "validate-milestone": "verification",
     "complete-slice": "verification",
     "complete-milestone": "verification",
@@ -230,10 +232,11 @@ test("#4934: tools.mode is one of the declared policies", () => {
   }
 });
 
-test('#4934: only execution units and closeout units may use tools.mode "all"', () => {
+test('#4934: only execution units, quick-task, and closeout units may use tools.mode "all"', () => {
   const allowedAllUnits = new Set([
     "execute-task",
     "reactive-execute",
+    "quick-task",
     "validate-milestone",
     "complete-milestone",
     "complete-slice",
@@ -244,7 +247,7 @@ test('#4934: only execution units and closeout units may use tools.mode "all"', 
       assert.ok(
         allowedAllUnits.has(unitType),
         `manifest "${unitType}" declares tools.mode = "all" but is not explicitly allowed. ` +
-        'Only execute-task/reactive-execute and closeout units should have full source write access; ' +
+        'Only execute-task/reactive-execute, quick-task, and closeout units should have full source write access; ' +
         'planning/discuss/research units must use "planning" or "planning-dispatch" (or "docs" for rewrite-docs).',
       );
     }
