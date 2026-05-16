@@ -1960,6 +1960,9 @@ export function createWiredAutoOrchestrationModule(
           manifest.tools.mode === "all" || manifest.tools.mode === "docs"
             ? "source-writing"
             : "planning-only";
+        if (getIsolationMode(runtimeBasePath) !== "worktree") {
+          return { ok: true, reason: "isolation-not-worktree" };
+        }
         const safety = createWorktreeSafetyModule();
         const snapshot = await deriveState(dispatchBasePath);
         const milestoneId = snapshot.activeMilestone?.id ?? null;

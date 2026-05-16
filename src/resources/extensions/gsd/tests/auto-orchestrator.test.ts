@@ -355,6 +355,26 @@ test("advance() blocks before Runtime persistence when Worktree Safety fails", a
   assert.ok(calls.includes("journal:advance-blocked"));
 });
 
+test("advance() allows non-worktree isolation prepare result", async () => {
+  const { deps, calls } = makeDeps({
+    worktree: {
+      async prepareForUnit() {
+        calls.push("worktree.prepare");
+        return { ok: true, reason: "isolation-not-worktree" };
+      },
+      async syncAfterUnit() { calls.push("worktree.sync"); },
+      async cleanupOnStop() { calls.push("worktree.cleanup"); },
+    },
+  });
+  const orchestrator = createAutoOrchestrator(deps);
+
+  const result = await orchestrator.advance();
+
+  assert.equal(result.kind, "advanced");
+  assert.ok(calls.includes("journal:advance"));
+  assert.ok(calls.includes("worktree.sync"));
+});
+
 test("advance() stops when dispatch has no next unit", async () => {
   const { deps } = makeDeps({
     dispatch: {
