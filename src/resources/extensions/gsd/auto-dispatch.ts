@@ -1218,6 +1218,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
             expectedTaskPlanPath,
             projectionTaskPlanPath,
             expectedTaskPlanExists,
+            // Retained for compatibility with existing diagnostic parsers.
             artifactExists: expectedTaskPlanExists,
             projectionArtifactExists: existsSync(projectionTaskPlanPath),
           });
