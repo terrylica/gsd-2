@@ -1027,6 +1027,46 @@ test("wired DispatchAdapter prefers caller-supplied dispatch inputs over ctx-der
   }
 });
 
+test("wired DispatchAdapter forwards constructor session when advance input omits session", async () => {
+  const stateSnapshot = makeState();
+  const captured: DispatchContext[] = [];
+  const captureRule: UnifiedRule = {
+    name: "test-session-fallback",
+    when: "dispatch",
+    evaluation: "first-match",
+    where: async (ctx: DispatchContext) => {
+      captured.push(ctx);
+      return {
+        action: "dispatch" as const,
+        unitType: "execute-task",
+        unitId: "T01",
+        prompt: "session-fallback-fixture",
+      };
+    },
+    then: (r: unknown) => r,
+  };
+  setRegistry(new RuleRegistry([captureRule]));
+
+  try {
+    const ctx = { model: {}, modelRegistry: { getAll: () => [] } } as any;
+    const pi = { getActiveTools: () => [] } as any;
+    const session = {
+      basePath: "/tmp/worktree-fixture",
+      originalBasePath: "/tmp/project-fixture",
+      currentMilestoneId: "M001",
+    } as any;
+    const adapter = createWiredDispatchAdapter(ctx, pi, "/tmp/project-fixture", session);
+
+    const result = await adapter.decideNextUnit({ stateSnapshot });
+
+    assert.ok(result);
+    assert.equal(captured.length, 1, "expected one captured dispatch context");
+    assert.equal(captured[0].session, session);
+  } finally {
+    resetRegistry();
+  }
+});
+
 test("wired DispatchAdapter preserves stop reason as a blocked decision", async () => {
   const stateSnapshot = makeState();
   const stopRule: UnifiedRule = {

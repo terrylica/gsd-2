@@ -237,6 +237,23 @@ export function shouldRunDeepProjectSetup(
   return hasPendingDeepStage(prefs, basePath);
 }
 
+function resolveArtifactBasePath(
+  basePath: string,
+  mid: string,
+  session: import("./auto/session.js").AutoSession | undefined,
+): string {
+  if (
+    session?.basePath &&
+    session.currentMilestoneId === mid &&
+    session.basePath !== session.originalBasePath &&
+    existsSync(session.basePath)
+  ) {
+    return session.basePath;
+  }
+
+  return resolveCanonicalMilestoneRoot(basePath, mid);
+}
+
 function missingSliceStop(mid: string, phase: string): DispatchAction {
   return {
     action: "stop",
@@ -1168,16 +1185,16 @@ export const DISPATCH_RULES: DispatchRule[] = [
       const sid = state.activeSlice!.id;
       const sTitle = state.activeSlice!.title;
       const tid = state.activeTask.id;
-      const milestoneRoot = resolveCanonicalMilestoneRoot(basePath, mid);
+      const artifactBasePath = resolveArtifactBasePath(basePath, mid, session);
 
       // Guard: if the slice plan exists but the individual task plan files are
       // missing, the planner created S##-PLAN.md with task entries but never
       // wrote the tasks/ directory files. Dispatch plan-slice to regenerate
       // them rather than hard-stopping — fixes the infinite-loop described in
       // issue #909.
-      const taskPlanPath = resolveTaskFile(milestoneRoot, mid, sid, tid, "PLAN");
+      const taskPlanPath = resolveTaskFile(artifactBasePath, mid, sid, tid, "PLAN");
       const projectionTaskPlanPath = join(
-        gsdProjectionRoot(milestoneRoot),
+        gsdProjectionRoot(artifactBasePath),
         "milestones",
         mid,
         "slices",
@@ -1187,14 +1204,14 @@ export const DISPATCH_RULES: DispatchRule[] = [
       );
       if ((!taskPlanPath || !existsSync(taskPlanPath)) && !existsSync(projectionTaskPlanPath)) {
         if (isDebugEnabled()) {
-          const expectedTaskPlanPath = join(basePath, relTaskFile(basePath, mid, sid, tid, "PLAN"));
+          const expectedTaskPlanPath = join(artifactBasePath, relTaskFile(artifactBasePath, mid, sid, tid, "PLAN"));
           const originalProjectRoot = session?.originalBasePath || basePath;
           const activeMilestoneWorktreePath = session?.basePath || basePath;
           const artifactExists = taskPlanPath ? existsSync(taskPlanPath) : false;
           debugLog("dispatch-missing-task-plan-recovery", {
             selectedDispatchRule: "executing → execute-task (recover missing task plan → plan-slice)",
-            basePathUsedForArtifactChecks: basePath,
-            milestoneRoot,
+            basePathUsedForArtifactChecks: artifactBasePath,
+            milestoneRoot: artifactBasePath,
             originalProjectRoot,
             activeMilestoneWorktreePath,
             expectedTaskPlanPath,
