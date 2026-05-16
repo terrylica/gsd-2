@@ -40,6 +40,7 @@ import { findMilestoneIds } from './milestone-ids.js';
 import { loadQueueOrder, sortByQueueOrder } from './queue-order.js';
 import { isClosedStatus, isDeferredStatus } from './status-guards.js';
 import { nativeBatchParseGsdFiles, type BatchParsedFile } from './native-parser-bridge.js';
+import { autoHealSketchFlags } from './state-reconciliation/drift/sketch-flag.js';
 
 import { join, resolve } from 'path';
 import { existsSync, readdirSync } from 'node:fs';
@@ -324,7 +325,7 @@ export async function deriveState(
   // from ROADMAP.md, PLAN.md, SUMMARY.md, REQUIREMENTS.md, or flag files.
   if (isDbAvailable()) {
     const stopDbTimer = debugTime("derive-state-db");
-    result = await deriveStateFromDb(basePath);
+    result = await deriveStateFromDb(basePath, opts?.projectRootForReads ?? basePath);
     stopDbTimer({ phase: result.phase, milestone: result.activeMilestone?.id });
     _telemetry.dbDeriveCount++;
   } else if (process.env.GSD_ALLOW_MARKDOWN_DERIVE_FALLBACK === "1") {
@@ -658,7 +659,10 @@ function checkReplanTrigger(basePath: string, milestoneId: string, sliceId: stri
   return !!sliceRow?.replan_triggered_at;
 }
 
-export async function deriveStateFromDb(basePath: string): Promise<GSDState> {
+export async function deriveStateFromDb(
+  basePath: string,
+  artifactReadRoot: string = basePath,
+): Promise<GSDState> {
   const requirements = getRequirementCounts();
 
   const allMilestones = getAllMilestones();
@@ -736,7 +740,18 @@ export async function deriveStateFromDb(basePath: string): Promise<GSDState> {
       progress: { milestones: milestoneProgress, slices: sliceProgress },
     };
   }
-  const { activeSlice, activeSliceRow } = activeSliceContext;
+  const { activeSlice } = activeSliceContext;
+  let activeSliceRow = activeSliceContext.activeSliceRow;
+
+  // Heal stale sketch flags before honoring the DB-authoritative sketch gate.
+  // This recovers if PLAN.md exists but is_sketch was never flipped to 0.
+  if (activeMilestone?.id) {
+    autoHealSketchFlags(activeMilestone.id, (sid) => {
+      const planPath = resolveSliceFile(artifactReadRoot, activeMilestone.id, sid, "PLAN");
+      return planPath !== null && existsSync(planPath);
+    });
+    activeSliceRow = getSlice(activeMilestone.id, activeSlice.id);
+  }
 
   // ADR-011: DB slice metadata is authoritative for sketch refinement.
   // PLAN.md and preference flags are projections/configuration and are
