@@ -87,6 +87,7 @@ test("emitAutoExit records reason and unmerged-work signal", () => {
   try {
     emitAutoExit(base, {
       reason: "pause",
+      rawReason: "Operation aborted",
       milestoneId: "M003",
       milestoneMerged: false,
       isolationMode: "worktree",
@@ -95,6 +96,7 @@ test("emitAutoExit records reason and unmerged-work signal", () => {
     const entries = queryJournal(base, { eventType: "auto-exit" });
     assert.equal(entries.length, 1);
     assert.equal(entries[0].data?.reason, "pause");
+    assert.equal(entries[0].data?.rawReason, "Operation aborted");
     assert.equal(entries[0].data?.milestoneMerged, false);
     assert.equal(entries[0].data?.isolationMode, "worktree");
     assert.equal(entries[0].data?.worktreeActive, true);

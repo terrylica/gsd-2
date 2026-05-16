@@ -50,6 +50,11 @@ export type AutoExitReason =
   | "merge-conflict"
   | "merge-failed"
   | "slice-merge-conflict"
+  | "provider-error"
+  | "session-failed"
+  | "stream-aborted"
+  | "unit-aborted"
+  | "verification-exhausted"
   | "all-complete"
   | "no-active-milestone"
   | "other";
@@ -125,6 +130,7 @@ export function emitAutoExit(
      *  reasons (e.g. stopAuto's `reason?: string` parameter) should map to
      *  the closed set before emitting. */
     reason: AutoExitReason;
+    rawReason?: string;
     milestoneId?: string;
     milestoneMerged: boolean;
     isolationMode?: WorktreeIsolationMode;
@@ -133,6 +139,7 @@ export function emitAutoExit(
 ): void {
   emitJournalEvent(projectRoot, baseEntry("auto-exit", {
     reason: meta.reason,
+    rawReason: meta.rawReason,
     flowId: meta.flowId,
     milestoneId: meta.milestoneId,
     milestoneMerged: meta.milestoneMerged,

@@ -1238,7 +1238,8 @@ export async function stopAuto(
     const { emitAutoExit } = await import("./worktree-telemetry.js");
     type AutoExitReason =
       | "pause" | "stop" | "blocked" | "merge-conflict" | "merge-failed"
-      | "slice-merge-conflict" | "all-complete" | "no-active-milestone" | "other";
+      | "slice-merge-conflict" | "provider-error" | "session-failed" | "stream-aborted"
+      | "unit-aborted" | "verification-exhausted" | "all-complete" | "no-active-milestone" | "other";
     // Normalize the free-form reason to a closed set so the telemetry
     // aggregator buckets stably. Raw detail is preserved in the phases.ts
     // notification and the notify'd error string.
@@ -1253,6 +1254,16 @@ export async function stopAuto(
             ? "stop"
           : rawReason.startsWith("slice-merge-conflict")
             ? "slice-merge-conflict"
+            : rawReason.startsWith("Provider error")
+              ? "provider-error"
+              : rawReason.startsWith("Session creation")
+                ? "session-failed"
+                : rawReason.startsWith("Operation aborted") || rawReason.includes("stream aborted")
+                  ? "stream-aborted"
+                  : rawReason.startsWith("Auto-mode stopped")
+                    ? "unit-aborted"
+                    : rawReason.includes("Pausing auto-mode after") && rawReason.includes("retries")
+                      ? "verification-exhausted"
             : rawReason === "All milestones complete"
               ? "all-complete"
               : rawReason === "No active milestone"
@@ -1263,6 +1274,7 @@ export async function stopAuto(
     const telemetryBase = s.originalBasePath || s.basePath;
     emitAutoExit(telemetryBase, {
       reason: normalizedReason,
+      rawReason,
       milestoneId: s.currentMilestoneId ?? undefined,
       milestoneMerged: s.milestoneMergedInPhases === true,
       isolationMode: getIsolationMode(telemetryBase),
