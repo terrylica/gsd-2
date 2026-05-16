@@ -209,10 +209,10 @@ test("direct /gsd auto skips paused-session replay when recovered unit already c
 
     const state = {
       pausedSessionFile: join(base, ".gsd", "activity", "paused-session.jsonl"),
-      currentUnit: { type: "plan-slice", id: "M001/S01" },
-      pausedUnitType: null,
-      pausedUnitId: null,
-      pendingCrashRecovery: null,
+      currentUnit: null,
+      pausedUnitType: "plan-slice",
+      pausedUnitId: "M001/S01",
+      pendingCrashRecovery: "stale-recovery-prompt",
     };
 
     const result = _handlePausedSessionResumeRecoveryForTest(base, state);
