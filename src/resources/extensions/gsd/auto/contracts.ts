@@ -23,6 +23,8 @@ export interface AutoStatus {
 }
 
 export type AutoAdvanceResult =
+  | { kind: "started" }
+  | { kind: "resumed" }
   | { kind: "advanced"; unit: UnitRef; stateSnapshot: GSDState }
   | { kind: "blocked"; reason: string; action: "pause" | "stop"; stateSnapshot?: GSDState }
   | { kind: "stopped"; reason: string; stateSnapshot?: GSDState }

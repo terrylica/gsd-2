@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveDispatch } from "../auto-dispatch.ts";
 import type { DispatchContext } from "../auto-dispatch.ts";
+import type { AutoSession } from "../auto/session.ts";
 import type { GSDState } from "../types.ts";
 import { enableDebug, disableDebug, getDebugLogPath } from "../debug-logger.ts";
 
@@ -40,6 +41,27 @@ function makeContext(basePath: string, stateOverrides?: Partial<GSDState>): Disp
     midTitle: "Test Milestone",
     state: makeState(stateOverrides),
     prefs: undefined,
+  };
+}
+
+function makeContextFor(
+  basePath: string,
+  mid: string,
+  sid: string,
+  tid: string,
+  session?: Partial<AutoSession>,
+): DispatchContext {
+  return {
+    basePath,
+    mid,
+    midTitle: "Test Milestone",
+    state: makeState({
+      activeMilestone: { id: mid, title: "Test Milestone" },
+      activeSlice: { id: sid, title: "Second Slice" },
+      activeTask: { id: tid, title: "First Task" },
+    }),
+    prefs: undefined,
+    session: session as AutoSession | undefined,
   };
 }
 
@@ -141,6 +163,33 @@ test("dispatch: executing recovery checks active milestone worktree task plans b
     `unitType should be execute-task, got: ${result.action === "dispatch" ? result.unitType : "(stop)"}`);
   assert.ok(result.action === "dispatch" && result.unitId === "M002/S03/T01",
     `unitId should be M002/S03/T01, got: ${result.action === "dispatch" ? result.unitId : "(stop)"}`);
+});
+
+test("dispatch: active session worktree task plan wins over missing original-root task plan", async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), "gsd-worktree-artifact-root-"));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+
+  scaffoldMilestoneContext(tmp, "M004");
+  scaffoldSlicePlan(tmp, "M004", "S02");
+
+  const worktreeRoot = join(tmp, ".gsd", "worktrees", "M004");
+  mkdirSync(worktreeRoot, { recursive: true });
+  scaffoldMilestoneContext(worktreeRoot, "M004");
+  scaffoldSlicePlan(worktreeRoot, "M004", "S02");
+  scaffoldTaskPlan(worktreeRoot, "M004", "S02", "T01");
+
+  const ctx = makeContextFor(tmp, "M004", "S02", "T01", {
+    basePath: worktreeRoot,
+    originalBasePath: tmp,
+    currentMilestoneId: "M004",
+  });
+  const result = await resolveDispatch(ctx);
+
+  assert.equal(result.action, "dispatch");
+  assert.ok(result.action === "dispatch" && result.unitType === "execute-task",
+    `unitType should be execute-task, got: ${result.action === "dispatch" ? result.unitType : "(stop)"}`);
+  assert.ok(result.action === "dispatch" && result.unitId === "M004/S02/T01",
+    `unitId should be M004/S02/T01, got: ${result.action === "dispatch" ? result.unitId : "(stop)"}`);
 });
 
 test("dispatch: plan-slice recovery loop — second call after plan-slice still recovers cleanly", async (t) => {

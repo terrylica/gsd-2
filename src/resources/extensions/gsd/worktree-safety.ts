@@ -53,6 +53,7 @@ export interface WorktreeSafetyInput {
   projectRoot: string;
   unitRoot: string;
   milestoneId?: string | null;
+  isolationMode?: "none" | "branch" | "worktree";
   expectedBranch?: string | null;
   emptyWorktreeWithProjectContent?: boolean;
   lease?: {
@@ -156,12 +157,19 @@ export function createWorktreeSafetyModule(
 
       const projectRoot = resolve(input.projectRoot);
       const unitRoot = resolve(input.unitRoot);
-      const expectedRoot = join(projectRoot, ".gsd", "worktrees", milestoneId);
+      const isolationMode = input.isolationMode ?? "worktree";
+      const expectedRoot = isolationMode === "worktree"
+        ? join(projectRoot, ".gsd", "worktrees", milestoneId)
+        : projectRoot;
       if (!samePath(unitRoot, expectedRoot)) {
         return failure(
           "invalid-root",
-          `Unit root ${unitRoot} is not the expected worktree root for ${milestoneId}.`,
-          "Prepare the Unit in its canonical milestone worktree before allowing source writes.",
+          isolationMode === "worktree"
+            ? `Unit root ${unitRoot} is not the expected worktree root for ${milestoneId}.`
+            : `Unit root ${unitRoot} is not the project root while isolation mode is ${isolationMode}.`,
+          isolationMode === "worktree"
+            ? "Prepare the Unit in its canonical milestone worktree before allowing source writes."
+            : "Run the Unit from the project root when worktree isolation is disabled.",
           { expectedRoot, unitRoot },
         );
       }
@@ -197,7 +205,7 @@ export function createWorktreeSafetyModule(
         );
       }
 
-      if (!gitMarkerStat.isFile()) {
+      if (isolationMode === "worktree" && !gitMarkerStat.isFile()) {
         return failure(
           "worktree-git-marker-not-file",
           `Worktree root ${unitRoot} has a .git directory, not a registered worktree .git file.`,

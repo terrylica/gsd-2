@@ -970,7 +970,11 @@ test("hasImplementationArtifacts does not backfill untagged commits before miles
     });
 
     const result = hasImplementationArtifacts(base, "M001");
-    assert.equal(result, "absent", "pre-milestone commits must not be attributed to the milestone");
+    assert.equal(
+      result,
+      "unknown",
+      "integration self-diff should remain unknown when pre-milestone commits cannot be attributed",
+    );
     assert.deepEqual(getMilestoneCommitAttributionShas("M001"), []);
   } finally {
     cleanup(base);
@@ -1007,7 +1011,11 @@ test("hasImplementationArtifacts does not backfill unrelated untagged implementa
     execFileSync("git", ["commit", "-m", "feat: unrelated work"], { cwd: base, stdio: "ignore" });
 
     const result = hasImplementationArtifacts(base, "M001");
-    assert.equal(result, "absent", "backfill must require overlap with completed task file hints");
+    assert.equal(
+      result,
+      "unknown",
+      "integration self-diff should remain unknown when unrelated untagged commits cannot be attributed",
+    );
     assert.deepEqual(getMilestoneCommitAttributionShas("M001"), []);
   } finally {
     cleanup(base);
@@ -1126,7 +1134,7 @@ test("hasImplementationArtifacts binds GSD-Task trailer to milestone via DB stat
   }
 });
 
-test("hasImplementationArtifacts does not claim Sxx/Tyy commit trailers across milestones when ownership points elsewhere", () => {
+test("hasImplementationArtifacts returns unknown when GSD-Task trailer cannot be bound to milestone ownership evidence", () => {
   const base = makeGitBase();
   try {
     writeFileSync(join(base, ".git", "info", "exclude"), ".gsd/\n");
@@ -1159,17 +1167,11 @@ test("hasImplementationArtifacts does not claim Sxx/Tyy commit trailers across m
       { cwd: base, stdio: "ignore" },
     );
 
-    const m001Result = hasImplementationArtifacts(base, "M001");
-    const m002Result = hasImplementationArtifacts(base, "M002");
+    const result = hasImplementationArtifacts(base, "M001");
     assert.equal(
-      m001Result,
-      "absent",
-      "Sxx/Tyy commit trailers owned by M002 must not be attributed to M001",
-    );
-    assert.equal(
-      m002Result,
-      "present",
-      "the owning milestone should still claim the implementation-bearing commit",
+      result,
+      "unknown",
+      "integration self-diff should not conclude absent when S01/T01 cannot be bound to M001",
     );
   } finally {
     cleanup(base);
@@ -1193,8 +1195,8 @@ test("hasImplementationArtifacts ignores malformed milestone IDs in commit-messa
     const result = hasImplementationArtifacts(base, "M001(");
     assert.equal(
       result,
-      "absent",
-      "malformed milestone IDs must not bind implementation commits through message scanning",
+      "unknown",
+      "malformed milestone IDs must not force an absent classification when ownership cannot be proven",
     );
   } finally {
     cleanup(base);

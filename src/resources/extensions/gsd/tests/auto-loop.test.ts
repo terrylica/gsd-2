@@ -3652,6 +3652,81 @@ test("runDispatch falls back to main when dispatch guard cannot read main branch
   assert.equal(result.action, "next");
 });
 
+test("runDispatch clamps oversized stuck window before detection (#6216)", async () => {
+  _resetPendingResolve();
+
+  const ctx = makeMockCtx();
+  const pi = makeMockPi();
+  const s = makeLoopSession();
+  const deps = makeMockDeps({
+    resolveDispatch: async () => {
+      deps.callLog.push("resolveDispatch");
+      return {
+        action: "dispatch" as const,
+        unitType: "complete-slice",
+        unitId: "M006/S03",
+        prompt: "close out slice",
+      };
+    },
+  });
+  const loopState = {
+    recentUnits: [
+      { key: "complete-slice/M006/S03" },
+      { key: "execute-task/M006/S03/T01" },
+      { key: "complete-slice/M006/S03" },
+      { key: "execute-task/M006/S03/T01" },
+      { key: "execute-task/M006/S03/T02" },
+      { key: "execute-task/M006/S03/T03" },
+      { key: "execute-task/M006/S03/T04" },
+      { key: "execute-task/M006/S03/T05" },
+      { key: "execute-task/M006/S03/T06" },
+      { key: "execute-task/M006/S03/T07" },
+      { key: "execute-task/M006/S03/T08" },
+      { key: "execute-task/M006/S03/T09" },
+      { key: "execute-task/M006/S03/T10" },
+      { key: "execute-task/M006/S03/T11" },
+      { key: "execute-task/M006/S03/T12" },
+      { key: "complete-slice/M006/S03" },
+      { key: "execute-task/M006/S03/T13" },
+      { key: "execute-task/M006/S03/T14" },
+      { key: "execute-task/M006/S03/T15" },
+      { key: "execute-task/M006/S03/T16" },
+    ],
+    stuckRecoveryAttempts: 0,
+    consecutiveFinalizeTimeouts: 0,
+  };
+
+  const result = await runDispatch(
+    {
+      ctx,
+      pi,
+      s,
+      deps,
+      prefs: undefined,
+      iteration: 1,
+      flowId: "test-flow",
+      nextSeq: () => 1,
+    },
+    {
+      state: {
+        phase: "executing",
+        activeMilestone: { id: "M001", title: "Test", status: "active" },
+        activeSlice: { id: "S01", title: "Slice 1" },
+        activeTask: { id: "T01" },
+        registry: [{ id: "M001", status: "active" }],
+        blockers: [],
+      } as any,
+      mid: "M001",
+      midTitle: "Test",
+    },
+    loopState,
+  );
+
+  assert.equal(result.action, "next");
+  assert.equal(loopState.recentUnits.length, 6, "stuck window should be capped to the active detector size");
+  assert.ok(!deps.callLog.includes("stopAuto"), "oversized persisted history should not trigger a false stuck stop");
+});
+
 test("dispatch Worktree Safety stops unknown unit types with missing Tool Contract", async (t) => {
   _resetPendingResolve();
 
@@ -3720,6 +3795,66 @@ test("dispatch Worktree Safety stops unknown unit types with missing Tool Contra
     notifications.some((n) => n.includes("missing Tool Contract for new-source-writing-unit-without-manifest")),
     "should notify with an actionable missing Tool Contract reason",
   );
+});
+
+test("dispatch Worktree Safety accepts sidecar-prefixed known unit types", async (t) => {
+  _resetPendingResolve();
+
+  const ctx = makeMockCtx();
+  const pi = makeMockPi();
+
+  const projectRoot = mkdtempSync(join(tmpdir(), "gsd-wt-safety-sidecar-prefix-"));
+  const worktreeRoot = join(projectRoot, ".gsd", "worktrees", "M001");
+  mkdirSync(worktreeRoot, { recursive: true });
+  t.after(() => rmSync(projectRoot, { recursive: true, force: true }));
+
+  const s = makeLoopSession({
+    basePath: worktreeRoot,
+    originalBasePath: projectRoot,
+    canonicalProjectRoot: projectRoot,
+  });
+  const deps = makeMockDeps({
+    getIsolationMode: () => "worktree",
+    resolveDispatch: async () => ({
+      action: "dispatch" as const,
+      unitType: "sidecar/triage-captures",
+      unitId: "M001/S01/triage",
+      prompt: "triage",
+    }),
+  });
+
+  const result = await runDispatch(
+    {
+      ctx,
+      pi,
+      s,
+      deps,
+      prefs: undefined,
+      iteration: 1,
+      flowId: "test-flow",
+      nextSeq: () => 1,
+    },
+    {
+      state: {
+        phase: "executing",
+        activeMilestone: { id: "M001", title: "Test", status: "active" },
+        activeSlice: { id: "S01", title: "Slice 1" },
+        activeTask: { id: "T01" },
+        registry: [{ id: "M001", status: "active" }],
+        blockers: [],
+      } as any,
+      mid: "M001",
+      midTitle: "Test",
+    },
+    {
+      recentUnits: [],
+      stuckRecoveryAttempts: 0,
+      consecutiveFinalizeTimeouts: 0,
+    },
+  );
+
+  assert.equal(result.action, "next");
+  assert.ok(!deps.callLog.includes("stopAuto"), "should not stop for sidecar-prefixed known unit types");
 });
 
 test("pre-dispatch skip resolves before dispatch health and stuck accounting", async () => {

@@ -158,6 +158,31 @@ export function markWorkerStopping(workerId: string): void {
 }
 
 /**
+ * Mark the active worker row for a specific PID/project root as stopping.
+ * Used when we detect a dead PID from lock metadata before heartbeat expiry.
+ */
+export function markWorkerStoppingByPid(
+  projectRootRealpath: string,
+  pid: number,
+): void {
+  if (!isDbAvailable()) return;
+  if (!Number.isInteger(pid) || pid <= 0) return;
+  const db = _getAdapter()!;
+  transaction(() => {
+    db.prepare(
+      `UPDATE workers
+       SET status = 'stopping'
+       WHERE pid = :pid
+         AND project_root_realpath = :project_root
+         AND status = 'active'`,
+    ).run({
+      ":pid": pid,
+      ":project_root": projectRootRealpath,
+    });
+  });
+}
+
+/**
  * Return all workers whose status is 'active' AND whose heartbeat is within
  * the TTL window. Workers older than the TTL are NOT auto-marked crashed
  * here — that's a separate janitor responsibility — but they are filtered

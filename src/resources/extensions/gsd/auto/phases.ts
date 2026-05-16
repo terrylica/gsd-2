@@ -80,6 +80,8 @@ import { decideVerificationRetry, verificationRetryKey } from "./verification-re
 import { buildPhaseHandoffOutcome, setAutoOutcomeWidget } from "../auto-dashboard.js";
 import { getConsecutiveDispatchBlocker } from "../dispatch-guard.js";
 
+export const STUCK_WINDOW_SIZE = 6;
+
 // ─── Path Comparison Helper ───────────────────────────────────────────────
 /** Compare two paths for physical identity, tolerating trailing slashes and symlinks. */
 function isSamePathLocal(a: string, b: string): boolean {
@@ -148,7 +150,12 @@ export function shouldDegradeEmptyWorktreeToProjectRoot(
 }
 
 function unitWritesSource(unitType: string): boolean | null {
-  const manifest = resolveManifest(unitType);
+  // Backward compatibility: sidecar queues from older builds may persist
+  // prefixed unit types (e.g. "sidecar/quick-task").
+  const normalizedUnitType = unitType.startsWith("sidecar/")
+    ? unitType.slice("sidecar/".length)
+    : unitType;
+  const manifest = resolveManifest(normalizedUnitType);
   if (!manifest) return null;
   return manifest.tools.mode === "all" || manifest.tools.mode === "docs";
 }
@@ -212,7 +219,8 @@ async function validateSourceWriteWorktreeSafety(
   if (!writesSource) return null;
 
   const projectRoot = s.canonicalProjectRoot ?? resolveWorktreeProjectRoot(s.basePath, s.originalBasePath);
-  if (deps.getIsolationMode(projectRoot) !== "worktree") return null;
+  const isolationMode = deps.getIsolationMode(projectRoot);
+  if (isolationMode !== "worktree") return null;
 
   const safety = createWorktreeSafetyModule();
   const result = safety.validateUnitRoot({
@@ -222,6 +230,7 @@ async function validateSourceWriteWorktreeSafety(
     projectRoot,
     unitRoot: s.basePath,
     milestoneId,
+    isolationMode,
     expectedBranch: milestoneId ? deps.autoWorktreeBranch(milestoneId) : null,
     emptyWorktreeWithProjectContent: resolveEmptyWorktreeWithProjectContent(s.basePath, projectRoot),
     lease: s.workerId
@@ -1248,7 +1257,6 @@ export async function runDispatch(
 ): Promise<PhaseResult<IterationData>> {
   const { ctx, pi, s, deps, prefs } = ic;
   const { state, mid, midTitle } = preData;
-  const STUCK_WINDOW_SIZE = 6;
   const provider = ctx.model?.provider;
   const authMode = provider && typeof ctx.modelRegistry?.getProviderAuthMode === "function"
     ? ctx.modelRegistry.getProviderAuthMode(provider)
@@ -1389,7 +1397,9 @@ export async function runDispatch(
   // Rules 1/3/4 can catch retry loops with repeated failure content (#5719).
   // Rules 2/2b suppress legitimate retry backoff through the dispatch ledger.
   loopState.recentUnits.push({ key: derivedKey });
-  if (loopState.recentUnits.length > STUCK_WINDOW_SIZE) loopState.recentUnits.shift();
+  while (loopState.recentUnits.length > STUCK_WINDOW_SIZE) {
+    loopState.recentUnits.shift();
+  }
 
   const stuckSignal = detectStuck(loopState.recentUnits);
   if (stuckSignal) {

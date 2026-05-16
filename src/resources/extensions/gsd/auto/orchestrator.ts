@@ -37,7 +37,7 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
     this.bumpTransition();
     await this.deps.runtime.journalTransition({ name: "start" });
     await this.deps.notifications.notifyLifecycle({ name: "start" });
-    return this.advance();
+    return { kind: "started" };
   }
 
   public async advance(): Promise<AutoAdvanceResult> {
@@ -299,7 +299,7 @@ export class AutoOrchestrator implements AutoOrchestrationModule {
     this.bumpTransition();
     await this.deps.runtime.journalTransition({ name: "resume" });
     await this.deps.notifications.notifyLifecycle({ name: "resume" });
-    return this.advance();
+    return { kind: "resumed" };
   }
 
   public async stop(reason: string): Promise<AutoAdvanceResult> {
