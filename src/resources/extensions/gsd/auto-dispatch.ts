@@ -276,8 +276,12 @@ function hasMilestonePassedDiscuss(basePath: string, mid: string): boolean {
         const planPath = resolveSliceFile(basePath, mid, slice.id, "PLAN");
         if (planPath && existsSync(planPath)) return true;
       }
-    } catch {
+    } catch (err) {
       // Fall through to filesystem checks when DB access is degraded.
+      logWarning(
+        "dispatch",
+        `discuss-progress DB check failed for ${mid}, falling back to filesystem: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
   const milestonePath = resolveMilestonePath(basePath, mid);
