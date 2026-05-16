@@ -10,6 +10,7 @@ import {
   closeDatabase,
   _getAdapter,
   insertGateRow,
+  insertAssessment,
   upsertRequirement,
   getAllMilestones,
 } from "../gsd-db.ts";
@@ -483,6 +484,13 @@ test("executeCompleteMilestone sanitizes raw params and writes milestone summary
     db!.prepare(
       "INSERT OR REPLACE INTO tasks (milestone_id, slice_id, id, title, status) VALUES (?, ?, ?, ?, ?)",
     ).run("M003", "S03", "T03", "Task T03", "complete");
+    insertAssessment({
+      path: join(".gsd", "milestones", "M003", "M003-VALIDATION.md"),
+      milestoneId: "M003",
+      status: "pass",
+      scope: "milestone-validation",
+      fullContent: "---\nverdict: pass\nremediation_round: 0\n---\n\n# Validation\nValidated.",
+    });
 
     const rawParams = {
       milestoneId: "M003",
