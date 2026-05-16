@@ -313,6 +313,25 @@ test('handleExtensionUIRequest select prefers safe option when present', () => {
   assert.equal(client.sendUICalls[0].response.value, 'Not yet: Run /gsd when ready.')
 })
 
+test('handleExtensionUIRequest select prefers force start when Auto-mode is running', () => {
+  const client = new MockRpcClient()
+
+  handleExtensionUIRequest(
+    {
+      type: 'extension_ui_request',
+      id: 'sel-force',
+      method: 'select',
+      title: 'Auto-mode is running — another command is already executing',
+      options: ['View status', 'Force start anyway', 'Cancel'],
+    },
+    client,
+  )
+
+  assert.equal(client.sendUICalls.length, 1)
+  assert.equal(client.sendUICalls[0].id, 'sel-force')
+  assert.equal(client.sendUICalls[0].response.value, 'Force start anyway')
+})
+
 test('handleExtensionUIRequest confirm calls sendUIResponse with confirmed', () => {
   const client = new MockRpcClient()
 
