@@ -219,6 +219,8 @@ test("direct /gsd auto skips paused-session replay when recovered unit already c
     assert.equal(result.skippedReplay, true);
     assert.equal(state.pausedSessionFile, null);
     assert.equal(state.pendingCrashRecovery, null);
+    assert.equal(state.pausedUnitType, null);
+    assert.equal(state.pausedUnitId, null);
   } finally {
     cleanup(base);
   }
