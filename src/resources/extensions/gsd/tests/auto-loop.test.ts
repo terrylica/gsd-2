@@ -3122,6 +3122,9 @@ test("runUnitPhase execute-task retry prompt instructs gsd_task_complete instead
   assert.equal(typeof dispatchedPrompt, "string");
   assert.match(dispatchedPrompt, /Call `gsd_task_complete`/);
   assert.match(dispatchedPrompt, /Do NOT manually write this file/);
+  assert.match(dispatchedPrompt, /milestoneId/i);
+  assert.match(dispatchedPrompt, /sliceId/i);
+  assert.match(dispatchedPrompt, /taskId/i);
   assert.doesNotMatch(dispatchedPrompt, /Fix whatever went wrong and make sure you write the required file this time/);
 });
 
@@ -3206,6 +3209,7 @@ test("runUnitPhase non-execute-task retry prompt keeps generic required-file gui
   assert.equal(typeof dispatchedPrompt, "string");
   assert.match(dispatchedPrompt, /Fix whatever went wrong and make sure you write the required file this time/);
   assert.doesNotMatch(dispatchedPrompt, /Call `gsd_task_complete`/);
+  assert.doesNotMatch(dispatchedPrompt, /Do NOT manually write this file/);
 });
 
 test("resolveAgentEndCancelled without args produces no errorContext field", async () => {
