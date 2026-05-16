@@ -71,6 +71,34 @@ describe("TUI", () => {
 		assert.ok(!renderWrite.startsWith("\x1b[?2026h\x1b[1A\r"), "editor diff must not move above the cursor row");
 	});
 
+	it("omits synchronized-output wrappers when PI_DISABLE_SYNC_OUTPUT is enabled", () => {
+		const previous = process.env.PI_DISABLE_SYNC_OUTPUT;
+		process.env.PI_DISABLE_SYNC_OUTPUT = "1";
+		try {
+			const writes: string[] = [];
+			const tui = new TUI(makeTerminal(writes));
+			tui.addChild({
+				render: () => ["content"],
+				invalidate() {},
+			});
+
+			(tui as any).doRender();
+
+			const rendered = writes.join("");
+			assert.ok(rendered.includes("content"), "render should still write component output");
+			assert.ok(
+				!rendered.includes("\x1b[?2026h") && !rendered.includes("\x1b[?2026l"),
+				"PI_DISABLE_SYNC_OUTPUT=1 must suppress synchronized-output escape sequences",
+			);
+		} finally {
+			if (previous === undefined) {
+				delete process.env.PI_DISABLE_SYNC_OUTPUT;
+			} else {
+				process.env.PI_DISABLE_SYNC_OUTPUT = previous;
+			}
+		}
+	});
+
 	it("does not full-clear when a tall buffer shrinks (flicker regression #6130)", () => {
 		// Tall-buffer-shrink path: both prev and new exceed viewport height. The fix
 		// falls through to differential render instead of emitting \x1b[2J, which used
