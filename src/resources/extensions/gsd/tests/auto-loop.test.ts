@@ -146,7 +146,21 @@ function makeMockPi() {
 test("resolveAgentEnd resolves a pending runUnit promise", async () => {
   _resetPendingResolve();
 
-  const ctx = makeMockCtx();
+  const ctx = {
+    ...makeMockCtx(),
+    ui: {
+      notify: () => {},
+      setStatus: () => {},
+      setWorkingMessage: () => {},
+    },
+    sessionManager: {
+      getEntries: () => [],
+    },
+    modelRegistry: {
+      getProviderAuthMode: () => undefined,
+      isProviderRequestReady: () => true,
+    },
+  } as any;
   const pi = makeMockPi();
   const s = makeMockSession();
   const event = makeEvent();
@@ -288,7 +302,21 @@ test("resolveAgentEnd drops event when no promise is pending", () => {
 test("double resolveAgentEnd only resolves once (second is dropped)", async () => {
   _resetPendingResolve();
 
-  const ctx = makeMockCtx();
+  const ctx = {
+    ...makeMockCtx(),
+    ui: {
+      notify: () => {},
+      setStatus: () => {},
+      setWorkingMessage: () => {},
+    },
+    sessionManager: {
+      getEntries: () => [],
+    },
+    modelRegistry: {
+      getProviderAuthMode: () => undefined,
+      isProviderRequestReady: () => true,
+    },
+  } as any;
   const pi = makeMockPi();
   const s = makeMockSession();
   const event1 = makeEvent([{ id: 1 }]);
@@ -315,7 +343,21 @@ test("double resolveAgentEnd only resolves once (second is dropped)", async () =
 test("runUnit returns cancelled when session creation fails", async () => {
   _resetPendingResolve();
 
-  const ctx = makeMockCtx();
+  const ctx = {
+    ...makeMockCtx(),
+    ui: {
+      notify: () => {},
+      setStatus: () => {},
+      setWorkingMessage: () => {},
+    },
+    sessionManager: {
+      getEntries: () => [],
+    },
+    modelRegistry: {
+      getProviderAuthMode: () => undefined,
+      isProviderRequestReady: () => true,
+    },
+  } as any;
   const pi = makeMockPi();
   const s = makeMockSession({ newSessionThrows: "connection refused" });
 
@@ -330,7 +372,21 @@ test("runUnit returns cancelled when session creation fails", async () => {
 test("runUnit clears queued switch cancellation when session creation fails", async () => {
   _resetPendingResolve();
 
-  const ctx = makeMockCtx();
+  const ctx = {
+    ...makeMockCtx(),
+    ui: {
+      notify: () => {},
+      setStatus: () => {},
+      setWorkingMessage: () => {},
+    },
+    sessionManager: {
+      getEntries: () => [],
+    },
+    modelRegistry: {
+      getProviderAuthMode: () => undefined,
+      isProviderRequestReady: () => true,
+    },
+  } as any;
   const pi = makeMockPi();
   const s = makeMockSession({
     newSessionThrows: "connection refused",
@@ -352,7 +408,21 @@ test("runUnit clears queued switch cancellation when session creation fails", as
 test("runUnit returns cancelled when session creation times out", async () => {
   _resetPendingResolve();
 
-  const ctx = makeMockCtx();
+  const ctx = {
+    ...makeMockCtx(),
+    ui: {
+      notify: () => {},
+      setStatus: () => {},
+      setWorkingMessage: () => {},
+    },
+    sessionManager: {
+      getEntries: () => [],
+    },
+    modelRegistry: {
+      getProviderAuthMode: () => undefined,
+      isProviderRequestReady: () => true,
+    },
+  } as any;
   const pi = makeMockPi();
   // Session returns cancelled: true (simulates the timeout race outcome)
   const s = makeMockSession({ newSessionResult: { cancelled: true } });
@@ -367,7 +437,21 @@ test("runUnit returns cancelled when session creation times out", async () => {
 test("runUnit consumes a cancellation queued during session switch before dispatch", async () => {
   _resetPendingResolve();
 
-  const ctx = makeMockCtx();
+  const ctx = {
+    ...makeMockCtx(),
+    ui: {
+      notify: () => {},
+      setStatus: () => {},
+      setWorkingMessage: () => {},
+    },
+    sessionManager: {
+      getEntries: () => [],
+    },
+    modelRegistry: {
+      getProviderAuthMode: () => undefined,
+      isProviderRequestReady: () => true,
+    },
+  } as any;
   const pi = makeMockPi();
   let cancellationQueued = false;
   const s = makeMockSession({
@@ -2961,6 +3045,171 @@ test("runUnitPhase records failed routing outcome when expected artifact is miss
     [{ unitType: "execute-task", tier: "light", success: false }],
     "routing history must treat missing artifacts as failed outcomes so retries can escalate",
   );
+});
+
+test("runUnitPhase execute-task retry prompt instructs gsd_task_complete instead of manual summary writes", async (t) => {
+  _resetPendingResolve();
+
+  const basePath = mkdtempSync(join(tmpdir(), "gsd-execute-task-retry-prompt-"));
+  t.after(() => {
+    _resetPendingResolve();
+    rmSync(basePath, { recursive: true, force: true });
+  });
+
+  const deps = makeMockDeps({
+    getDeepDiagnostic: () => "diagnostic: missing artifact",
+    selectAndApplyModel: async () => ({ routing: null, appliedModel: null }),
+  });
+  const ctx = {
+    ...makeMockCtx(),
+    ui: {
+      notify: () => {},
+      setStatus: () => {},
+      setWorkingMessage: () => {},
+    },
+    sessionManager: {
+      getEntries: () => [],
+    },
+    modelRegistry: {
+      getProviderAuthMode: () => undefined,
+      isProviderRequestReady: () => true,
+    },
+  } as any;
+  const pi = {
+    ...makeMockPi(),
+    sendMessage: (...args: unknown[]) => {
+      pi.calls.push(args);
+      queueMicrotask(() => resolveAgentEnd({ messages: [{ role: "assistant" }] }));
+    },
+  } as any;
+  const s = makeLoopSession({
+    basePath,
+    canonicalProjectRoot: basePath,
+    originalBasePath: basePath,
+    unitDispatchCount: new Map([["execute-task/M001/S01/T01", 1]]),
+  });
+  let seq = 0;
+
+  await runUnitPhase(
+    { ctx, pi, s, deps, prefs: undefined, iteration: 1, flowId: "flow-execute-task-retry-prompt", nextSeq: () => ++seq },
+    {
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      prompt: "do work",
+      finalPrompt: "do work",
+      pauseAfterUatDispatch: false,
+      state: {
+        phase: "executing",
+        activeMilestone: { id: "M001", title: "Milestone" },
+        activeSlice: { id: "S01", title: "Slice" },
+        activeTask: { id: "T01", title: "Task" },
+        registry: [{ id: "M001", title: "Milestone", status: "active" }],
+        recentDecisions: [],
+        blockers: [],
+        nextAction: "",
+        progress: { milestones: { done: 0, total: 1 } },
+        requirements: { active: 0, validated: 0, deferred: 0, outOfScope: 0, blocked: 0, total: 0 },
+      } as any,
+      mid: "M001",
+      midTitle: "Milestone",
+      isRetry: false,
+      previousTier: undefined,
+    },
+    { recentUnits: [], stuckRecoveryAttempts: 0, consecutiveFinalizeTimeouts: 0 },
+  );
+
+  const dispatchedPrompt = pi.calls[0]?.[0]?.content;
+  assert.equal(typeof dispatchedPrompt, "string");
+  assert.match(dispatchedPrompt, /Call `gsd_task_complete`/);
+  assert.match(dispatchedPrompt, /Do NOT manually write this file/);
+  assert.match(dispatchedPrompt, /milestoneId/i);
+  assert.match(dispatchedPrompt, /sliceId/i);
+  assert.match(dispatchedPrompt, /taskId/i);
+  assert.doesNotMatch(dispatchedPrompt, /Fix whatever went wrong and make sure you write the required file this time/);
+});
+
+test("runUnitPhase non-execute-task retry prompt keeps generic required-file guidance", async (t) => {
+  _resetPendingResolve();
+
+  const basePath = mkdtempSync(join(tmpdir(), "gsd-non-execute-retry-prompt-"));
+  t.after(() => {
+    _resetPendingResolve();
+    rmSync(basePath, { recursive: true, force: true });
+  });
+
+  const deps = makeMockDeps({
+    getDeepDiagnostic: () => "diagnostic: missing artifact",
+    selectAndApplyModel: async () => ({ routing: null, appliedModel: null }),
+    resolveDispatch: async () => ({
+      action: "dispatch" as const,
+      unitType: "plan-slice",
+      unitId: "M001/S01",
+      prompt: "plan work",
+    }),
+  });
+  const ctx = {
+    ...makeMockCtx(),
+    ui: {
+      notify: () => {},
+      setStatus: () => {},
+      setWorkingMessage: () => {},
+    },
+    sessionManager: {
+      getEntries: () => [],
+    },
+    modelRegistry: {
+      getProviderAuthMode: () => undefined,
+      isProviderRequestReady: () => true,
+    },
+  } as any;
+  const pi = {
+    ...makeMockPi(),
+    sendMessage: (...args: unknown[]) => {
+      pi.calls.push(args);
+      queueMicrotask(() => resolveAgentEnd({ messages: [{ role: "assistant" }] }));
+    },
+  } as any;
+  const s = makeLoopSession({
+    basePath,
+    canonicalProjectRoot: basePath,
+    originalBasePath: basePath,
+    unitDispatchCount: new Map([["plan-slice/M001/S01", 1]]),
+  });
+  let seq = 0;
+
+  await runUnitPhase(
+    { ctx, pi, s, deps, prefs: undefined, iteration: 1, flowId: "flow-non-execute-retry-prompt", nextSeq: () => ++seq },
+    {
+      unitType: "plan-slice",
+      unitId: "M001/S01",
+      prompt: "plan work",
+      finalPrompt: "plan work",
+      pauseAfterUatDispatch: false,
+      state: {
+        phase: "executing",
+        activeMilestone: { id: "M001", title: "Milestone" },
+        activeSlice: { id: "S01", title: "Slice" },
+        activeTask: { id: "T01", title: "Task" },
+        registry: [{ id: "M001", title: "Milestone", status: "active" }],
+        recentDecisions: [],
+        blockers: [],
+        nextAction: "",
+        progress: { milestones: { done: 0, total: 1 } },
+        requirements: { active: 0, validated: 0, deferred: 0, outOfScope: 0, blocked: 0, total: 0 },
+      } as any,
+      mid: "M001",
+      midTitle: "Milestone",
+      isRetry: false,
+      previousTier: undefined,
+    },
+    { recentUnits: [], stuckRecoveryAttempts: 0, consecutiveFinalizeTimeouts: 0 },
+  );
+
+  const dispatchedPrompt = pi.calls[0]?.[0]?.content;
+  assert.equal(typeof dispatchedPrompt, "string");
+  assert.match(dispatchedPrompt, /Fix whatever went wrong and make sure you write the required file this time/);
+  assert.doesNotMatch(dispatchedPrompt, /Call `gsd_task_complete`/);
+  assert.doesNotMatch(dispatchedPrompt, /Do NOT manually write this file/);
 });
 
 test("resolveAgentEndCancelled without args produces no errorContext field", async () => {
