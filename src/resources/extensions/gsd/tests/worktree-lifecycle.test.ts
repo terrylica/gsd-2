@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
   WorktreeLifecycle,
+  mergeMilestoneStandalone,
   resolvePausedResumeBasePath,
   type WorktreeLifecycleDeps,
   type WorktreeLifecycleTestOverrides,
@@ -648,6 +649,21 @@ test("adoptSessionRoot does not chdir, rebuild git service, or invalidate caches
 
   assert.equal(deps.calls.filter((c) => c.fn === "gitServiceFactory").length, 0);
   assert.equal(deps.calls.filter((c) => c.fn === "invalidateAllCaches").length, 0);
+});
+
+test("mergeMilestoneStandalone fails loud when both base paths are empty", () => {
+  const deps = makeDeps();
+  assert.throws(
+    () =>
+      mergeMilestoneStandalone(deps, {
+        originalBasePath: "",
+        worktreeBasePath: "",
+        milestoneId: "M001",
+        isolationDegraded: false,
+        notify: () => {},
+      }),
+    /requires originalBasePath or worktreeBasePath/,
+  );
 });
 
 // ─── resumeFromPausedSession (ADR-016 phase 2 / B3, issue #5621) ──────────────

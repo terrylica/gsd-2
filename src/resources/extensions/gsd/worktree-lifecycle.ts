@@ -1236,6 +1236,11 @@ export function mergeMilestoneStandalone(
 ): MergeStandaloneResult {
   const { originalBasePath, worktreeBasePath, milestoneId, notify } = mctx;
   validateMilestoneId(milestoneId);
+  if (!originalBasePath && !worktreeBasePath) {
+    throw new Error(
+      `Internal error: mergeMilestoneStandalone(${milestoneId}) requires originalBasePath or worktreeBasePath.`,
+    );
+  }
 
   if (mctx.isolationDegraded) {
     if (originalBasePath) {
