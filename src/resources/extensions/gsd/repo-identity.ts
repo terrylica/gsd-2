@@ -427,12 +427,12 @@ function hasProjectState(externalPath: string): boolean {
  *
  * Returns the resolved external path (may differ from the computed identity).
  */
-function resolveExternalPathWithRecovery(projectPath: string): string {
-  const computedPath = externalGsdRoot(projectPath);
+function resolveExternalPathWithRecovery(projectPath: string): { path: string; identity: string } {
+  const base = process.env.GSD_STATE_DIR || gsdHome();
   const computedId = repoIdentity(projectPath);
+  const computedPath = join(base, "projects", computedId);
   const computedHasState = hasProjectState(computedPath);
   const markerId = readGsdIdMarker(projectPath);
-  const base = process.env.GSD_STATE_DIR || gsdHome();
   const markerPath = markerId ? join(base, "projects", markerId) : null;
   const markerHasState = markerPath ? hasProjectState(markerPath) : false;
 
@@ -447,12 +447,12 @@ function resolveExternalPathWithRecovery(projectPath: string): string {
     && markerHasState
     && computedHasState
   ) {
-    return markerPath;
+    return { path: markerPath, identity: markerId };
   }
 
   // Check if computed path already has state — fast path, no recovery needed.
   if (computedHasState) {
-    return computedPath;
+    return { path: computedPath, identity: computedId };
   }
 
   // Check for .gsd-id marker from a previous location.
@@ -481,12 +481,12 @@ function resolveExternalPathWithRecovery(projectPath: string): string {
         try { rmSync(markerPath, { recursive: true, force: true }); } catch { /* non-fatal */ }
       } catch {
         // If migration fails, just point at the old directory.
-        return markerPath;
+        return { path: markerPath, identity: markerId };
       }
     }
   }
 
-  return computedPath;
+  return { path: computedPath, identity: computedId };
 }
 
 // ─── Symlink Management ─────────────────────────────────────────────────────
@@ -505,20 +505,21 @@ function resolveExternalPathWithRecovery(projectPath: string): string {
  * Returns the resolved external path.
  */
 export function ensureGsdSymlink(projectPath: string): string {
-  const result = ensureGsdSymlinkCore(projectPath);
+  const { path: result, identity } = ensureGsdSymlinkCore(projectPath);
 
   // Write .gsd-id marker so future relocations can recover this state (#2750).
   // Only write for the project root (not subdirectories or worktrees that
   // delegate to a parent .gsd).
   if (!isInsideWorktree(projectPath)) {
-    writeGsdIdMarker(projectPath, repoIdentity(projectPath));
+    writeGsdIdMarker(projectPath, identity);
   }
 
   return result;
 }
 
-function ensureGsdSymlinkCore(projectPath: string): string {
-  const externalPath = resolveExternalPathWithRecovery(projectPath);
+function ensureGsdSymlinkCore(projectPath: string): { path: string; identity: string } {
+  const resolved = resolveExternalPathWithRecovery(projectPath);
+  const externalPath = resolved.path;
   const localGsd = join(projectPath, ".gsd");
   const inWorktree = isInsideWorktree(projectPath);
 
@@ -535,7 +536,7 @@ function ensureGsdSymlinkCore(projectPath: string): string {
   const localGsdNormalized = normalizeForGuard(localGsd);
   const gsdHomeNorm = normalizeForGuard(gsdHome());
   if (localGsdNormalized === gsdHomeNorm) {
-    return localGsd;
+    return { path: localGsd, identity: resolved.identity };
   }
 
   // Guard: If projectPath is a plain subdirectory (not a worktree) of a git
@@ -554,7 +555,10 @@ function ensureGsdSymlinkCore(projectPath: string): string {
           try {
             const rootStat = lstatSync(rootGsd);
             if (rootStat.isSymbolicLink() || rootStat.isDirectory()) {
-              return rootStat.isSymbolicLink() ? realpathSync(rootGsd) : rootGsd;
+              return {
+                path: rootStat.isSymbolicLink() ? realpathSync(rootGsd) : rootGsd,
+                identity: resolved.identity,
+              };
             }
           } catch {
             // Fall through to normal logic if we can't stat root .gsd
@@ -576,12 +580,12 @@ function ensureGsdSymlinkCore(projectPath: string): string {
   // Write repo metadata once so cleanup commands can identify this directory later.
   writeRepoMeta(externalPath, getRemoteUrl(projectPath), resolveGitRoot(projectPath));
 
-  const replaceWithSymlink = (): string => {
+  const replaceWithSymlink = (): { path: string; identity: string } => {
     rmSync(localGsd, { recursive: true, force: true });
     // Defensive: remove any residual entry (e.g. dangling symlink) before creating.
     try { unlinkSync(localGsd); } catch { /* already gone */ }
     symlinkSync(externalPath, localGsd, "junction");
-    return externalPath;
+    return resolved;
   };
 
   // Check for dangling symlinks (e.g. after relocation recovery removed the old
@@ -601,7 +605,7 @@ function ensureGsdSymlinkCore(projectPath: string): string {
     // Defensive: remove any residual entry to avoid EEXIST race (#2750).
     try { unlinkSync(localGsd); } catch { /* nothing to remove */ }
     symlinkSync(externalPath, localGsd, "junction");
-    return externalPath;
+    return resolved;
   }
 
   try {
@@ -611,7 +615,7 @@ function ensureGsdSymlinkCore(projectPath: string): string {
       // Already a symlink — verify it points to the right place
       const target = realpathSync(localGsd);
       if (target === externalPath) {
-        return externalPath; // correct symlink, no-op
+        return resolved; // correct symlink, no-op
       }
       // In a worktree, mismatched symlinks are always stale. Heal them so
       // the worktree points at the same external state dir as the main repo.
@@ -636,11 +640,11 @@ function ensureGsdSymlinkCore(projectPath: string): string {
           return replaceWithSymlink();
         } catch {
           // Migration failed — preserve old symlink
-          return target;
+          return { path: target, identity: resolved.identity };
         }
       }
       // Outside worktrees, preserve custom overrides or legacy symlinks.
-      return target;
+      return { path: target, identity: resolved.identity };
     }
 
     if (stat.isDirectory()) {
@@ -648,13 +652,13 @@ function ensureGsdSymlinkCore(projectPath: string): string {
       // In worktrees, keep the directory in place and let syncGsdStateToWorktree
       // refresh its contents. Replacing a git-tracked .gsd directory with a
       // symlink makes git think tracked planning files were deleted.
-      return localGsd;
+      return { path: localGsd, identity: resolved.identity };
     }
   } catch {
     // lstat failed — path exists but we can't stat it
   }
 
-  return localGsd;
+  return { path: localGsd, identity: resolved.identity };
 }
 
 // ─── Worktree Detection ─────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { describe, test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, existsSync, lstatSync, realpathSync, mkdirSync, symlinkSync, renameSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, existsSync, lstatSync, realpathSync, mkdirSync, symlinkSync, renameSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -250,6 +250,7 @@ test('ensureGsdSymlink prefers marker directory when marker/computed identities 
     const resolved = ensureGsdSymlink(repo);
     assert.deepStrictEqual(resolved, markerPath, "marker-backed state directory is preferred in split-brain condition");
     assert.deepStrictEqual(realpathSync(join(repo, ".gsd")), realpathSync(markerPath), ".gsd symlink resolves to marker-backed state directory");
+    assert.deepStrictEqual(readFileSync(join(repo, ".gsd-id"), "utf-8").trim(), markerId, ".gsd-id marker persists the marker-backed identity");
 
     rmSync(repo, { recursive: true, force: true });
 });
