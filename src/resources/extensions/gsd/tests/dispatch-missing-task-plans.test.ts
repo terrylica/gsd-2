@@ -244,7 +244,9 @@ test("dispatch: missing task plan recovery logs root/worktree diagnostic when de
   assert.ok(entry, "diagnostic event should be logged when recovery fires in debug mode");
   assert.equal(entry!.basePathUsedForArtifactChecks, tmp);
   assert.equal(entry!.artifactExists, false, "task plan is genuinely absent");
+  assert.equal(entry!.expectedTaskPlanExists, false, "expected task plan is genuinely absent");
   assert.equal(entry!.projectionArtifactExists, false, "projection task plan is genuinely absent");
+  assert.equal(entry!.hasRootWorktreeMismatch, false, "root/worktree mismatch should be false in single-root scenario");
   assert.equal(typeof entry!.expectedTaskPlanPath, "string");
   assert.equal(typeof entry!.projectionTaskPlanPath, "string");
 });

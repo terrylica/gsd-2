@@ -1207,16 +1207,18 @@ export const DISPATCH_RULES: DispatchRule[] = [
           const expectedTaskPlanPath = join(artifactBasePath, relTaskFile(artifactBasePath, mid, sid, tid, "PLAN"));
           const originalProjectRoot = session?.originalBasePath || basePath;
           const activeMilestoneWorktreePath = session?.basePath || basePath;
-          const artifactExists = taskPlanPath ? existsSync(taskPlanPath) : false;
+          const expectedTaskPlanExists = existsSync(expectedTaskPlanPath);
           debugLog("dispatch-missing-task-plan-recovery", {
             selectedDispatchRule: "executing → execute-task (recover missing task plan → plan-slice)",
             basePathUsedForArtifactChecks: artifactBasePath,
             milestoneRoot: artifactBasePath,
             originalProjectRoot,
             activeMilestoneWorktreePath,
+            hasRootWorktreeMismatch: originalProjectRoot !== activeMilestoneWorktreePath,
             expectedTaskPlanPath,
             projectionTaskPlanPath,
-            artifactExists,
+            expectedTaskPlanExists,
+            artifactExists: expectedTaskPlanExists,
             projectionArtifactExists: existsSync(projectionTaskPlanPath),
           });
         }
