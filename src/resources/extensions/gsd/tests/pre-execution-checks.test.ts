@@ -423,6 +423,40 @@ describe("checkFilePathConsistency with path normalization", () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  test("absolute input path matches relative expected_output within basePath (#5519)", () => {
+    tempDir = join(tmpdir(), `pre-exec-test-${Date.now()}`);
+    mkdirSync(tempDir, { recursive: true });
+
+    try {
+      const absGenerated = join(tempDir, "src/new-file.ts");
+      const tasks = [
+        createTask({
+          id: "T01",
+          sequence: 0,
+          files: [],
+          inputs: [],
+          expected_output: ["src/new-file.ts"],
+        }),
+        createTask({
+          id: "T02",
+          sequence: 1,
+          files: [],
+          inputs: [absGenerated],
+          expected_output: [],
+        }),
+      ];
+
+      const results = checkFilePathConsistency(tasks, tempDir);
+      assert.deepEqual(
+        results,
+        [],
+        "Should pass because absolute/relative paths under basePath must compare equal",
+      );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("checkTaskOrdering with path normalization", () => {

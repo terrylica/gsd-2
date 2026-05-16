@@ -20,7 +20,7 @@
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import type { TaskRow } from "./db-task-slice-rows.js";
 import type { PreExecutionCheckJSON } from "./verification-evidence.ts";
 import { validateVerificationCommand } from "./verification-gate.js";
@@ -489,6 +489,13 @@ export function checkFilePathConsistency(
 ): PreExecutionCheckJSON[] {
   const results: PreExecutionCheckJSON[] = [];
   const resolutionRoots = [basePath, ...(context?.additionalRoots ?? [])];
+  const normalizedBasePath = normalizeFilePath(basePath);
+  const toComparisonPath = (filePath: string): string => {
+    const normalized = normalizeFilePath(filePath);
+    if (!isAbsolute(normalized)) return normalized;
+    const rel = normalizeFilePath(relative(normalizedBasePath, normalized));
+    return rel && !rel.startsWith("..") && rel !== "." ? rel : normalized;
+  };
 
   // Build a set of all files created by any task at any position (normalized).
   // Used to suppress consistency errors for files that will be caught with a
@@ -496,14 +503,14 @@ export function checkFilePathConsistency(
   const allTaskOutputs = new Set<string>();
   for (const t of tasks) {
     for (const f of t.expected_output) {
-      allTaskOutputs.add(normalizeFilePath(f));
+      allTaskOutputs.add(toComparisonPath(f));
     }
   }
 
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
-    const priorOutputs = getExpectedOutputsUpTo(tasks, i);
-    const ownOutputs = new Set<string>(task.expected_output.map(normalizeFilePath));
+    const priorOutputs = new Set<string>(Array.from(getExpectedOutputsUpTo(tasks, i), toComparisonPath));
+    const ownOutputs = new Set<string>(task.expected_output.map(toComparisonPath));
     const filesToCheck = [...task.inputs];
 
     for (const file of filesToCheck) {
@@ -512,7 +519,7 @@ export function checkFilePathConsistency(
       if (!shouldValidateInputAsPath(file)) continue;
 
       // Normalize path for consistent comparison
-      const normalizedFile = normalizeFilePath(file);
+      const normalizedFile = toComparisonPath(file);
       if (containsGlobPattern(normalizedFile)) continue;
 
       // Check if file exists on disk
