@@ -67,8 +67,9 @@ describe("TUI", () => {
 		anyTui.doRender();
 
 		const renderWrite = writes[writeCountAfterFirstRender];
-		assert.ok(renderWrite.startsWith("\x1b[?2026h\r"), "editor diff should start at the current cursor row");
-		assert.ok(!renderWrite.startsWith("\x1b[?2026h\x1b[1A\r"), "editor diff must not move above the cursor row");
+		const withoutSyncWrapper = renderWrite.replace(/^\x1b\[\?2026h/, "");
+		assert.ok(withoutSyncWrapper.startsWith("\r"), "editor diff should start at the current cursor row");
+		assert.ok(!withoutSyncWrapper.startsWith("\x1b[1A\r"), "editor diff must not move above the cursor row");
 	});
 
 	it("omits synchronized-output wrappers when PI_DISABLE_SYNC_OUTPUT is enabled", () => {
