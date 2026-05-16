@@ -187,6 +187,21 @@ describe("verification-gate: discovery", () => {
     assert.deepStrictEqual(result.commands, ["npm run test"]);
   });
 
+  test("non-ASCII prose taskPlanVerify is rejected, falls through to package.json", () => {
+    writeFileSync(
+      join(tmp, "package.json"),
+      JSON.stringify({ scripts: { test: "vitest" } }),
+    );
+    const result = discoverCommands({
+      // Chinese prose: "All commands output one line of JSONL; go test ./... passes"
+      taskPlanVerify: "所有 命令 输出 一行 JSONL go test ./... 通过",
+      cwd: tmp,
+    });
+    // Non-ASCII prose should be rejected, so it falls through to package.json
+    assert.equal(result.source, "package-json");
+    assert.deepStrictEqual(result.commands, ["npm run test"]);
+  });
+
   test("prose taskPlanVerify with no package.json → source none", () => {
     const result = discoverCommands({
       taskPlanVerify: "Verify the output matches expected format and all fields are present",
