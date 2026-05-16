@@ -13,6 +13,7 @@ import {
   heartbeatAutoWorker,
   markWorkerCrashed,
   markWorkerStopping,
+  markWorkerStoppingByPid,
   getActiveAutoWorkers,
   getAutoWorker,
 } from "../db/auto-workers.ts";
@@ -67,6 +68,18 @@ test("markWorkerStopping flips status to stopping", (t) => {
 
   const id = registerAutoWorker({ projectRootRealpath: base });
   markWorkerStopping(id);
+  const row = getAutoWorker(id)!;
+  assert.equal(row.status, "stopping");
+});
+
+test("markWorkerStoppingByPid flips matching active row to stopping", (t) => {
+  const base = makeBase();
+  t.after(() => cleanup(base));
+  openDatabase(join(base, ".gsd", "gsd.db"));
+
+  const id = registerAutoWorker({ projectRootRealpath: base });
+  const pid = getAutoWorker(id)!.pid;
+  markWorkerStoppingByPid(base, pid);
   const row = getAutoWorker(id)!;
   assert.equal(row.status, "stopping");
 });
