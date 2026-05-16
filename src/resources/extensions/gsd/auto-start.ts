@@ -958,12 +958,14 @@ export async function bootstrapAutoSession(
     // hasSurvivorBranch after a successful promotion.
     if (decideSurvivorAction(hasSurvivorBranch, state.phase) === "finalize") {
       const mid = survivorMilestoneId!;
+      const lifecycle = buildLifecycle();
+      lifecycle.adoptSessionRoot(base);
       // Commit 68ef58a3c made `_mergeBranchMode` throw on wrong-branch
       // instead of returning false silently. Wrap the call so the throw is
       // converted into an error notify + clean bootstrap abort, not an
       // unhandled exception propagating to the slash-command caller (#5549
       // post-merge audit, R2).
-      const finalize = _finalizeSurvivorBranch(buildLifecycle(), mid, ctx.ui);
+      const finalize = _finalizeSurvivorBranch(lifecycle, mid, ctx.ui);
       if (!finalize.merged) {
         return releaseLockAndReturn();
       }
