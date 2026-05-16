@@ -118,6 +118,30 @@ test("dispatch: present task plan proceeds to execute-task normally", async (t) 
     `unitId should be M002/S03/T01, got: ${result.action === "dispatch" ? result.unitId : "(stop)"}`);
 });
 
+test("dispatch: executing recovery checks active milestone worktree task plans before re-dispatching plan-slice", async (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), "gsd-6192-"));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+
+  scaffoldMilestoneContext(tmp, "M002");
+  scaffoldSlicePlan(tmp, "M002", "S03");
+
+  const worktreeRoot = join(tmp, ".gsd", "worktrees", "M002");
+  mkdirSync(worktreeRoot, { recursive: true });
+  writeFileSync(join(worktreeRoot, ".git"), "gitdir: /tmp/fake-worktree-gitdir\n");
+  scaffoldMilestoneContext(worktreeRoot, "M002");
+  scaffoldSlicePlan(worktreeRoot, "M002", "S03");
+  scaffoldTaskPlan(worktreeRoot, "M002", "S03", "T01");
+
+  const ctx = makeContext(tmp);
+  const result = await resolveDispatch(ctx);
+
+  assert.equal(result.action, "dispatch");
+  assert.ok(result.action === "dispatch" && result.unitType === "execute-task",
+    `unitType should be execute-task, got: ${result.action === "dispatch" ? result.unitType : "(stop)"}`);
+  assert.ok(result.action === "dispatch" && result.unitId === "M002/S03/T01",
+    `unitId should be M002/S03/T01, got: ${result.action === "dispatch" ? result.unitId : "(stop)"}`);
+});
+
 test("dispatch: plan-slice recovery loop — second call after plan-slice still recovers cleanly", async (t) => {
   // Simulate: plan-slice ran but T01-PLAN.md is still missing (e.g. agent crashed mid-write).
   // Dispatch should still re-dispatch plan-slice, not hard-stop.
