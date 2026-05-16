@@ -2052,6 +2052,28 @@ describe("checkFilePathConsistency quote-wrapped annotation (#3747)", () => {
     );
   });
 
+  test("bare path with parenthetical annotation strips suffix before path check", (t) => {
+    const tempDir = join(tmpdir(), `pre-exec-paren-${Date.now()}`);
+    mkdirSync(join(tempDir, "src"), { recursive: true });
+    writeFileSync(join(tempDir, "src/paren.ts"), "// content");
+    t.after(() => rmSync(tempDir, { recursive: true, force: true }));
+
+    const tasks = [
+      createTask({
+        id: "T01",
+        inputs: ["src/paren.ts (note)"],
+        expected_output: [],
+      }),
+    ];
+
+    const results = checkFilePathConsistency(tasks, tempDir);
+    assert.equal(
+      results.length,
+      0,
+      "Parenthetical suffix should be stripped and resolved to the real file",
+    );
+  });
+
   test("prose value with spaces inside quotes is skipped (not a path)", () => {
     // "some description text" contains spaces — should not be checked as a path
     const tasks = [
