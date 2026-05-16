@@ -413,13 +413,15 @@ test("advance() surfaces dispatch blocker reason instead of generic no remaining
 });
 
 test("resume() enters running phase without dispatching", async () => {
-  const { deps } = makeDeps();
+  const { deps, calls } = makeDeps();
   const orchestrator = createAutoOrchestrator(deps);
 
   const result = await orchestrator.resume();
 
   assert.equal(result.kind, "resumed");
   assert.equal(orchestrator.getStatus().phase, "running");
+  assert.ok(!calls.includes("journal:advance"));
+  assert.ok(!calls.includes("dispatch.decide"));
 });
 
 test("advance() uses recovery on error", async () => {
