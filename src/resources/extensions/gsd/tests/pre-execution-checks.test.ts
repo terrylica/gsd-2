@@ -528,6 +528,38 @@ describe("checkTaskOrdering with path normalization", () => {
     const results = checkTaskOrdering(tasks, "/tmp");
     assert.deepEqual(results, [], "Should pass - T02 reads file that T01 already created");
   });
+
+  test("absolute input matches later relative expected_output and triggers ordering violation (#5519)", () => {
+    const tempDir = join(tmpdir(), `pre-exec-ordering-abs-rel-${Date.now()}`);
+    mkdirSync(tempDir, { recursive: true });
+
+    try {
+      const tasks = [
+        createTask({
+          id: "T01",
+          sequence: 0,
+          files: [],
+          inputs: [join(tempDir, "src/new-file.ts")],
+          expected_output: [],
+        }),
+        createTask({
+          id: "T02",
+          sequence: 1,
+          files: [],
+          inputs: [],
+          expected_output: ["src/new-file.ts"],
+        }),
+      ];
+
+      const results = checkTaskOrdering(tasks, tempDir);
+      assert.equal(results.length, 1, "Should detect violation for equivalent absolute/relative paths");
+      assert.ok(results[0].message.includes("sequence violation"));
+      assert.ok(results[0].message.includes("T01"));
+      assert.ok(results[0].message.includes("T02"));
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── Task Ordering Tests ─────────────────────────────────────────────────────
