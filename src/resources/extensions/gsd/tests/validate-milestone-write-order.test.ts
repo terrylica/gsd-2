@@ -199,4 +199,23 @@ describe("handleValidateMilestone write ordering (#2725)", () => {
     );
     assert.ok(!("error" in result), `unexpected error: ${"error" in result ? result.error : ""}`);
   });
+
+  it("treats 'not required - ...' verification values as not applicable", async () => {
+    base = makeTmpBase();
+    const dbPath = join(base, ".gsd", "gsd.db");
+    openDatabase(dbPath);
+    insertMilestone({
+      id: "M001",
+      planning: {
+        verificationOperational: "not required - backend-only",
+      },
+    });
+    insertSlice({ id: "S01", milestoneId: "M001" });
+
+    const result = await handleValidateMilestone(
+      { ...VALID_PARAMS, verificationClasses: "| Check | Result |\n| --- | --- |\n| Generic verification | PASS |" },
+      base,
+    );
+    assert.ok(!("error" in result), `unexpected error: ${"error" in result ? result.error : ""}`);
+  });
 });
