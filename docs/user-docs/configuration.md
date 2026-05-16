@@ -508,7 +508,7 @@ Enable automatic UAT (User Acceptance Test) runs after slice completion:
 uat_dispatch: true
 ```
 
-When enabled, milestone completion is also gated on explicit UAT PASS verdicts for closed slices; missing or non-PASS verdicts will block automatic milestone closure until manually signed off.
+When enabled, auto-mode runs UAT after slice completion. Non-PASS verdicts on closed slices do not hard-stop dispatch progression, so downstream remediation slices can continue, but automatic milestone closure is still gated on explicit UAT PASS sign-off for closed slices.
 
 ### Verification (v2.26)
 
