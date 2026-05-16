@@ -1919,7 +1919,11 @@ export async function runUnitPhase(
           ? diagnostic.slice(0, MAX_RECOVERY_CHARS) +
             "\n\n[...diagnostic truncated to prevent memory exhaustion]"
           : diagnostic;
-      finalPrompt = `**RETRY — your previous attempt did not produce the required artifact.**\n\nDiagnostic from previous attempt:\n${cappedDiag}\n\nFix whatever went wrong and make sure you write the required file this time.\n\n---\n\n${finalPrompt}`;
+      const retryInstruction =
+        unitType === "execute-task"
+          ? "The required artifact is `T##-SUMMARY.md`. Do NOT manually write this file. Call `gsd_task_complete` with `milestoneId`, `sliceId`, `taskId`, and the required completion fields. Do not re-run implementation work — call the tool."
+          : "Fix whatever went wrong and make sure you write the required file this time.";
+      finalPrompt = `**RETRY — your previous attempt did not produce the required artifact.**\n\nDiagnostic from previous attempt:\n${cappedDiag}\n\n${retryInstruction}\n\n---\n\n${finalPrompt}`;
     }
   }
 
