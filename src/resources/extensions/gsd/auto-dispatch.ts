@@ -37,7 +37,7 @@ import {
 } from "./paths.js";
 import { parseRoadmap } from "./parsers-legacy.js";
 import { validateArtifact } from "./schemas/validate.js";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from "node:fs";
 import { logWarning, logError } from "./workflow-logger.js";
 import { join } from "node:path";
 import { hasImplementationArtifacts } from "./auto-recovery.js";
@@ -267,6 +267,36 @@ function isRegistryMilestoneComplete(state: GSDState, mid: string): boolean {
   );
 }
 
+function hasMilestonePassedDiscuss(basePath: string, mid: string): boolean {
+  if (isDbAvailable()) {
+    try {
+      const slices = getMilestoneSlices(mid);
+      for (const slice of slices) {
+        const planPath = resolveSliceFile(basePath, mid, slice.id, "PLAN");
+        if (planPath && existsSync(planPath)) return true;
+      }
+    } catch (err) {
+      // Fall through to filesystem checks when DB access is degraded.
+      logWarning(
+        "dispatch",
+        `discuss-progress DB check failed for ${mid}, falling back to filesystem: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  const milestonePath = resolveMilestonePath(basePath, mid);
+  if (milestonePath) {
+    const slicesDir = join(milestonePath, "slices");
+    if (existsSync(slicesDir)) {
+      for (const sliceEntry of readdirSync(slicesDir, { withFileTypes: true })) {
+        if (!sliceEntry.isDirectory()) continue;
+        const planPath = join(slicesDir, sliceEntry.name, `${sliceEntry.name}-PLAN.md`);
+        if (existsSync(planPath)) return true;
+      }
+    }
+  }
+  return hasImplementationArtifacts(basePath, mid) === "present";
+}
+
 /**
  * Check for milestone slices missing SUMMARY files.
  * Returns array of missing slice IDs, or empty array if all present or DB unavailable.
@@ -424,6 +454,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
       if (!EXECUTION_ENTRY_PHASES.has(state.phase)) return null;
       if (!MILESTONE_ID_RE.test(mid)) return null;
       if (isRegistryMilestoneComplete(state, mid)) return null;
+      if (hasMilestonePassedDiscuss(basePath, mid)) return null;
       // Align with the plan-v2 gate's lookup semantics: whitespace-only counts
       // as missing, and an auto worktree may fall back to GSD_PROJECT_ROOT.
       if (hasFinalizedMilestoneContext(basePath, mid)) return null;

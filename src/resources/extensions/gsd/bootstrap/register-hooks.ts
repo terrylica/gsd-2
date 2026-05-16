@@ -508,6 +508,13 @@ export function registerHooks(
       const milestoneId = extractDepthVerificationMilestoneId(pendingApprovalGate);
       if (milestoneId) markDepthVerified(milestoneId, beforeAgentBasePath);
       clearPendingGate(beforeAgentBasePath);
+      if (isAutoPaused() && !isAutoActive()) {
+        const { resumeAutoAfterProviderDelay } = await import("./provider-error-resume.js");
+        void resumeAutoAfterProviderDelay(pi, ctx).catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          ctx.ui.notify(`Failed to resume auto-mode after approval: ${message}`, "warning");
+        });
+      }
     }
     clearDeferredApprovalGate(beforeAgentBasePath);
 
@@ -641,6 +648,7 @@ export function registerHooks(
     if (approvalQuestionAbortInFlight) return;
 
     const dash = getAutoRuntimeSnapshot();
+    if (dash.active) return;
     let unitType = dash.currentUnit?.type;
     let unitId = dash.currentUnit?.id;
 
