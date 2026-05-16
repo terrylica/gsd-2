@@ -430,19 +430,35 @@ function hasProjectState(externalPath: string): boolean {
 function resolveExternalPathWithRecovery(projectPath: string): string {
   const computedPath = externalGsdRoot(projectPath);
   const computedId = repoIdentity(projectPath);
+  const computedHasState = hasProjectState(computedPath);
+  const markerId = readGsdIdMarker(projectPath);
+  const base = process.env.GSD_STATE_DIR || gsdHome();
+  const markerPath = markerId ? join(base, "projects", markerId) : null;
+  const markerHasState = markerPath ? hasProjectState(markerPath) : false;
+
+  // Split-brain guard: when marker and computed identities disagree and both
+  // directories contain state, prefer the marker-backed directory. This keeps
+  // all writers anchored to a single canonical project identity even if a
+  // transient identity computation produced a stale computed hash.
+  if (
+    markerId
+    && markerPath
+    && markerId !== computedId
+    && markerHasState
+    && computedHasState
+  ) {
+    return markerPath;
+  }
 
   // Check if computed path already has state — fast path, no recovery needed.
-  if (hasProjectState(computedPath)) {
+  if (computedHasState) {
     return computedPath;
   }
 
   // Check for .gsd-id marker from a previous location.
-  const markerId = readGsdIdMarker(projectPath);
-  if (markerId && markerId !== computedId) {
+  if (markerId && markerPath && markerId !== computedId) {
     // The marker points to a different identity — the repo was likely moved.
-    const base = process.env.GSD_STATE_DIR || gsdHome();
-    const markerPath = join(base, "projects", markerId);
-    if (hasProjectState(markerPath)) {
+    if (markerHasState) {
       // Recover: use the old state directory and update the marker to the new identity.
       // Move the state from the old hash dir to the new one so future lookups work
       // without the marker.
