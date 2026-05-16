@@ -796,6 +796,33 @@ describe('git-service', async () => {
     rmSync(repo, { recursive: true, force: true });
   });
 
+  // Regression: #5529. Some executors emit keyFiles relative to a monorepo
+  // subproject root (e.g. `src/...`) instead of the repo root
+  // (`frontend/src/...`). When none of those keyFiles exist at repo root,
+  // scoped staging must fall back to smartStage instead of failing the turn.
+  test('GitServiceImpl: repo-relative keyFiles mismatch falls back to smartStage', () => {
+    const repo = initTempRepo();
+    const svc = new GitServiceImpl(repo);
+
+    createFile(repo, "frontend/src/lib/onboarding-contract.ts", "export const contract = true;");
+
+    const msg = svc.autoCommit("execute-task", "M001/S01/T04", [], {
+      taskId: "S01/T04",
+      taskTitle: "fix scoped keyFiles path handling",
+      oneLiner: "Handled repo-relative keyFiles mismatch",
+      keyFiles: ["src/lib/onboarding-contract.ts"],
+    });
+    assert.ok(msg !== null, "autoCommit falls back to smartStage when scoped keyFiles are invalid at repo root");
+
+    const committed = run("git show --name-only --format= HEAD", repo);
+    assert.ok(
+      committed.includes("frontend/src/lib/onboarding-contract.ts"),
+      "smartStage fallback stages real dirty files when keyFiles are scoped to a subproject root",
+    );
+
+    rmSync(repo, { recursive: true, force: true });
+  });
+
   test('GitServiceImpl: task context keyFiles ignores gitignored build outputs', () => {
     const repo = initTempRepo();
     const svc = new GitServiceImpl(repo);
