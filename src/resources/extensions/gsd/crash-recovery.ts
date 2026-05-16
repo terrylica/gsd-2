@@ -32,6 +32,7 @@ import {
   getAllAutoWorkers,
   markWorkerCrashed,
   markWorkerStopping,
+  markWorkerStoppingByPid,
   type AutoWorkerRow,
 } from "./db/auto-workers.js";
 import { forceReleaseLeasesForWorker } from "./db/milestone-leases.js";
@@ -234,6 +235,8 @@ export function clearLock(basePath: string): void {
       deleteRuntimeKv("worker", staleWorker.worker_id, SESSION_FILE_KV_KEY);
       return;
     }
+    const lock = readLegacyLock(basePath);
+    if (lock?.pid) markWorkerStoppingByPid(projectRoot, lock.pid);
     const worker = findActiveWorkerForCurrentProcess(projectRoot);
     if (worker) deleteRuntimeKv("worker", worker.worker_id, SESSION_FILE_KV_KEY);
 
