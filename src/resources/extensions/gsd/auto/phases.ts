@@ -148,7 +148,12 @@ export function shouldDegradeEmptyWorktreeToProjectRoot(
 }
 
 function unitWritesSource(unitType: string): boolean | null {
-  const manifest = resolveManifest(unitType);
+  // Backward compatibility: sidecar queues from older builds may persist
+  // prefixed unit types (e.g. "sidecar/quick-task").
+  const normalizedUnitType = unitType.startsWith("sidecar/")
+    ? unitType.slice("sidecar/".length)
+    : unitType;
+  const manifest = resolveManifest(normalizedUnitType);
   if (!manifest) return null;
   return manifest.tools.mode === "all" || manifest.tools.mode === "docs";
 }
