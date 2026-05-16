@@ -176,7 +176,7 @@ async function buildTaskCommitContextForUnit(
     sliceTitle: stripKnownIdPrefix(slice?.title, sid),
     oneLiner: summary?.oneLiner || task?.one_liner || undefined,
     keyFiles:
-      summary?.frontmatter.key_files?.filter(f => !f.includes("{{") && f.trim() !== "(none)") ??
+      summary?.frontmatter.key_files?.filter(f => !f.includes("{{") && !/^(?:\(none\)|none\.?|n\/a)$/i.test(f.trim())) ??
       task?.key_files ??
       undefined,
     issueNumber: ghIssueNumber,
