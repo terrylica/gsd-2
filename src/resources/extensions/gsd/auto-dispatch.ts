@@ -28,6 +28,7 @@ import {
   resolveSliceFile,
   resolveSlicePath,
   resolveTaskFile,
+  relTaskFile,
   relSliceFile,
   buildMilestoneFileName,
   buildSliceFileName,
@@ -86,6 +87,7 @@ import { annotateBackgroundable } from "./delegation-policy.js";
 import { invalidateAllCaches } from "./cache.js";
 import { insertMilestoneValidationGates } from "./milestone-validation-gates.js";
 import { nativeHasChanges } from "./native-git-bridge.js";
+import { debugLog, isDebugEnabled } from "./debug-logger.js";
 import { resolveCanonicalMilestoneRoot } from "./worktree-manager.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -1160,7 +1162,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
   },
   {
     name: "executing → execute-task (recover missing task plan → plan-slice)",
-    match: async ({ state, mid, midTitle, basePath, sessionContextWindow, modelRegistry, sessionProvider }) => {
+    match: async ({ state, mid, midTitle, basePath, session, sessionContextWindow, modelRegistry, sessionProvider }) => {
       if (state.phase !== "executing" || !state.activeTask) return null;
       if (!state.activeSlice) return missingSliceStop(mid, state.phase);
       const sid = state.activeSlice!.id;
@@ -1184,6 +1186,23 @@ export const DISPATCH_RULES: DispatchRule[] = [
         buildTaskFileName(tid, "PLAN"),
       );
       if ((!taskPlanPath || !existsSync(taskPlanPath)) && !existsSync(projectionTaskPlanPath)) {
+        if (isDebugEnabled()) {
+          const expectedTaskPlanPath = join(basePath, relTaskFile(basePath, mid, sid, tid, "PLAN"));
+          const originalProjectRoot = session?.originalBasePath || basePath;
+          const activeMilestoneWorktreePath = session?.basePath || basePath;
+          const artifactExists = taskPlanPath ? existsSync(taskPlanPath) : false;
+          debugLog("dispatch-missing-task-plan-recovery", {
+            selectedDispatchRule: "executing → execute-task (recover missing task plan → plan-slice)",
+            basePathUsedForArtifactChecks: basePath,
+            milestoneRoot,
+            originalProjectRoot,
+            activeMilestoneWorktreePath,
+            expectedTaskPlanPath,
+            projectionTaskPlanPath,
+            artifactExists,
+            projectionArtifactExists: existsSync(projectionTaskPlanPath),
+          });
+        }
         return {
           action: "dispatch",
           unitType: "plan-slice",

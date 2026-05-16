@@ -11,12 +11,13 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveDispatch } from "../auto-dispatch.ts";
 import type { DispatchContext } from "../auto-dispatch.ts";
 import type { GSDState } from "../types.ts";
+import { enableDebug, disableDebug, getDebugLogPath } from "../debug-logger.ts";
 
 function makeState(overrides: Partial<GSDState> = {}): GSDState {
   return {
@@ -161,4 +162,40 @@ test("dispatch: plan-slice recovery loop — second call after plan-slice still 
   assert.equal(r2.action, "dispatch");
   assert.ok(r2.action === "dispatch" && r2.unitType === "plan-slice",
     "should keep dispatching plan-slice until task plans appear");
+});
+
+test("dispatch: missing task plan recovery logs root/worktree diagnostic when debug enabled — issue #6194", async (t) => {
+  // The diagnostic exists to surface root/worktree artifact-path mismatches
+  // when the recovery rule fires. It must report the paths that were checked
+  // so a stuck session can be traced — not just that recovery happened.
+  const tmp = mkdtempSync(join(tmpdir(), "gsd-6194-"));
+  t.after(() => rmSync(tmp, { recursive: true, force: true }));
+
+  scaffoldMilestoneContext(tmp, "M002");
+  scaffoldSlicePlan(tmp, "M002", "S03");
+
+  enableDebug(tmp);
+  t.after(() => disableDebug());
+
+  const ctx = makeContext(tmp);
+  const result = await resolveDispatch(ctx);
+  assert.ok(result.action === "dispatch" && result.unitType === "plan-slice",
+    "recovery rule must fire for the diagnostic to be exercised");
+
+  const logPath = getDebugLogPath();
+  assert.ok(logPath, "debug log path should be set while debug is enabled");
+
+  const entry = readFileSync(logPath!, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .find((e) => e.event === "dispatch-missing-task-plan-recovery");
+
+  assert.ok(entry, "diagnostic event should be logged when recovery fires in debug mode");
+  assert.equal(entry!.basePathUsedForArtifactChecks, tmp);
+  assert.equal(entry!.artifactExists, false, "task plan is genuinely absent");
+  assert.equal(entry!.projectionArtifactExists, false, "projection task plan is genuinely absent");
+  assert.equal(typeof entry!.expectedTaskPlanPath, "string");
+  assert.equal(typeof entry!.projectionTaskPlanPath, "string");
 });
