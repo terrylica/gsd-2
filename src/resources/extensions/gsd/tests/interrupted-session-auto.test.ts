@@ -186,6 +186,15 @@ test("direct /gsd auto source only resumes paused-session metadata for recoverab
   assert.ok(source.includes('|| !!freshStartAssessment.lock'));
 });
 
+test("direct /gsd auto source skips paused-session replay when recovered unit already completed", async () => {
+  const source = await import(`node:fs/promises`).then((fs) =>
+    fs.readFile(new URL("../auto.ts", import.meta.url), "utf-8")
+  );
+  assert.ok(source.includes("const completedPausedUnit = verifyExpectedArtifact("));
+  assert.ok(source.includes("if (completedPausedUnit) {"));
+  assert.ok(source.includes("s.pausedSessionFile = null;"));
+});
+
 test("auto module imports successfully after interrupted-session changes", async () => {
   const mod = await import(`../auto.ts?ts=${Date.now()}-${Math.random()}`);
   assert.equal(typeof mod.startAuto, "function");

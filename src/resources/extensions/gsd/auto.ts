@@ -179,6 +179,7 @@ import { debugLog, isDebugEnabled, writeDebugSummary } from "./debug-logger.js";
 import {
   buildLoopRemediationSteps,
   reconcileMergeState,
+  verifyExpectedArtifact,
 } from "./auto-recovery.js";
 import { classifyMilestoneSummaryContent } from "./milestone-summary-classifier.js";
 import { resolveDispatch, DISPATCH_RULES } from "./auto-dispatch.js";
@@ -2608,10 +2609,21 @@ export async function startAuto(
     invalidateAllCaches();
 
     if (s.pausedSessionFile) {
+      const pausedRecoveryUnitType = s.currentUnit?.type ?? s.pausedUnitType ?? "unknown";
+      const pausedRecoveryUnitId = s.currentUnit?.id ?? s.pausedUnitId ?? "unknown";
+      const completedPausedUnit = verifyExpectedArtifact(
+        pausedRecoveryUnitType,
+        pausedRecoveryUnitId,
+        s.basePath,
+      );
+
+      if (completedPausedUnit) {
+        s.pausedSessionFile = null;
+      } else {
       const recovery = synthesizePausedSessionRecovery(
         s.basePath,
-        s.currentUnit?.type ?? s.pausedUnitType ?? "unknown",
-        s.currentUnit?.id ?? s.pausedUnitId ?? "unknown",
+        pausedRecoveryUnitType,
+        pausedRecoveryUnitId,
         s.pausedSessionFile,
       );
       if (recovery && recovery.trace.toolCallCount > 0) {
@@ -2622,6 +2634,7 @@ export async function startAuto(
         );
       }
       s.pausedSessionFile = null;
+      }
     }
 
     captureProjectRootEnv(s.originalBasePath || s.basePath);
