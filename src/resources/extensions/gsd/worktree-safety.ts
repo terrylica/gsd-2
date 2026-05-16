@@ -205,7 +205,7 @@ export function createWorktreeSafetyModule(
         );
       }
 
-      if (!gitMarkerStat.isFile()) {
+      if (isolationMode === "worktree" && !gitMarkerStat.isFile()) {
         return failure(
           "worktree-git-marker-not-file",
           `Worktree root ${unitRoot} has a .git directory, not a registered worktree .git file.`,
