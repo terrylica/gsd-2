@@ -1556,6 +1556,64 @@ test("autoLoop dev path dispatches orchestration.advance results without legacy 
   assert.equal(s.pendingOrchestrationDispatch, null, "pending dispatch should be one-shot");
 });
 
+test("autoLoop consumes pending orchestration dispatch without advancing twice", async () => {
+  _resetPendingResolve();
+
+  const ctx = makeMockCtx();
+  ctx.ui.setStatus = () => {};
+  ctx.sessionManager = { getSessionFile: () => "/tmp/session.json" };
+  const pi = makeMockPi();
+  const stateSnapshot = {
+    phase: "executing",
+    activeMilestone: { id: "M004", title: "Milestone 4", status: "active" },
+    activeSlice: { id: "S03", title: "Slice 3" },
+    activeTask: { id: "T02" },
+    registry: [{ id: "M004", status: "active" }],
+    blockers: [],
+  } as any;
+  const s = makeLoopSession({
+    currentMilestoneId: "M004",
+    pendingOrchestrationDispatch: {
+      unitType: "execute-task",
+      unitId: "M004/S03/T02",
+      prompt: "pending prompt",
+      pauseAfterUatDispatch: false,
+      state: stateSnapshot,
+      mid: "M004",
+      midTitle: "Milestone 4",
+    },
+    orchestration: {
+      start: async () => ({ kind: "stopped" as const, reason: "unused" }),
+      advance: async () => {
+        throw new Error("advance must not run when a pending dispatch already exists");
+      },
+      resume: async () => ({ kind: "stopped" as const, reason: "unused" }),
+      stop: async () => ({ kind: "stopped" as const, reason: "unused" }),
+      getStatus: () => ({ phase: "running" as const, transitionCount: 1 }),
+    },
+  });
+
+  const deps = makeMockDeps({
+    resolveDispatch: async () => {
+      deps.callLog.push("resolveDispatch");
+      throw new Error("legacy resolveDispatch must not run when orchestration is wired");
+    },
+    postUnitPostVerification: async () => {
+      deps.callLog.push("postUnitPostVerification");
+      s.active = false;
+      return "continue" as const;
+    },
+  });
+
+  const loopPromise = autoLoop(ctx, pi, s, deps);
+  await waitForMicrotasks(() => pi.calls.length === 1, "pending orchestration dispatch");
+  resolveAgentEnd(makeEvent());
+  await loopPromise;
+
+  assert.equal((pi.calls[0] as any[])[0].content, "pending prompt");
+  assert.equal(s.pendingOrchestrationDispatch, null, "pending dispatch should be consumed");
+});
+
 test("autoLoop journals post-unit finalize stop after completed unit", async () => {
   _resetPendingResolve();
 
