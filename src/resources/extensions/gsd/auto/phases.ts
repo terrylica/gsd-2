@@ -56,7 +56,7 @@ import { verifyExpectedArtifact, diagnoseExpectedArtifact, buildLoopRemediationS
 import { writeUnitRuntimeRecord } from "../unit-runtime.js";
 import { withTimeout, FINALIZE_PRE_TIMEOUT_MS, FINALIZE_POST_TIMEOUT_MS } from "./finalize-timeout.js";
 import { getEligibleSlices } from "../slice-parallel-eligibility.js";
-import { startSliceParallel } from "../slice-parallel-orchestrator.js";
+import { isSliceParallelActive, startSliceParallel } from "../slice-parallel-orchestrator.js";
 import { isDbAvailable, getMilestoneSlices } from "../gsd-db.js";
 import { reconcileBeforeSpawn } from "../state-reconciliation.js";
 import type { MinimalModelRegistry } from "../context-budget.js";
@@ -884,6 +884,12 @@ export async function runPreDispatch(
     isDbAvailable()
   ) {
     try {
+      const projectRoot = _resolveDispatchGuardBasePath(s);
+      if (isSliceParallelActive(projectRoot)) {
+        ctx.ui.notify("Slice-parallel: workers are still running; waiting for completion before next dispatch.", "info");
+        await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+        return { action: "continue" };
+      }
       const dbSlices = getMilestoneSlices(mid);
       if (dbSlices.length > 0) {
         const doneIds = new Set(dbSlices.filter(sl => sl.status === "complete" || sl.status === "done").map(sl => sl.id));
@@ -928,8 +934,7 @@ export async function runPreDispatch(
               `Slice-parallel: started ${result.started.length} worker(s): ${result.started.join(", ")}.`,
               "info",
             );
-            await deps.stopAuto(ctx, pi, `Slice-parallel dispatched for ${mid}`);
-            return { action: "break", reason: "slice-parallel-dispatched" };
+            return { action: "continue" };
           }
           // Fall through to sequential if no workers started
         }
