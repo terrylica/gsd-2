@@ -179,6 +179,7 @@ import { debugLog, isDebugEnabled, writeDebugSummary } from "./debug-logger.js";
 import {
   buildLoopRemediationSteps,
   reconcileMergeState,
+  verifyExpectedArtifact,
 } from "./auto-recovery.js";
 import { classifyMilestoneSummaryContent } from "./milestone-summary-classifier.js";
 import { resolveDispatch, DISPATCH_RULES } from "./auto-dispatch.js";
@@ -284,6 +285,7 @@ import type {
   UnitRouting,
   StartModel,
   AutoSession,
+  PendingOrchestrationDispatch,
 } from "./auto/session.js";
 export {
   STUB_RECOVERY_THRESHOLD,
@@ -297,7 +299,11 @@ export type {
 import { autoSession as s } from "./auto-runtime-state.js";
 import { gsdHome } from "./gsd-home.js";
 import { createWorkspace, scopeMilestone } from "./workspace.js";
-import { registerAutoWorker, markWorkerStopping } from "./db/auto-workers.js";
+import {
+  registerAutoWorker,
+  markWorkerStopping,
+  markWorkerStoppingByPid,
+} from "./db/auto-workers.js";
 import { releaseMilestoneLease } from "./db/milestone-leases.js";
 import { normalizeRealPath } from "./paths.js";
 
@@ -467,6 +473,55 @@ export function _synthesizePausedSessionRecoveryForTest(
   sessionFile: string,
 ): ReturnType<typeof synthesizeCrashRecovery> {
   return synthesizePausedSessionRecovery(basePath, unitType, unitId, sessionFile);
+}
+
+type PausedResumeRecoverySessionState = {
+  pausedSessionFile: string | null;
+  currentUnit: { type: string; id: string } | null;
+  pausedUnitType: string | null;
+  pausedUnitId: string | null;
+  pendingCrashRecovery: string | null;
+};
+
+function handlePausedSessionResumeRecovery(
+  basePath: string,
+  state: PausedResumeRecoverySessionState,
+  notify: (message: string) => void,
+): { skippedReplay: boolean } {
+  if (!state.pausedSessionFile) return { skippedReplay: false };
+
+  const pausedRecoveryUnitType = state.currentUnit?.type ?? state.pausedUnitType ?? "unknown";
+  const pausedRecoveryUnitId = state.currentUnit?.id ?? state.pausedUnitId ?? "unknown";
+  const completedPausedUnit = verifyExpectedArtifact(
+    pausedRecoveryUnitType,
+    pausedRecoveryUnitId,
+    basePath,
+  );
+
+  if (completedPausedUnit) {
+    state.pausedSessionFile = null;
+    return { skippedReplay: true };
+  }
+
+  const recovery = synthesizePausedSessionRecovery(
+    basePath,
+    pausedRecoveryUnitType,
+    pausedRecoveryUnitId,
+    state.pausedSessionFile,
+  );
+  if (recovery && recovery.trace.toolCallCount > 0) {
+    state.pendingCrashRecovery = recovery.prompt;
+    notify(`Recovered ${recovery.trace.toolCallCount} tool calls from paused session. Resuming with context.`);
+  }
+  state.pausedSessionFile = null;
+  return { skippedReplay: false };
+}
+
+export function _handlePausedSessionResumeRecoveryForTest(
+  basePath: string,
+  state: PausedResumeRecoverySessionState,
+): { skippedReplay: boolean } {
+  return handlePausedSessionResumeRecovery(basePath, state, () => {});
 }
 
 // `_resolvePausedResumeBasePathForTest` was retired in ADR-016 phase 2 / B3
@@ -868,6 +923,7 @@ export function checkRemoteAutoSession(projectRoot: string): {
 
   if (!isLockProcessAlive(lock)) {
     // Stale lock from a dead process — not a live remote session
+    markWorkerStoppingByPid(normalizeRealPath(projectRoot), lock.pid);
     return { running: false };
   }
 
@@ -1029,6 +1085,8 @@ export async function rerootCommandSession(
 }
 
 export async function cleanupAfterLoopExit(ctx: ExtensionContext): Promise<void> {
+  const preserveStepSurface = s.preserveStepSurfaceAfterLoopExit;
+  const preservePausedSurface = s.paused;
   s.currentUnit = null;
   s.active = false;
   deactivateGSD();
@@ -1051,12 +1109,16 @@ export async function cleanupAfterLoopExit(ctx: ExtensionContext): Promise<void>
   // A transient provider-error pause intentionally leaves the paused badge
   // visible so the user still has a resumable auto-mode signal on screen.
   if (!s.paused) {
-    ctx.ui.setStatus("gsd-auto", undefined);
-    ctx.ui.setWidget("gsd-progress", undefined);
-    if (s.completionStopInProgress) {
-      s.completionStopInProgress = false;
+    if (preserveStepSurface) {
+      s.preserveStepSurfaceAfterLoopExit = false;
+    } else {
+      ctx.ui.setStatus("gsd-auto", undefined);
+      ctx.ui.setWidget("gsd-progress", undefined);
+      if (s.completionStopInProgress) {
+        s.completionStopInProgress = false;
+      }
+      initHealthWidget(ctx);
     }
-    initHealthWidget(ctx);
   }
 
   // ADR-016 phase 3 (#5693): the stop-path basePath restore + chdir routes
@@ -1064,7 +1126,7 @@ export async function cleanupAfterLoopExit(ctx: ExtensionContext): Promise<void>
   // `s.basePath` mutation and the paired `process.chdir` for auto-loop
   // transitions. The verb assigns `s.basePath` before any throwable work, so
   // a thrown error still leaves basePath restored.
-  if (s.originalBasePath) {
+  if (s.originalBasePath && !preserveStepSurface && !preservePausedSurface) {
     try {
       buildLifecycle().restoreToProjectRoot();
     } catch (err) {
@@ -1076,7 +1138,7 @@ export async function cleanupAfterLoopExit(ctx: ExtensionContext): Promise<void>
     }
   }
 
-  if (s.originalBasePath && s.cmdCtx) {
+  if (s.originalBasePath && s.cmdCtx && !preserveStepSurface && !preservePausedSurface) {
     const result = await rerootCommandSession(s.cmdCtx, s.originalBasePath);
     if (result.status === "cancelled") {
       logWarning("engine", "post-loop session re-root was cancelled", { file: "auto.ts", basePath: s.originalBasePath });
@@ -1187,6 +1249,8 @@ export async function stopAuto(
         ? "merge-conflict"
         : rawReason.startsWith("Merge error") || rawReason.startsWith("Merge failed")
           ? "merge-failed"
+          : rawReason.startsWith("Slice-parallel dispatched")
+            ? "stop"
           : rawReason.startsWith("slice-merge-conflict")
             ? "slice-merge-conflict"
             : rawReason === "All milestones complete"
@@ -1731,7 +1795,6 @@ export async function pauseAuto(
   restoreProjectRootEnv();
   restoreMilestoneLockEnv();
   s.pendingVerificationRetry = null;
-  s.verificationRetryCount.clear();
   ctx?.ui.setStatus("gsd-auto", "paused");
   ctx?.ui.setWidget("gsd-progress", undefined);
   const resumeCmd = s.stepMode ? "/gsd next" : "/gsd auto";
@@ -1801,6 +1864,7 @@ export function createWiredDispatchAdapter(
   ctx: ExtensionContext,
   pi: ExtensionAPI,
   dispatchBasePath: string,
+  session?: AutoSession,
 ): DispatchAdapter {
   return {
     async decideNextUnit(input) {
@@ -1842,6 +1906,7 @@ export function createWiredDispatchAdapter(
         midTitle: active.title,
         state,
         prefs,
+        session: input.session ?? session,
         structuredQuestionsAvailable,
         sessionContextWindow,
         sessionProvider,
@@ -1849,13 +1914,29 @@ export function createWiredDispatchAdapter(
       });
 
       if (action.action === "stop") {
+        if (session) session.pendingOrchestrationDispatch = null;
         return {
           kind: "blocked",
           reason: action.reason,
           action: action.level === "warning" ? "pause" : "stop",
         };
       }
-      if (action.action !== "dispatch") return null;
+      if (action.action !== "dispatch") {
+        if (session) session.pendingOrchestrationDispatch = null;
+        return null;
+      }
+      if (session) {
+        const pending: PendingOrchestrationDispatch = {
+          unitType: action.unitType,
+          unitId: action.unitId,
+          prompt: action.prompt,
+          pauseAfterUatDispatch: action.pauseAfterDispatch ?? false,
+          state,
+          mid: active.id,
+          midTitle: active.title,
+        };
+        session.pendingOrchestrationDispatch = pending;
+      }
       return {
         unitType: action.unitType,
         unitId: action.unitId,
@@ -1904,7 +1985,7 @@ export function createWiredAutoOrchestrationModule(
         };
       },
     },
-    dispatch: createWiredDispatchAdapter(ctx, pi, dispatchBasePath),
+    dispatch: createWiredDispatchAdapter(ctx, pi, dispatchBasePath, s),
     recovery: {
       async classifyAndRecover(input) {
         const recovery = classifyFailure(input);
@@ -1927,10 +2008,16 @@ export function createWiredAutoOrchestrationModule(
             reason: `No Unit manifest is registered for ${unitType}`,
           };
         }
+        if (getIsolationMode(runtimeBasePath) !== "worktree") {
+          return { ok: true, reason: "not-required" };
+        }
         const writeScope =
           manifest.tools.mode === "all" || manifest.tools.mode === "docs"
             ? "source-writing"
             : "planning-only";
+        if (getIsolationMode(runtimeBasePath) !== "worktree") {
+          return { ok: true, reason: "isolation-not-worktree" };
+        }
         const safety = createWorktreeSafetyModule();
         const snapshot = await deriveState(dispatchBasePath);
         const milestoneId = snapshot.activeMilestone?.id ?? null;
@@ -1942,6 +2029,7 @@ export function createWiredAutoOrchestrationModule(
           projectRoot: runtimeBasePath,
           unitRoot: dispatchBasePath,
           milestoneId,
+          isolationMode: getIsolationMode(runtimeBasePath),
           expectedBranch,
         });
         if (!result.ok) {
@@ -2000,22 +2088,22 @@ export function createWiredAutoOrchestrationModule(
       },
       async journalTransition(event) {
         const eventType = event.name === "start"
-          ? "iteration-start"
+          ? "orchestrator-iteration-start"
           : event.name === "resume"
-            ? "iteration-start"
+            ? "orchestrator-iteration-start"
             : event.name === "advance"
-              ? "dispatch-match"
+              ? "orchestrator-dispatch-match"
               : event.name === "advance-blocked"
-                ? "guard-block"
+                ? "orchestrator-guard-block"
                 : event.name === "advance-stopped"
-                  ? "dispatch-stop"
+                  ? "orchestrator-dispatch-stop"
                   : event.name === "advance-error"
-                    ? "iteration-end"
+                    ? "orchestrator-iteration-end"
                     : event.name === "advance-paused" || event.name === "advance-retry"
-                      ? "guard-block"
+                      ? "orchestrator-guard-block"
                       : event.name === "stop"
-                      ? "terminal"
-                      : "iteration-end";
+                      ? "orchestrator-terminal"
+                      : "orchestrator-iteration-end";
 
         _emitJournalEvent(runtimeBasePath, {
           ts: new Date().toISOString(),
@@ -2575,22 +2663,11 @@ export async function startAuto(
     }
     invalidateAllCaches();
 
-    if (s.pausedSessionFile) {
-      const recovery = synthesizePausedSessionRecovery(
-        s.basePath,
-        s.currentUnit?.type ?? s.pausedUnitType ?? "unknown",
-        s.currentUnit?.id ?? s.pausedUnitId ?? "unknown",
-        s.pausedSessionFile,
-      );
-      if (recovery && recovery.trace.toolCallCount > 0) {
-        s.pendingCrashRecovery = recovery.prompt;
-        ctx.ui.notify(
-          `Recovered ${recovery.trace.toolCallCount} tool calls from paused session. Resuming with context.`,
-          "info",
-        );
-      }
-      s.pausedSessionFile = null;
-    }
+    handlePausedSessionResumeRecovery(
+      s.basePath,
+      s,
+      (message) => ctx.ui.notify(message, "info"),
+    );
 
     captureProjectRootEnv(s.originalBasePath || s.basePath);
     registerAutoWorkerForSession(s);
@@ -2611,10 +2688,13 @@ export async function startAuto(
 
     try {
       const resumeResult = await s.orchestration?.resume();
-      if (resumeResult?.kind === "blocked") {
+      if (resumeResult?.kind === "blocked" && resumeResult.action === "stop") {
         notifyResumeBlocked(ctx, resumeResult);
         await cleanupAfterLoopExit(ctx);
         return;
+      }
+      if (resumeResult?.kind === "blocked") {
+        notifyResumeBlocked(ctx, resumeResult);
       }
     } catch (err) {
       debugLog("resume-orchestration-resume", { error: err instanceof Error ? err.message : String(err) });

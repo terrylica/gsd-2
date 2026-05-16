@@ -42,7 +42,6 @@ import {
   nativeCommit,
   nativeGetCurrentBranch,
   nativeDetectMainBranch,
-  nativeCheckoutBranch,
   nativeBranchList,
   nativeBranchExists,
   nativeBranchListMerged,
@@ -56,7 +55,7 @@ import {
   detectWorktreeName,
   setActiveMilestoneId,
 } from "./worktree.js";
-import { getAutoWorktreePath, isInAutoWorktree } from "./auto-worktree.js";
+import { getAutoWorktreePath, isInAutoWorktree, checkoutBranchWithStashGuard } from "./auto-worktree.js";
 import { readResourceVersion, cleanStaleRuntimeUnits } from "./auto-worktree.js";
 import { worktreePath as getWorktreeDir, isInsideWorktreesDir } from "./worktree-manager.js";
 import { emitWorktreeOrphaned } from "./worktree-telemetry.js";
@@ -1170,7 +1169,7 @@ export async function bootstrapAutoSession(
           isRepo,
         );
         if (branchToCheckout) {
-          nativeCheckoutBranch(base, branchToCheckout);
+          checkoutBranchWithStashGuard(base, branchToCheckout, "isolation-none-recovery");
           logWarning("bootstrap", `Returned to "${branchToCheckout}" — HEAD was on stale milestone branch "${currentBranch}" (isolation: none does not use milestone branches).`);
         }
       } catch (err) {
@@ -1215,6 +1214,11 @@ export async function bootstrapAutoSession(
         } else if (enterResult.reason === "creation-failed") {
           ctx.ui.notify(
             `Cannot enter milestone ${s.currentMilestoneId}: worktree/branch creation failed. Isolation is degraded.`,
+            "error",
+          );
+        } else if (enterResult.reason === "isolation-degraded") {
+          ctx.ui.notify(
+            `Cannot enter milestone ${s.currentMilestoneId}: isolation is degraded from a prior worktree failure. Close processes locking the worktree and retry, or run /gsd doctor fix.`,
             "error",
           );
         } else if (enterResult.reason === "invalid-milestone-id") {

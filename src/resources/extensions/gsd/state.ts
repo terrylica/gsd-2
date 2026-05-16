@@ -463,6 +463,13 @@ async function buildRegistryAndFindActive(
       }
 
       if (allSlicesDone) {
+        const validation = getLatestAssessmentByScope(m.id, "milestone-validation");
+        const verdict = typeof validation?.status === "string" ? validation.status : undefined;
+        if (verdict === "needs-attention") {
+          registry.push({ id: m.id, title, status: "parked", ...(deps.length > 0 ? { dependsOn: deps } : {}) });
+          continue;
+        }
+
         activeMilestone = { id: m.id, title };
         activeMilestoneSlices = slices;
         activeMilestoneFound = true;
@@ -591,7 +598,7 @@ async function handleAllSlicesDone(
       recentDecisions: [],
       blockers: [
         `Milestone ${activeMilestone.id} validation verdict is needs-remediation but all slices are complete. ` +
-          `Add remediation slices via gsd_reassess_roadmap or override the verdict manually.`,
+          `Add remediation slices via gsd_reassess_roadmap, or run \`/gsd verdict pass --rationale "..."\` to override.`,
       ],
       nextAction: `Resolve ${activeMilestone.id} remediation before proceeding.`,
       registry, requirements,
@@ -1074,6 +1081,10 @@ export async function _deriveStateImpl(
       const validationContent = validationFile ? await cachedLoadFile(validationFile) : null;
       const validationTerminal = validationContent ? isValidationTerminal(validationContent) : false;
       const verdict = validationContent ? extractVerdict(validationContent) : undefined;
+      if (verdict === "needs-attention") {
+        registry.push({ id: mid, title, status: "parked" });
+        continue;
+      }
       // needs-remediation is terminal but requires re-validation (#3596)
       const needsRevalidation = !validationTerminal || verdict === 'needs-remediation';
 
@@ -1091,7 +1102,7 @@ export async function _deriveStateImpl(
         // Needs (re-)validation, but another milestone is already active
         registry.push({ id: mid, title, status: 'pending' });
       } else if (!activeMilestoneFound) {
-        // Terminal validation (pass/needs-attention) but no summary → completing-milestone
+        // Terminal passing validation but no summary → completing-milestone
         activeMilestone = { id: mid, title };
         activeRoadmap = roadmap;
         activeMilestoneFound = true;
@@ -1314,7 +1325,7 @@ export async function _deriveStateImpl(
         recentDecisions: [],
         blockers: [
           `Milestone ${activeMilestone.id} validation verdict is needs-remediation but all slices are complete. ` +
-            `Add remediation slices via gsd_reassess_roadmap or override the verdict manually.`,
+            `Add remediation slices via gsd_reassess_roadmap, or run \`/gsd verdict pass --rationale "..."\` to override.`,
         ],
         nextAction: `Resolve ${activeMilestone.id} remediation before proceeding.`,
         registry,
@@ -1441,7 +1452,7 @@ export async function _deriveStateImpl(
     const summaryPath = resolveTaskFile(basePath, activeMilestone.id, activeSlice.id, t.id, "SUMMARY");
     if (summaryPath && existsSync(summaryPath)) {
       t.done = true;
-      logWarning("reconcile", `task ${activeMilestone.id}/${activeSlice.id}/${t.id} reconciled via SUMMARY on disk (#2514)`, { mid: activeMilestone.id, sid: activeSlice.id, tid: t.id });
+      logWarning("reconcile", `task ${activeMilestone.id}/${activeSlice.id}/${t.id} reconciled via SUMMARY on disk`, { mid: activeMilestone.id, sid: activeSlice.id, tid: t.id });
     }
   }
 

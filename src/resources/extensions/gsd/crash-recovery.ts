@@ -31,8 +31,11 @@ import {
   findStaleWorkerForProject,
   getAllAutoWorkers,
   markWorkerCrashed,
+  markWorkerStopping,
+  markWorkerStoppingByPid,
   type AutoWorkerRow,
 } from "./db/auto-workers.js";
+import { forceReleaseLeasesForWorker } from "./db/milestone-leases.js";
 import { markLatestActiveForWorkerCanceled, type DispatchStatus } from "./db/unit-dispatches.js";
 import { getRuntimeKv, setRuntimeKv, deleteRuntimeKv } from "./db/runtime-kv.js";
 import { _getAdapter, isDbAvailable } from "./gsd-db.js";
@@ -195,12 +198,18 @@ export function writeLock(
     // Best-effort — never throw from the lock writer.
   }
 
-  if (!isDbAvailable() || !sessionFile) return;
+  if (!isDbAvailable()) return;
   try {
     const projectRoot = normalizeRealPath(basePath);
     const worker = findActiveWorkerForCurrentProcess(projectRoot);
     if (!worker) return;
-    setRuntimeKv("worker", worker.worker_id, SESSION_FILE_KV_KEY, sessionFile);
+    if (sessionFile) {
+      setRuntimeKv("worker", worker.worker_id, SESSION_FILE_KV_KEY, sessionFile);
+    } else {
+      // Preliminary unit locks (before runUnit/newSession settles) must clear
+      // any prior pointer so crash recovery cannot ingest stale cross-unit context.
+      deleteRuntimeKv("worker", worker.worker_id, SESSION_FILE_KV_KEY);
+    }
   } catch {
     // Best-effort — never throw from the lock writer.
   }
@@ -219,9 +228,23 @@ export function clearLock(basePath: string): void {
   if (!isDbAvailable()) return;
   try {
     const projectRoot = normalizeRealPath(basePath);
+    const staleWorker = findStaleWorkerForProject(projectRoot);
+    if (staleWorker) {
+      markWorkerCrashed(staleWorker.worker_id);
+      forceReleaseLeasesForWorker(staleWorker.worker_id);
+      deleteRuntimeKv("worker", staleWorker.worker_id, SESSION_FILE_KV_KEY);
+      return;
+    }
+    const lock = readLegacyLock(basePath);
+    if (lock?.pid) markWorkerStoppingByPid(projectRoot, lock.pid);
     const worker = findActiveWorkerForCurrentProcess(projectRoot);
-    if (!worker) return;
-    deleteRuntimeKv("worker", worker.worker_id, SESSION_FILE_KV_KEY);
+    if (worker) deleteRuntimeKv("worker", worker.worker_id, SESSION_FILE_KV_KEY);
+
+    const stale = findStaleWorkerForProject(projectRoot);
+    if (stale) {
+      markWorkerStopping(stale.worker_id);
+      deleteRuntimeKv("worker", stale.worker_id, SESSION_FILE_KV_KEY);
+    }
   } catch {
     // Best-effort.
   }

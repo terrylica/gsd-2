@@ -47,7 +47,7 @@ import { regenerateIfMissing } from "./workflow-projections.js";
 import { WorktreeStateProjection } from "./worktree-state-projection.js";
 import { createWorkspace, scopeMilestone } from "./workspace.js";
 import { normalizeWorktreePathForCompare } from "./worktree-root.js";
-import { isDbAvailable, getTask, getSlice, getMilestone, updateTaskStatus, _getAdapter, getVerificationEvidence } from "./gsd-db.js";
+import { isDbAvailable, getDbPath, refreshOpenDatabaseFromDisk, getTask, getSlice, getMilestone, updateTaskStatus, _getAdapter, getVerificationEvidence } from "./gsd-db.js";
 import { renderPlanCheckboxes } from "./markdown-renderer.js";
 import { consumeSignal } from "./session-status-io.js";
 import {
@@ -109,6 +109,18 @@ function formatPreExecutionCheckDetail(check: PreExecutionCheckJSON): string {
 
 const COMPLETE_MILESTONE_DB_SETTLE_MS = 1500;
 const COMPLETE_MILESTONE_DB_SETTLE_POLL_MS = 100;
+const GIT_ACTION_FAILURE_LOG_REL_PATH = ".gsd/git-action-failures.log";
+
+function persistGitActionFailure(basePath: string, action: TurnGitActionMode, message: string): string {
+  const logPath = join(basePath, GIT_ACTION_FAILURE_LOG_REL_PATH);
+  const logDir = join(basePath, ".gsd");
+  const timestamp = new Date().toISOString();
+  const body = message.trim() || "unknown git failure";
+  const entry = `[${timestamp}] action=${action}\n${body}\n\n`;
+  mkdirSync(logDir, { recursive: true });
+  appendFileSync(logPath, entry, "utf-8");
+  return logPath;
+}
 
 function stripKnownIdPrefix(value: string | undefined | null, id: string): string | undefined {
   const raw = String(value ?? "").trim();
@@ -241,7 +253,7 @@ import {
   unitVerb,
   describeNextUnit,
 } from "./auto-dashboard.js";
-import { existsSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join, relative } from "node:path";
 import { _resetHasChangesCache } from "./native-git-bridge.js";
 import { autoCommitCurrentBranch } from "./worktree.js";
@@ -371,7 +383,7 @@ export function detectRogueFileWrites(
 export const MAX_ARTIFACT_VERIFICATION_RETRIES = 3;
 
 export const STEP_COMPLETE_FALLBACK_MESSAGE =
-  "Step complete. Run /clear, then /gsd to continue (or /gsd auto to run continuously).";
+  "Step complete. Run /clear if you want a clean view, then /gsd next to continue one step (or /gsd auto to run continuously).";
 
 export function buildStepCompleteMessage(nextState: import("./types.js").GSDState): string {
   if (nextState.phase === "complete") {
@@ -379,7 +391,7 @@ export function buildStepCompleteMessage(nextState: import("./types.js").GSDStat
   }
   const next = describeNextUnit(nextState);
   return `Step complete. Next: ${next.label}\n`
-    + `Run /clear, then /gsd to continue (or /gsd auto to run continuously).`;
+    + `Run /clear if you want a clean view, then /gsd next to continue one step (or /gsd auto to run continuously).`;
 }
 
 /**
@@ -516,9 +528,14 @@ async function runCloseoutGitAction(
 
   try {
     let taskContext: TaskCommitContext | undefined;
+    let targetRepositories: string[] | undefined;
 
     if (turnAction === "commit" && unit.type === "execute-task") {
       taskContext = await buildTaskCommitContextForUnit(s.basePath, unit.id);
+      const { milestone: mid, slice: sid, task: tid } = parseUnitId(unit.id);
+      if (mid && sid && tid && isDbAvailable()) {
+        targetRepositories = getTask(mid, sid, tid)?.target_repositories;
+      }
     }
 
     // Invalidate the nativeHasChanges cache before auto-commit (#1853).
@@ -544,6 +561,7 @@ async function runCloseoutGitAction(
         unitType: unit.type,
         unitId: unit.id,
         taskContext,
+        targetRepositories,
       });
       for (let attempt = 1; gitResult.status === "failed" && attempt < maxAttempts; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
@@ -553,6 +571,7 @@ async function runCloseoutGitAction(
           unitType: unit.type,
           unitId: unit.id,
           taskContext,
+          targetRepositories,
         });
       }
 
@@ -570,7 +589,11 @@ async function runCloseoutGitAction(
           error: gitResult.error,
           metadata: {
             dirty: gitResult.dirty,
+            dirtyRepositories: gitResult.dirtyRepositories,
             commitMessage: gitResult.commitMessage,
+            commitMessages: gitResult.commitMessages,
+            commitErrors: gitResult.commitErrors,
+            skippedRepositories: gitResult.skippedRepositories,
             snapshotLabel: gitResult.snapshotLabel,
           },
         });
@@ -579,6 +602,8 @@ async function runCloseoutGitAction(
       if (gitResult.status === "failed") {
         s.lastGitActionFailure = gitResult.error ?? `git ${turnAction} failed`;
         s.lastGitActionStatus = "failed";
+        const fullError = gitResult.error ?? "unknown error";
+        const failureLogPath = persistGitActionFailure(s.basePath, turnAction, fullError);
         if (uokFlags.gitops && uokFlags.gates) {
           const parsed = parseUnitId(unit.id);
           const gateRunner = new UokGateRunner();
@@ -589,7 +614,7 @@ async function runCloseoutGitAction(
               outcome: "fail",
               failureClass: "git",
               rationale: `turn git action "${turnAction}" failed`,
-              findings: gitResult.error ?? "unknown git failure",
+              findings: fullError,
             }),
           });
           await gateRunner.run("closeout-git-action", {
@@ -604,12 +629,13 @@ async function runCloseoutGitAction(
           });
         }
 
-        const failureMsg = `Git ${turnAction} failed: ${(gitResult.error ?? "unknown error").split("\n")[0]}`;
+        const failureMsg = `Git ${turnAction} failed: ${fullError.split("\n")[0]} (full details: ${failureLogPath})`;
         ctx.ui.notify(failureMsg, opts?.softFailure ? "warning" : "error");
         debugLog("postUnit", {
           phase: opts?.softFailure ? "git-action-failed-soft" : "git-action-failed-blocking",
           action: turnAction,
-          error: gitResult.error ?? "unknown error",
+          error: fullError,
+          failureLogPath,
         });
         if (opts?.softFailure) {
           return "continue";
@@ -684,6 +710,14 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
   // Small delay to let files settle (skipped for sidecars where latency matters more)
   if (!opts?.skipSettleDelay) {
     await new Promise(r => setTimeout(r, 100));
+  }
+
+  const dbPath = getDbPath();
+  if (isDbAvailable() && dbPath && dbPath !== ":memory:") {
+    const refreshed = refreshOpenDatabaseFromDisk();
+    if (!refreshed) {
+      logWarning("db", "post-unit database refresh failed; derived state may be stale");
+    }
   }
 
   // Turn-level git action (commit | snapshot | status-only)
@@ -979,6 +1013,7 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
                     command: row.command,
                     exitCode: row.exit_code,
                     verdict: row.verdict,
+                    createdAt: row.created_at,
                   }))
                   .filter((row) => typeof row.command === "string" && row.command.trim().length > 0);
                 const mismatches = crossReferenceEvidence(claimedEvidence, actual);
@@ -1177,7 +1212,7 @@ export async function postUnitPreVerification(pctx: PostUnitContext, opts?: PreV
         s.verificationRetryFailureHashes.delete(retryKey);
         writeBlockerPlaceholder(s.currentUnit.type, s.currentUnit.id, s.basePath, reason);
         ctx.ui.notify(
-          `${s.currentUnit.type} ${s.currentUnit.id} — deterministic policy rejection, wrote blocker placeholder (no retries) (#4973)`,
+          `${s.currentUnit.type} ${s.currentUnit.id} — deterministic policy rejection, wrote blocker placeholder (no retries)`,
           "warning",
         );
         // Fall through to "continue" — do NOT enter the retry or db-unavailable paths.
@@ -1494,7 +1529,9 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
         // s.canonicalProjectRoot is the project root and lacks files that a
         // prior slice wrote to the worktree but hasn't merged to main yet.
         const preExecutionBasePath = s.basePath;
-        const result: PreExecutionResult = await runPreExecutionChecks(tasks, preExecutionBasePath);
+        const result: PreExecutionResult = await runPreExecutionChecks(tasks, preExecutionBasePath, {
+          additionalRoots: [s.canonicalProjectRoot],
+        });
 
         // Log summary to stderr in existing verification output format
         const emoji = result.status === "pass" ? "✅" : result.status === "warn" ? "⚠️" : "❌";
@@ -1511,12 +1548,12 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
         }
 
         // Write evidence JSON to slice artifacts directory
-        const slicePath = resolveSlicePath(preExecutionBasePath, mid, sid);
+        const slicePath = resolveSlicePath(s.canonicalProjectRoot, mid, sid);
         const evidenceFileName = `${sid}-PRE-EXEC-VERIFY.json`;
         let evidencePath = join(".gsd", "milestones", mid, "slices", sid, evidenceFileName);
         if (slicePath) {
           writePreExecutionEvidence(result, slicePath, mid, sid);
-          evidencePath = relative(preExecutionBasePath, join(slicePath, evidenceFileName)) || evidenceFileName;
+          evidencePath = relative(s.canonicalProjectRoot, join(slicePath, evidenceFileName)) || evidenceFileName;
         }
 
         if (uokFlags.gates) {
@@ -1731,8 +1768,8 @@ export async function postUnitPostVerification(pctx: PostUnitContext): Promise<"
   }
 
   // Step mode → show wizard instead of dispatch.
-  // Without this notify(), /gsd in step mode finishes a unit and silently
-  // exits the loop, leaving the user with no hint to /clear and /gsd again.
+  // Without this notify(), /gsd next finishes a unit and silently exits the
+  // loop, leaving the user with no next-step command.
   if (s.stepMode) {
     let phaseAfterUnit: string | null = null;
     try {

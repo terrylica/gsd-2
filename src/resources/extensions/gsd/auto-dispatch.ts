@@ -28,9 +28,12 @@ import {
   resolveSliceFile,
   resolveSlicePath,
   resolveTaskFile,
+  relTaskFile,
   relSliceFile,
   buildMilestoneFileName,
   buildSliceFileName,
+  buildTaskFileName,
+  gsdProjectionRoot,
 } from "./paths.js";
 import { parseRoadmap } from "./parsers-legacy.js";
 import { validateArtifact } from "./schemas/validate.js";
@@ -83,6 +86,9 @@ import {
 import { annotateBackgroundable } from "./delegation-policy.js";
 import { invalidateAllCaches } from "./cache.js";
 import { insertMilestoneValidationGates } from "./milestone-validation-gates.js";
+import { nativeHasChanges } from "./native-git-bridge.js";
+import { debugLog, isDebugEnabled } from "./debug-logger.js";
+import { resolveCanonicalMilestoneRoot } from "./worktree-manager.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -229,6 +235,23 @@ export function shouldRunDeepProjectSetup(
     return false;
   }
   return hasPendingDeepStage(prefs, basePath);
+}
+
+function resolveArtifactBasePath(
+  basePath: string,
+  mid: string,
+  session: import("./auto/session.js").AutoSession | undefined,
+): string {
+  if (
+    session?.basePath &&
+    session.currentMilestoneId === mid &&
+    session.basePath !== session.originalBasePath &&
+    existsSync(session.basePath)
+  ) {
+    return session.basePath;
+  }
+
+  return resolveCanonicalMilestoneRoot(basePath, mid);
 }
 
 function missingSliceStop(mid: string, phase: string): DispatchAction {
@@ -457,9 +480,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
       const attempts = incrementUatCount(basePath, mid, sliceId);
       if (attempts > MAX_UAT_ATTEMPTS) {
         return {
-          action: "stop" as const,
-          reason: `run-uat for ${mid}/${sliceId} has been dispatched ${attempts - 1} times without producing a verdict. Verification commands may be broken — fix the UAT spec or manually write an ASSESSMENT verdict.`,
-          level: "warning" as const,
+          action: "skip" as const,
         };
       }
       const uatFile = resolveSliceFile(basePath, mid, sliceId, "UAT")!;
@@ -768,7 +789,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
     },
   },
   {
-    name: "planning (require_slice_discussion) → pause for discussion (#3454)",
+    name: "planning (require_slice_discussion) → pause for discussion",
     match: async ({ state, mid, basePath, prefs }) => {
       if (state.phase !== "planning") return null;
       if (!prefs?.phases?.require_slice_discussion) return null;
@@ -1158,20 +1179,47 @@ export const DISPATCH_RULES: DispatchRule[] = [
   },
   {
     name: "executing → execute-task (recover missing task plan → plan-slice)",
-    match: async ({ state, mid, midTitle, basePath, sessionContextWindow, modelRegistry, sessionProvider }) => {
+    match: async ({ state, mid, midTitle, basePath, session, sessionContextWindow, modelRegistry, sessionProvider }) => {
       if (state.phase !== "executing" || !state.activeTask) return null;
       if (!state.activeSlice) return missingSliceStop(mid, state.phase);
       const sid = state.activeSlice!.id;
       const sTitle = state.activeSlice!.title;
       const tid = state.activeTask.id;
+      const artifactBasePath = resolveArtifactBasePath(basePath, mid, session);
 
       // Guard: if the slice plan exists but the individual task plan files are
       // missing, the planner created S##-PLAN.md with task entries but never
       // wrote the tasks/ directory files. Dispatch plan-slice to regenerate
       // them rather than hard-stopping — fixes the infinite-loop described in
       // issue #909.
-      const taskPlanPath = resolveTaskFile(basePath, mid, sid, tid, "PLAN");
-      if (!taskPlanPath || !existsSync(taskPlanPath)) {
+      const taskPlanPath = resolveTaskFile(artifactBasePath, mid, sid, tid, "PLAN");
+      const projectionTaskPlanPath = join(
+        gsdProjectionRoot(artifactBasePath),
+        "milestones",
+        mid,
+        "slices",
+        sid,
+        "tasks",
+        buildTaskFileName(tid, "PLAN"),
+      );
+      if ((!taskPlanPath || !existsSync(taskPlanPath)) && !existsSync(projectionTaskPlanPath)) {
+        if (isDebugEnabled()) {
+          const expectedTaskPlanPath = join(artifactBasePath, relTaskFile(artifactBasePath, mid, sid, tid, "PLAN"));
+          const originalProjectRoot = session?.originalBasePath || basePath;
+          const activeMilestoneWorktreePath = session?.basePath || basePath;
+          const artifactExists = taskPlanPath ? existsSync(taskPlanPath) : false;
+          debugLog("dispatch-missing-task-plan-recovery", {
+            selectedDispatchRule: "executing → execute-task (recover missing task plan → plan-slice)",
+            basePathUsedForArtifactChecks: artifactBasePath,
+            milestoneRoot: artifactBasePath,
+            originalProjectRoot,
+            activeMilestoneWorktreePath,
+            expectedTaskPlanPath,
+            projectionTaskPlanPath,
+            artifactExists,
+            projectionArtifactExists: existsSync(projectionTaskPlanPath),
+          });
+        }
         return {
           action: "dispatch",
           unitType: "plan-slice",
@@ -1248,7 +1296,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
             buildMilestoneFileName(mid, "VALIDATION"),
           );
           const skipSource = trivialVariant
-            ? "trivial-scope pipeline variant (#4781)"
+            ? "trivial-scope pipeline variant"
             : "`skip_milestone_validation` preference";
           const skipValidationReason = trivialVariant ? "trivial-scope" : "preference";
           const content = [
@@ -1316,7 +1364,7 @@ export const DISPATCH_RULES: DispatchRule[] = [
   },
   {
     name: "completing-milestone → complete-milestone",
-    match: async ({ state, mid, midTitle, basePath }) => {
+    match: async ({ state, mid, midTitle, basePath, prefs }) => {
       if (state.phase !== "completing-milestone") return null;
 
       // Defense-in-depth (#4324): skip dispatch if the DB already marks
@@ -1330,19 +1378,70 @@ export const DISPATCH_RULES: DispatchRule[] = [
         }
       }
 
-      // Safety guard (#2675, #5747): block completion when VALIDATION
-      // verdict is non-passing. The state machine treats these verdicts as
-      // terminal, but completing-milestone should NOT proceed — remediation
-      // or human attention is needed.
+      // Safety guard (#6132): refuse closure with uncommitted git changes.
+      if (nativeHasChanges(basePath)) {
+        return {
+          action: "stop",
+          reason: "Cannot complete milestone: uncommitted changes detected. Commit or stash before closing.",
+          level: "warning",
+        };
+      }
+
+      // Safety guard (#6132): when UAT dispatch is enabled, enforce a PASS
+      // verdict for each closed slice before milestone closure.
+      if (prefs?.uat_dispatch) {
+        let closedSliceIds: string[];
+        if (isDbAvailable()) {
+          closedSliceIds = getMilestoneSlices(mid)
+            .filter(s => isClosedStatus(s.status))
+            .map(s => s.id);
+        } else {
+          const roadmapFile = resolveMilestoneFile(basePath, mid, "ROADMAP");
+          const roadmapContent = roadmapFile ? await loadFile(roadmapFile) : null;
+          if (!roadmapContent) {
+            return {
+              action: "stop",
+              reason: `Cannot complete milestone ${mid}: unable to verify UAT verdicts because ROADMAP is unavailable while DB is not accessible.`,
+              level: "warning",
+            };
+          }
+          const roadmap = parseRoadmap(roadmapContent);
+          closedSliceIds = roadmap.slices.filter(s => s.done).map(s => s.id);
+        }
+
+        for (const sliceId of closedSliceIds) {
+          const result = await readUatGateVerdict(basePath, mid, sliceId);
+          if (!result) {
+            return {
+              action: "stop",
+              reason: `Cannot complete milestone ${mid}: missing UAT PASS verdict for ${sliceId}. Manual UAT sign-off (PASS) is required before milestone closure.`,
+              level: "warning",
+            };
+          }
+          const { verdict, uatType } = result;
+          if (!isAcceptableUatVerdict(verdict, uatType)) {
+            return {
+              action: "stop",
+              reason: `Cannot complete milestone ${mid}: UAT verdict for ${sliceId} is "${verdict}". Manual UAT sign-off (PASS) is required before milestone closure.`,
+              level: "warning",
+            };
+          }
+        }
+      }
+
+      // Safety guard (#2675, #5747, #5920): block completion when VALIDATION
+      // verdict is anything other than pass. The state machine treats these
+      // verdicts as terminal, but completing-milestone should NOT proceed —
+      // remediation or human attention is needed.
       const validationFile = resolveMilestoneFile(basePath, mid, "VALIDATION");
       if (validationFile) {
         const validationContent = await loadFile(validationFile);
         if (validationContent) {
           const verdict = extractVerdict(validationContent);
-          if (verdict === "needs-remediation" || verdict === "needs-attention") {
+          if (verdict !== "pass") {
             return {
               action: "stop",
-              reason: `Cannot complete milestone ${mid}: VALIDATION verdict is "${verdict}". Address the validation findings and re-run validation, or update the verdict manually.`,
+              reason: `Cannot complete milestone ${mid}: VALIDATION verdict is "${verdict}". Address the validation findings and re-run validation, or run \`/gsd verdict pass --rationale "..."\` to override.`,
               level: "warning",
             };
           }
@@ -1359,16 +1458,12 @@ export const DISPATCH_RULES: DispatchRule[] = [
         };
       }
 
-      // Safety guard (#1703): verify the milestone produced implementation
-      // artifacts (non-.gsd/ files). A milestone with only plan files and
-      // zero implementation code should not be marked complete.
+      // Safety signal (#1703, #5097): detect milestones with only .gsd/
+      // artifacts. This no longer hard-blocks completion because some
+      // milestones are intentionally planning/documentation-only.
       const artifactCheck = hasImplementationArtifacts(basePath, mid);
       if (artifactCheck === "absent") {
-        return {
-          action: "stop",
-          reason: `Cannot complete milestone ${mid}: no implementation files found outside .gsd/. The milestone has only plan files — actual code changes are required.`,
-          level: "error",
-        };
+        logWarning("dispatch", `Milestone ${mid} has no implementation files outside .gsd/ — continuing complete-milestone dispatch (planning-only/documentation-only milestone).`);
       }
       if (artifactCheck === "unknown") {
         logWarning("dispatch", `Implementation artifact check inconclusive for ${mid} — proceeding (git context unavailable)`);

@@ -291,3 +291,36 @@ test("discussion auto-start waits for the current command context to become idle
   assert.equal(launches[0][2], "/tmp/gsd-auto-start-idle-test");
   assert.deepEqual(launches[0][4], { step: true });
 });
+
+test("resume path only hard-exits on blocked stop, not blocked pause (#6154)", () => {
+  const autoSrc = readGsdFile("auto.ts");
+  const startAutoIdx = autoSrc.indexOf("export async function startAuto(");
+  const startAutoBody = autoSrc.slice(startAutoIdx);
+  const resumeSectionIdx = startAutoBody.indexOf("if (s.paused) {");
+  const freshStartSectionIdx = startAutoBody.indexOf("// ── Fresh start path — delegated to auto-start.ts ──");
+  const resumeBody = startAutoBody.slice(resumeSectionIdx, freshStartSectionIdx);
+
+  assert.ok(startAutoIdx > -1, "startAuto should exist");
+  assert.ok(resumeSectionIdx > -1, "resume path should exist");
+  assert.ok(freshStartSectionIdx > resumeSectionIdx, "resume assertions should be scoped before fresh start");
+  assert.ok(
+    resumeBody.includes('if (resumeResult?.kind === "blocked" && resumeResult.action === "stop")'),
+    "resume path should only hard-stop blocked resume when action is stop",
+  );
+  assert.ok(
+    resumeBody.includes('if (resumeResult?.kind === "blocked")'),
+    "resume path should still notify blocked resume results",
+  );
+});
+
+test("prepareForUnit skips worktree safety when isolation is not worktree (#6154)", () => {
+  const autoSrc = readGsdFile("auto.ts");
+  const prepareForUnitIdx = autoSrc.indexOf("async prepareForUnit(unitType, unitId) {");
+  const prepareForUnitBody = autoSrc.slice(prepareForUnitIdx, autoSrc.indexOf("async syncAfterUnit() {}", prepareForUnitIdx));
+
+  assert.ok(prepareForUnitIdx > -1, "prepareForUnit should exist");
+  assert.ok(
+    prepareForUnitBody.includes('if (getIsolationMode(runtimeBasePath) !== "worktree")'),
+    "prepareForUnit should bypass worktree safety validation outside worktree isolation mode",
+  );
+});

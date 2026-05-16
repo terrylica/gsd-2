@@ -78,6 +78,7 @@ import { createWorktreeSafetyModule, type WorktreeSafetyResult } from "../worktr
 import { isSuspiciousGhostCompletion } from "../auto-unit-closeout.js";
 import { decideVerificationRetry, verificationRetryKey } from "./verification-retry-policy.js";
 import { buildPhaseHandoffOutcome, setAutoOutcomeWidget } from "../auto-dashboard.js";
+import { getConsecutiveDispatchBlocker } from "../dispatch-guard.js";
 
 // ─── Path Comparison Helper ───────────────────────────────────────────────
 /** Compare two paths for physical identity, tolerating trailing slashes and symlinks. */
@@ -147,7 +148,12 @@ export function shouldDegradeEmptyWorktreeToProjectRoot(
 }
 
 function unitWritesSource(unitType: string): boolean | null {
-  const manifest = resolveManifest(unitType);
+  // Backward compatibility: sidecar queues from older builds may persist
+  // prefixed unit types (e.g. "sidecar/quick-task").
+  const normalizedUnitType = unitType.startsWith("sidecar/")
+    ? unitType.slice("sidecar/".length)
+    : unitType;
+  const manifest = resolveManifest(normalizedUnitType);
   if (!manifest) return null;
   return manifest.tools.mode === "all" || manifest.tools.mode === "docs";
 }
@@ -211,7 +217,8 @@ async function validateSourceWriteWorktreeSafety(
   if (!writesSource) return null;
 
   const projectRoot = s.canonicalProjectRoot ?? resolveWorktreeProjectRoot(s.basePath, s.originalBasePath);
-  if (deps.getIsolationMode(projectRoot) !== "worktree") return null;
+  const isolationMode = deps.getIsolationMode(projectRoot);
+  if (isolationMode !== "worktree") return null;
 
   const safety = createWorktreeSafetyModule();
   const result = safety.validateUnitRoot({
@@ -221,6 +228,7 @@ async function validateSourceWriteWorktreeSafety(
     projectRoot,
     unitRoot: s.basePath,
     milestoneId,
+    isolationMode,
     expectedBranch: milestoneId ? deps.autoWorktreeBranch(milestoneId) : null,
     emptyWorktreeWithProjectContent: resolveEmptyWorktreeWithProjectContent(s.basePath, projectRoot),
     lease: s.workerId
@@ -573,6 +581,13 @@ export function _buildCancelledUnitStopReason(
     stopReason: `Unit aborted: ${cancellationMessage}`,
     loopReason: "unit-aborted",
   };
+}
+
+export function _isPauseOriginCancelledResult(
+  isPaused: boolean,
+  errorContext?: { message: string; category: string },
+): boolean {
+  return isPaused && !errorContext;
 }
 
 async function failClosedOnFinalizeTimeout(
@@ -1353,6 +1368,18 @@ export async function runDispatch(
     return { action: "break", reason: "prior-slice-blocker" };
   }
 
+  const consecutiveDispatchBlocker = getConsecutiveDispatchBlocker(
+    loopState,
+    state.phase,
+    unitType,
+    unitId,
+  );
+  if (consecutiveDispatchBlocker) {
+    await deps.stopAuto(ctx, pi, consecutiveDispatchBlocker);
+    debugLog("autoLoop", { phase: "exit", reason: "consecutive-dispatch-blocker" });
+    return { action: "break", reason: "consecutive-dispatch-blocker" };
+  }
+
   const worktreeSafetyBlock = await validateSourceWriteWorktreeSafety(
     ic,
     unitType,
@@ -1426,7 +1453,6 @@ export async function runDispatch(
           );
           deps.invalidateAllCaches();
           loopState.recentUnits.length = 0;
-          loopState.stuckRecoveryAttempts = 0;
           return { action: "continue" };
         }
         ctx.ui.notify(
@@ -1810,42 +1836,8 @@ export async function runUnitPhase(
     s.currentUnit.id === unitId
   );
   const previousTier = s.currentUnitRouting?.tier;
-
-  // Scope workflow-logger buffer to this unit so post-finalize drains are
-  // per-unit. Without this, the module-level _buffer accumulates across every
-  // unit in the same Node process (see workflow-logger.ts module header).
-  _resetLogs();
   const dispatchKey = `${unitType}/${unitId}`;
-  s.unitDispatchCount.set(dispatchKey, (s.unitDispatchCount.get(dispatchKey) ?? 0) + 1);
-  s.currentUnit = { type: unitType, id: unitId, startedAt: Date.now() };
-  s.lastGitActionFailure = null;
-  s.lastGitActionStatus = null;
-  s.lastUnitAgentEndMessages = null;
-  setCurrentPhase(unitType, {
-    basePath: s.basePath,
-    traceId: ic.flowId,
-    turnId: `iter-${ic.iteration}`,
-    causedBy: "unit-start",
-  });
-  s.lastToolInvocationError = null; // #2883: clear stale error from previous unit
-  const unitStartSeq = ic.nextSeq();
-  deps.emitJournalEvent({ ts: new Date().toISOString(), flowId: ic.flowId, seq: unitStartSeq, eventType: "unit-start", data: { unitType, unitId } });
-  deps.captureAvailableSkills();
-  writeUnitRuntimeRecord(
-    s.basePath,
-    unitType,
-    unitId,
-    s.currentUnit.startedAt,
-    {
-      phase: "dispatched",
-      wrapupWarningSent: false,
-      timeoutAt: null,
-      lastProgressAt: s.currentUnit.startedAt,
-      progressCount: 0,
-      lastProgressKind: "dispatch",
-      recoveryAttempts: 0, // Reset so re-dispatched units get full recovery budget (#2322)
-    },
-  );
+  const nextDispatchCount = (s.unitDispatchCount.get(dispatchKey) ?? 0) + 1;
 
   // Status bar (widget + preconditions deferred until after model selection — see #2899)
   ctx.ui.setStatus("gsd-auto", "auto");
@@ -1908,7 +1900,7 @@ export async function runUnitPhase(
         : s.pendingCrashRecovery;
     finalPrompt = `${capped}\n\n---\n\n${finalPrompt}`;
     s.pendingCrashRecovery = null;
-  } else if ((s.unitDispatchCount.get(dispatchKey) ?? 0) > 1) {
+  } else if (nextDispatchCount > 1) {
     const diagnostic = deps.getDeepDiagnostic(s.basePath);
     if (diagnostic) {
       const cappedDiag =
@@ -1951,6 +1943,11 @@ export async function runUnitPhase(
   }
 
   // Select and apply model (with tier escalation on retry — normal units only)
+  const prevUnitRouting = s.currentUnitRouting;
+  const prevUnitModel = s.currentUnitModel;
+  const prevDispatchedModelId = s.currentDispatchedModelId;
+  const prevSessionModel = ctx.model;
+  const prevSessionThinkingLevel = pi.getThinkingLevel();
   const modelResult = await deps.selectAndApplyModel(
     ctx,
     pi,
@@ -2017,13 +2014,66 @@ export async function runUnitPhase(
           ? ctx.modelRegistry.getProviderAuthMode(ctx.model.provider)
           : undefined,
       baseUrl: (s.currentUnitModel as any)?.baseUrl ?? ctx.model?.baseUrl,
+      activeTools: typeof pi.getActiveTools === "function" ? pi.getActiveTools() : [],
     },
   );
   if (compatibilityError) {
+    s.currentUnitRouting = prevUnitRouting;
+    s.currentUnitModel = prevUnitModel;
+    s.currentDispatchedModelId = prevDispatchedModelId;
+    if (s.checkpointSha) {
+      cleanupCheckpoint(s.basePath, unitId);
+      s.checkpointSha = null;
+    }
+    if (prevSessionModel) {
+      const ok = await pi.setModel(prevSessionModel, { persist: false });
+      if (!ok) {
+        ctx.ui.notify("Failed to restore previous session model after compatibility check failure.", "warning");
+      }
+      if (prevSessionThinkingLevel) {
+        pi.setThinkingLevel(prevSessionThinkingLevel);
+      }
+    }
     ctx.ui.notify(compatibilityError, "error");
     await deps.stopAuto(ctx, pi, compatibilityError);
     return { action: "break", reason: "workflow-capability" };
   }
+
+  // Scope workflow-logger buffer to this unit so post-finalize drains are
+  // per-unit. Without this, the module-level _buffer accumulates across every
+  // unit in the same Node process (see workflow-logger.ts module header).
+  _resetLogs();
+  const unitStartedAt = Date.now();
+  s.unitDispatchCount.set(dispatchKey, nextDispatchCount);
+  s.currentUnit = { type: unitType, id: unitId, startedAt: unitStartedAt };
+  s.lastGitActionFailure = null;
+  s.lastGitActionStatus = null;
+  s.lastUnitAgentEndMessages = null;
+  setCurrentPhase(unitType, {
+    basePath: s.basePath,
+    traceId: ic.flowId,
+    turnId: `iter-${ic.iteration}`,
+    causedBy: "unit-start",
+  });
+  s.lastToolInvocationError = null; // #2883: clear stale error from previous unit
+  const unitStartSeq = ic.nextSeq();
+  deps.emitJournalEvent({ ts: new Date().toISOString(), flowId: ic.flowId, seq: unitStartSeq, eventType: "unit-start", data: { unitType, unitId } });
+  deps.captureAvailableSkills();
+  writeUnitRuntimeRecord(
+    s.basePath,
+    unitType,
+    unitId,
+    unitStartedAt,
+    {
+      phase: "dispatched",
+      wrapupWarningSent: false,
+      timeoutAt: null,
+      lastProgressAt: unitStartedAt,
+      progressCount: 0,
+      lastProgressKind: "dispatch",
+      recoveryAttempts: 0, // Reset so re-dispatched units get full recovery budget (#2322)
+    },
+  );
 
   // Progress widget + preconditions — deferred to after model selection so the
   // widget's first render tick shows the correct model (#2899).
@@ -2139,6 +2189,11 @@ export async function runUnitPhase(
   }
 
   if (unitResult.status === "cancelled") {
+    if (_isPauseOriginCancelledResult(s.paused, unitResult.errorContext)) {
+      debugLog("autoLoop", { phase: "cancelled-after-pause", unitType, unitId });
+      return { action: "break", reason: "paused" };
+    }
+
     const errorCategory = unitResult.errorContext?.category;
     // Provider-error pause: agent_end recovery normally pauses before this
     // branch. Provider readiness failures happen before dispatch, so pause here
@@ -2342,18 +2397,17 @@ export async function runUnitPhase(
     }
   }
 
-  if (s.currentUnitRouting) {
-    deps.recordOutcome(
-      unitType,
-      s.currentUnitRouting.tier as "light" | "standard" | "heavy",
-      true, // success assumed; dispatch will re-dispatch if artifact missing
-    );
-  }
-
   const skipArtifactVerification = unitType.startsWith("hook/") || unitType === "custom-step";
   const artifactVerified =
     skipArtifactVerification ||
     verifyExpectedArtifact(unitType, unitId, s.basePath);
+  if (s.currentUnitRouting) {
+    deps.recordOutcome(
+      unitType,
+      s.currentUnitRouting.tier as "light" | "standard" | "heavy",
+      artifactVerified,
+    );
+  }
   if (artifactVerified) {
     s.unitDispatchCount.delete(dispatchKey);
     s.unitRecoveryCount.delete(`${unitType}/${unitId}`);
@@ -2378,7 +2432,11 @@ export async function runUnitPhase(
     }
   }
 
-  deps.emitJournalEvent({ ts: new Date().toISOString(), flowId: ic.flowId, seq: ic.nextSeq(), eventType: "unit-end", data: { unitType, unitId, status: unitResult.status, artifactVerified, ...(unitResult.errorContext ? { errorContext: unitResult.errorContext } : {}) }, causedBy: { flowId: ic.flowId, seq: unitStartSeq } });
+  const unitEndStatus =
+    !artifactVerified && unitResult.status === "completed"
+      ? "no-artifact"
+      : unitResult.status;
+  deps.emitJournalEvent({ ts: new Date().toISOString(), flowId: ic.flowId, seq: ic.nextSeq(), eventType: "unit-end", data: { unitType, unitId, status: unitEndStatus, artifactVerified, ...(unitResult.errorContext ? { errorContext: unitResult.errorContext } : {}) }, causedBy: { flowId: ic.flowId, seq: unitStartSeq } });
 
   // ── Safety harness: checkpoint cleanup or rollback ──
   if (s.checkpointSha) {
@@ -2453,6 +2511,8 @@ export async function runFinalize(
   const preUnitSnapshot = s.currentUnit
     ? { type: s.currentUnit.type, id: s.currentUnit.id, startedAt: s.currentUnit.startedAt }
     : null;
+  s.currentUnit = null;
+  clearCurrentPhase();
   const preResultGuard = await withTimeout(
     deps.postUnitPreVerification(postUnitCtx, preVerificationOpts),
     FINALIZE_PRE_TIMEOUT_MS,
@@ -2625,9 +2685,6 @@ export async function runFinalize(
       });
     }
   }
-  s.currentUnit = null;
-  clearCurrentPhase();
-
   // Surface accumulated workflow-logger issues for this unit to the user.
   // Warnings/errors logged during the unit are buffered in the logger and
   // drained here so the user sees a single consolidated post-unit alert.

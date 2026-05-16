@@ -117,19 +117,29 @@ test("typed session-transition abort events are classified as internal", () => {
   assert.equal(
     shouldIgnoreAgentEndForActiveUnit({
       abortOrigin: "session-transition",
+      messages: [{ stopReason: "aborted" }],
     }),
     true,
   );
 
   assert.equal(
     shouldIgnoreAgentEndForActiveUnit({
-      abortOrigin: "user",
+      abortOrigin: "session-transition",
+      messages: [{ stopReason: "end_turn" }],
     }),
     false,
   );
 
   assert.equal(
-    shouldIgnoreAgentEndForActiveUnit({}),
+    shouldIgnoreAgentEndForActiveUnit({
+      abortOrigin: "user",
+      messages: [{ stopReason: "aborted" }],
+    }),
+    false,
+  );
+
+  assert.equal(
+    shouldIgnoreAgentEndForActiveUnit({ messages: [] }),
     false,
   );
 });
@@ -195,6 +205,8 @@ test("missing agent_end content is classified as empty abort content", () => {
   assert.equal(_hasEmptyAgentEndContent(undefined), true);
   assert.equal(_hasEmptyAgentEndContent(null), true);
   assert.equal(_hasEmptyAgentEndContent([]), true);
+  assert.equal(_hasEmptyAgentEndContent([{ type: "text", text: "" }]), true);
+  assert.equal(_hasEmptyAgentEndContent([{ type: "text", text: "   " }]), true);
   assert.equal(_hasEmptyAgentEndContent([{ type: "text", text: "partial" }]), false);
 });
 
