@@ -738,7 +738,17 @@ export async function autoLoop(
       if (!sidecarItem) {
         const orchestration = s.orchestration;
         if (orchestration) {
-          const orchestrationResult = await orchestration.advance();
+          const existingPendingDispatch = s.pendingOrchestrationDispatch;
+          const orchestrationResult = existingPendingDispatch
+            ? {
+                kind: "advanced" as const,
+                unit: {
+                  unitType: existingPendingDispatch.unitType,
+                  unitId: existingPendingDispatch.unitId,
+                },
+                stateSnapshot: existingPendingDispatch.state,
+              }
+            : await orchestration.advance();
 
           if (orchestrationResult.kind === "blocked") {
             s.pendingOrchestrationDispatch = null;

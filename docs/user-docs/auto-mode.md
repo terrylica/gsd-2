@@ -128,7 +128,7 @@ Context Mode is enabled by default for auto-mode runs. Eligible auto-mode units 
 
 `contextMode: triage` is used specifically for capture triage turns so they stay focused on classification and routing decisions instead of implementation work.
 
-`gsd_exec` writes capped stdout/stderr and metadata under `.gsd/exec/`; output may be truncated. It then returns only a short digest to the agent. This keeps large command output out of the LLM context while preserving exact evidence on disk. To opt out of Context Mode guidance, snapshot injection, `gsd_exec`, `gsd_exec_search`, and `gsd_resume`, set:
+`gsd_exec` writes capped stdout/stderr and metadata under `.gsd/exec/`; output may be truncated. It then returns only a short digest to the agent. This keeps large command output out of the LLM context while preserving exact evidence on disk. In milestone worktree mode, `gsd_exec` also rejects scripts that target the original project root (including traversal patterns such as `cd ../../..`) so execution stays inside the active worktree boundary. To opt out of Context Mode guidance, snapshot injection, `gsd_exec`, `gsd_exec_search`, and `gsd_resume`, set:
 
 ```yaml
 context_mode:

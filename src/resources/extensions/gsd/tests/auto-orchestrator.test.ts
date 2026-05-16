@@ -1011,6 +1011,7 @@ test("wired DispatchAdapter prefers caller-supplied dispatch inputs over ctx-der
     assert.equal(captured[0].sessionProvider, "openai");
     assert.equal(captured[0].modelRegistry, overrideModelRegistry);
     assert.equal(captured[0].session, session);
+    assert.equal(captured[0].basePath, "/tmp/session-fixture");
   } finally {
     resetRegistry();
   }
@@ -1051,6 +1052,7 @@ test("wired DispatchAdapter forwards constructor session when advance input omit
     assert.ok(result);
     assert.equal(captured.length, 1, "expected one captured dispatch context");
     assert.equal(captured[0].session, session);
+    assert.equal(captured[0].basePath, "/tmp/worktree-fixture");
   } finally {
     resetRegistry();
   }

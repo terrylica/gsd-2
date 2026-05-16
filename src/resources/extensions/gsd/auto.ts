@@ -1871,7 +1871,9 @@ export function createWiredDispatchAdapter(
       const active = state.activeMilestone;
       if (!active) return null;
 
-      const prefs = loadEffectiveGSDPreferences(dispatchBasePath)?.preferences;
+      const activeSession = input.session ?? session;
+      const activeDispatchBasePath = activeSession?.basePath || dispatchBasePath;
+      const prefs = loadEffectiveGSDPreferences(activeDispatchBasePath)?.preferences;
 
       // Derive session-derived dispatch inputs the same way phases.ts:runDispatch does
       // (#5789). Prefer caller-supplied values when present so test harnesses and
@@ -1900,12 +1902,12 @@ export function createWiredDispatchAdapter(
             : "false");
 
       const action = await resolveDispatch({
-        basePath: dispatchBasePath,
+        basePath: activeDispatchBasePath,
         mid: active.id,
         midTitle: active.title,
         state,
         prefs,
-        session: input.session ?? session,
+        session: activeSession,
         structuredQuestionsAvailable,
         sessionContextWindow,
         sessionProvider,
