@@ -1,8 +1,5 @@
-// GSD Exec Tool — executor for the gsd_exec MCP tool.
-//
-// Thin wrapper around exec-sandbox.ts that reads effective options from
-// the project preferences (context_mode block) and formats the result
-// for MCP return.
+// Project/App: GSD-2
+// File Purpose: Executor for the gsd_exec MCP tool.
 
 import {
   EXEC_DEFAULTS,
@@ -81,6 +78,28 @@ function paramError(message: string): ToolExecutionResult {
   };
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeScanPath(value: string): string {
+  return value.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function scriptReferencesOriginalRootFromWorktree(script: string, baseDir: string): boolean {
+  const normalizedBase = normalizeScanPath(baseDir);
+  const marker = "/.gsd/worktrees/";
+  const markerIndex = normalizedBase.indexOf(marker);
+  if (markerIndex <= 0) return false;
+
+  const originalRoot = normalizedBase.slice(0, markerIndex);
+  const normalizedScript = script.replace(/\\/g, "/");
+  const originalRootPattern = new RegExp(
+    `${escapeRegExp(originalRoot)}(?=$|[\\s'"\\\`;)&|<>]|/(?!\\.gsd/worktrees(?:/|$)))`,
+  );
+  return originalRootPattern.test(normalizedScript);
+}
+
 export async function executeGsdExec(
   params: ExecToolParams,
   deps: ExecToolDeps,
@@ -97,6 +116,11 @@ export async function executeGsdExec(
   }
   if (Buffer.byteLength(script, "utf8") > 200_000) {
     return paramError("script exceeds the 200 KB length limit");
+  }
+  if (scriptReferencesOriginalRootFromWorktree(script, deps.baseDir)) {
+    return paramError(
+      "script references the original project root while running inside a milestone worktree; use the active worktree path or relative paths",
+    );
   }
 
   const opts = buildExecOptions(

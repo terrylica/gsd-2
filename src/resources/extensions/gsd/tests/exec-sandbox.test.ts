@@ -1,6 +1,9 @@
+// Project/App: GSD-2
+// File Purpose: Regression tests for the context-mode gsd_exec sandbox.
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -230,6 +233,48 @@ test('executeGsdExec: rejects empty script', async () => {
     );
     assert.equal(result.isError, true);
     assert.equal((result.details as { error?: string }).error, 'invalid_params');
+  } finally {
+    cleanup(base);
+  }
+});
+
+test('executeGsdExec: rejects original-root scripts from milestone worktrees', async () => {
+  const base = freshBase();
+  try {
+    const originalRoot = join(base, 'project');
+    const worktree = join(originalRoot, '.gsd', 'worktrees', 'M004');
+    mkdirSync(worktree, { recursive: true });
+
+    const result = await executeGsdExec(
+      { runtime: 'bash', script: `cd ${originalRoot} && node todo.js --help` },
+      { baseDir: worktree, preferences: { context_mode: { enabled: true } } },
+    );
+
+    assert.equal(result.isError, true);
+    assert.equal((result.details as { error?: string }).error, 'invalid_params');
+    assert.match(
+      (result.details as { detail?: string }).detail ?? '',
+      /original project root/,
+    );
+  } finally {
+    cleanup(base);
+  }
+});
+
+test('executeGsdExec: allows active worktree paths from milestone worktrees', async () => {
+  const base = freshBase();
+  try {
+    const originalRoot = join(base, 'project');
+    const worktree = join(originalRoot, '.gsd', 'worktrees', 'M004');
+    mkdirSync(worktree, { recursive: true });
+
+    const result = await executeGsdExec(
+      { runtime: 'bash', script: `cd ${worktree} && pwd` },
+      { baseDir: worktree, preferences: { context_mode: { enabled: true } } },
+    );
+
+    assert.equal(result.isError, false);
+    assert.equal(result.details.exit_code, 0);
   } finally {
     cleanup(base);
   }
