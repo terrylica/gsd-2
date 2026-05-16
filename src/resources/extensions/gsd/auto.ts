@@ -1901,7 +1901,7 @@ export function createWiredDispatchAdapter(
         midTitle: active.title,
         state,
         prefs,
-        session: input.session,
+        session: input.session ?? session,
         structuredQuestionsAvailable,
         sessionContextWindow,
         sessionProvider,
