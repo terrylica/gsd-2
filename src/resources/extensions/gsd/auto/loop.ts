@@ -26,6 +26,7 @@ import {
   runDispatch,
   runGuards,
   runFinalize,
+  STUCK_WINDOW_SIZE,
 } from "./phases.js";
 import { debugLog } from "../debug-logger.js";
 import { isInfrastructureError, isTransientCooldownError, getCooldownRetryAfterMs, COOLDOWN_FALLBACK_WAIT_MS, MAX_COOLDOWN_RETRIES } from "./infra-errors.js";
@@ -111,7 +112,6 @@ import { handleCustomEngineReconcileOutcome } from "./workflow-custom-engine-rec
 // helpers degrade to the empty-state fallback that #3704 already
 // tolerates — same behavior as a fresh session.
 const STUCK_RECOVERY_ATTEMPTS_KEY = "stuck_recovery_attempts";
-const RECENT_UNIT_KEYS_LIMIT = 20;
 
 function stableStuckStateScopeId(s: AutoSession): string {
   return normalizeRealPath(s.scope?.workspace.projectRoot ?? (s.originalBasePath || s.basePath));
@@ -121,7 +121,7 @@ function loadStuckState(s: AutoSession): { recentUnits: Array<{ key: string }>; 
   const scopeId = stableStuckStateScopeId(s);
   if (!scopeId) return { recentUnits: [], stuckRecoveryAttempts: 0 };
   try {
-    const recentUnits = getRecentUnitKeysForProjectRoot(scopeId, RECENT_UNIT_KEYS_LIMIT);
+    const recentUnits = getRecentUnitKeysForProjectRoot(scopeId, STUCK_WINDOW_SIZE);
     const stuckRecoveryAttempts =
       getRuntimeKv<number>("global", scopeId, STUCK_RECOVERY_ATTEMPTS_KEY) ?? 0;
     return { recentUnits, stuckRecoveryAttempts };
