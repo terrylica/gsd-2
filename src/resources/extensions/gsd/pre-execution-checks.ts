@@ -375,7 +375,7 @@ function extractPathFromAnnotation(raw: string): string {
     return quoteMatch[2].trim();
   }
 
-  const annotatedMatch = trimmed.match(/^(.+?)\s+[—–-]\s+.+$/);
+  const annotatedMatch = trimmed.match(/^(.+?)(?:\s+[—–-]\s+.+|\s+\([^()]+\))$/);
   if (annotatedMatch) {
     const prefix = annotatedMatch[1].trim();
     const prefixBacktickMatch = prefix.match(/`([^`]+)`/);
