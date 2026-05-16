@@ -258,11 +258,13 @@ export async function handleForensics(
   });
 
   ctx.ui.notify(`Forensic report saved: ${relative(basePath, savedPath)}`, "info");
+  ctx.ui.setStatus("gsd-forensics", "running");
 
   pi.sendMessage(
     { customType: "gsd-forensics", content, display: false },
     { triggerTurn: true },
   );
+  ctx.ui.setStatus("gsd-forensics", undefined);
 
   // Persist forensics context so follow-up turns can re-inject it (#2941)
   writeForensicsMarker(basePath, savedPath, content);
