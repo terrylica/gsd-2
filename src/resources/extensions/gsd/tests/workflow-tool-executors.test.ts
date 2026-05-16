@@ -473,6 +473,38 @@ test("executeValidateMilestone persists validation artifact and gate records", a
   }
 });
 
+test("executeValidateMilestone rejects verificationClasses that omit planned Operational class", async () => {
+  const base = makeTmpBase();
+  try {
+    openTestDb(base);
+    seedMilestone("M002", "Milestone Two");
+    const db = _getAdapter();
+    db!.prepare("UPDATE milestones SET verification_operational = ? WHERE id = ?").run(
+      "Camoufox subprocess lifecycle/cleanup proof",
+      "M002",
+    );
+    seedSlice("M002", "S02", "complete");
+
+    const result = await inProjectDir(base, () => executeValidateMilestone({
+      milestoneId: "M002",
+      verdict: "pass",
+      remediationRound: 0,
+      successCriteriaChecklist: "- [x] Works",
+      sliceDeliveryAudit: "| Slice | Result |\n| --- | --- |\n| S02 | pass |",
+      crossSliceIntegration: "No cross-slice issues.",
+      requirementCoverage: "All requirements covered.",
+      verificationClasses: "| Check | Result |\n| --- | --- |\n| Generic verification | PASS |",
+      verdictRationale: "Everything passed.",
+    }, base));
+
+    assert.equal(result.isError, true);
+    assert.match(String(result.details.error), /must include canonical row "Operational"/);
+  } finally {
+    closeDatabase();
+    cleanup(base);
+  }
+});
+
 test("executeCompleteMilestone sanitizes raw params and writes milestone summary", async () => {
   const base = makeTmpBase();
   try {
