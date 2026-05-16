@@ -280,6 +280,33 @@ test('executeGsdExec: allows active worktree paths from milestone worktrees', as
   }
 });
 
+test('executeGsdExec: rejects relative traversal to original root from milestone worktree', async () => {
+  const base = freshBase();
+  try {
+    const originalRoot = join(base, 'project');
+    const worktree = join(originalRoot, '.gsd', 'worktrees', 'M004');
+    mkdirSync(worktree, { recursive: true });
+
+    const scripts = [
+      'cd ../../.. && pwd',
+      "node -e \"process.chdir('../../..'); console.log(process.cwd())\"",
+      "node -e \"const p = require('node:path'); process.chdir(p.join(process.cwd(), '../../..')); console.log(process.cwd())\"",
+    ];
+
+    for (const script of scripts) {
+      const result = await executeGsdExec(
+        { runtime: 'bash', script },
+        { baseDir: worktree, preferences: { context_mode: { enabled: true } } },
+      );
+      assert.equal(result.isError, true, `expected script to be rejected: ${script}`);
+      assert.equal((result.details as { error?: string }).error, 'invalid_params');
+      assert.match((result.details as { detail?: string }).detail ?? '', /original project root/);
+    }
+  } finally {
+    cleanup(base);
+  }
+});
+
 test('validatePreferences: rejects invalid context_mode preference values', () => {
   const result = validatePreferences({
     context_mode: {
