@@ -457,6 +457,10 @@ export interface IntegrationBranchResolution {
   reason: string;
 }
 
+function normalizeLocalBranchRef(branch: string): string {
+  return branch.replace(/^refs\/heads\//, "");
+}
+
 /**
  * Resolve a milestone's recorded integration branch into an actionable status.
  *
@@ -480,7 +484,14 @@ export function resolveMilestoneIntegrationBranch(
     };
   }
 
-  if (nativeBranchExists(basePath, recordedBranch)) {
+  const normalizedRecordedBranch = normalizeLocalBranchRef(recordedBranch);
+  const isRecordedMilestoneBranch = normalizedRecordedBranch.startsWith("milestone/");
+  const recordedBranchUsable = !isRecordedMilestoneBranch;
+  const recordedBranchStateMessage = isRecordedMilestoneBranch
+    ? `Recorded integration branch "${recordedBranch}" for milestone ${milestoneId} is invalid (milestone branches cannot be merge targets)`
+    : `Recorded integration branch "${recordedBranch}" for milestone ${milestoneId} no longer exists`;
+
+  if (recordedBranchUsable && nativeBranchExists(basePath, recordedBranch)) {
     return {
       recordedBranch,
       effectiveBranch: recordedBranch,
@@ -499,7 +510,7 @@ export function resolveMilestoneIntegrationBranch(
         recordedBranch,
         effectiveBranch: configuredBranch,
         status: "fallback",
-        reason: `Recorded integration branch "${recordedBranch}" for milestone ${milestoneId} no longer exists; using configured git.main_branch "${configuredBranch}" instead.`,
+        reason: `${recordedBranchStateMessage}; using configured git.main_branch "${configuredBranch}" instead.`,
       };
     }
 
@@ -507,7 +518,7 @@ export function resolveMilestoneIntegrationBranch(
       recordedBranch,
       effectiveBranch: null,
       status: "missing",
-      reason: `Recorded integration branch "${recordedBranch}" for milestone ${milestoneId} no longer exists, and configured git.main_branch "${configuredBranch}" is unavailable.`,
+      reason: `${recordedBranchStateMessage}, and configured git.main_branch "${configuredBranch}" is unavailable.`,
     };
   }
 
@@ -518,7 +529,7 @@ export function resolveMilestoneIntegrationBranch(
         recordedBranch,
         effectiveBranch: detectedBranch,
         status: "fallback",
-        reason: `Recorded integration branch "${recordedBranch}" for milestone ${milestoneId} no longer exists; using detected fallback branch "${detectedBranch}" instead.`,
+        reason: `${recordedBranchStateMessage}; using detected fallback branch "${detectedBranch}" instead.`,
       };
     }
   } catch {
@@ -529,7 +540,7 @@ export function resolveMilestoneIntegrationBranch(
     recordedBranch,
     effectiveBranch: null,
     status: "missing",
-    reason: `Recorded integration branch "${recordedBranch}" for milestone ${milestoneId} no longer exists, and no safe fallback branch could be determined.`,
+    reason: `${recordedBranchStateMessage}, and no safe fallback branch could be determined.`,
   };
 }
 
