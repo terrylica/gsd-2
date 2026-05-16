@@ -1239,34 +1239,16 @@ export async function stopAuto(
   // worktree was active, and whether the current milestone was merged before
   // stopAuto. The unmerged-work warning is only meaningful for real worktrees.
   try {
-    const { emitAutoExit } = await import("./worktree-telemetry.js");
-    type AutoExitReason =
-      | "pause" | "stop" | "blocked" | "merge-conflict" | "merge-failed"
-      | "slice-merge-conflict" | "all-complete" | "no-active-milestone" | "other";
+    const { emitAutoExit, normalizeAutoExitReason } = await import("./worktree-telemetry.js");
     // Normalize the free-form reason to a closed set so the telemetry
     // aggregator buckets stably. Raw detail is preserved in the phases.ts
     // notification and the notify'd error string.
     const rawReason = reason ?? "stop";
-    const normalizedReason: AutoExitReason = rawReason.startsWith("Blocked:")
-      ? "blocked"
-      : rawReason.startsWith("Merge conflict")
-        ? "merge-conflict"
-        : rawReason.startsWith("Merge error") || rawReason.startsWith("Merge failed")
-          ? "merge-failed"
-          : rawReason.startsWith("Slice-parallel dispatched")
-            ? "stop"
-          : rawReason.startsWith("slice-merge-conflict")
-            ? "slice-merge-conflict"
-            : rawReason === "All milestones complete"
-              ? "all-complete"
-              : rawReason === "No active milestone"
-                ? "no-active-milestone"
-                : rawReason === "stop" || rawReason === "pause"
-                  ? rawReason
-                  : "other";
+    const normalizedReason = normalizeAutoExitReason(rawReason);
     const telemetryBase = s.originalBasePath || s.basePath;
     emitAutoExit(telemetryBase, {
       reason: normalizedReason,
+      rawReason,
       milestoneId: s.currentMilestoneId ?? undefined,
       milestoneMerged: s.milestoneMergedInPhases === true,
       isolationMode: getIsolationMode(telemetryBase),
