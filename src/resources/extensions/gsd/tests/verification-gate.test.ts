@@ -193,6 +193,7 @@ describe("verification-gate: discovery", () => {
       JSON.stringify({ scripts: { test: "vitest" } }),
     );
     const result = discoverCommands({
+      // Chinese prose: "All commands output one line of JSONL; go test ./... passes"
       taskPlanVerify: "所有 命令 输出 一行 JSONL go test ./... 通过",
       cwd: tmp,
     });
