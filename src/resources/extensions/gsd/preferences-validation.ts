@@ -926,6 +926,15 @@ export function validatePreferences(preferences: GSDPreferences): {
     }
   }
 
+  if (preferences.per_unit_cost_cap_usd !== undefined) {
+    const raw = preferences.per_unit_cost_cap_usd;
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
+      validated.per_unit_cost_cap_usd = raw;
+    } else {
+      errors.push("per_unit_cost_cap_usd must be a positive number");
+    }
+  }
+
   // ─── Git Preferences ───────────────────────────────────────────────────
   if (preferences.git && typeof preferences.git === "object") {
     const git: Record<string, unknown> = {};
