@@ -263,8 +263,7 @@ test("buildLoopRemediationSteps returns steps for complete-slice", () => {
   try {
     const steps = buildLoopRemediationSteps("complete-slice", "M001/S01", base);
     assert.ok(steps);
-    assert.ok(steps!.includes("S01"));
-    assert.ok(steps!.includes("gsd reset-slice"));
+    assert.ok(steps!.includes("gsd reset-slice M001/S01"));
   } finally {
     cleanup(base);
   }
