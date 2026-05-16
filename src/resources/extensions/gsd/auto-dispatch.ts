@@ -31,6 +31,8 @@ import {
   relSliceFile,
   buildMilestoneFileName,
   buildSliceFileName,
+  buildTaskFileName,
+  gsdProjectionRoot,
 } from "./paths.js";
 import { parseRoadmap } from "./parsers-legacy.js";
 import { validateArtifact } from "./schemas/validate.js";
@@ -84,6 +86,7 @@ import { annotateBackgroundable } from "./delegation-policy.js";
 import { invalidateAllCaches } from "./cache.js";
 import { insertMilestoneValidationGates } from "./milestone-validation-gates.js";
 import { nativeHasChanges } from "./native-git-bridge.js";
+import { resolveCanonicalMilestoneRoot } from "./worktree-manager.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -1163,14 +1166,24 @@ export const DISPATCH_RULES: DispatchRule[] = [
       const sid = state.activeSlice!.id;
       const sTitle = state.activeSlice!.title;
       const tid = state.activeTask.id;
+      const milestoneRoot = resolveCanonicalMilestoneRoot(basePath, mid);
 
       // Guard: if the slice plan exists but the individual task plan files are
       // missing, the planner created S##-PLAN.md with task entries but never
       // wrote the tasks/ directory files. Dispatch plan-slice to regenerate
       // them rather than hard-stopping — fixes the infinite-loop described in
       // issue #909.
-      const taskPlanPath = resolveTaskFile(basePath, mid, sid, tid, "PLAN");
-      if (!taskPlanPath || !existsSync(taskPlanPath)) {
+      const taskPlanPath = resolveTaskFile(milestoneRoot, mid, sid, tid, "PLAN");
+      const projectionTaskPlanPath = join(
+        gsdProjectionRoot(milestoneRoot),
+        "milestones",
+        mid,
+        "slices",
+        sid,
+        "tasks",
+        buildTaskFileName(tid, "PLAN"),
+      );
+      if ((!taskPlanPath || !existsSync(taskPlanPath)) && !existsSync(projectionTaskPlanPath)) {
         return {
           action: "dispatch",
           unitType: "plan-slice",
