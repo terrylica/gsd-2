@@ -210,7 +210,11 @@ Artifact verification retries are capped at 3 attempts. If the expected artifact
 - **Metrics analysis** — cost, token counts, and execution time breakdowns
 - **Doctor integration** — includes structural health issues from `/gsd doctor`
 - **Journal correlation** — uses `.gsd/journal/` events such as `unit-start`, `unit-end`, `post-unit-finalize-start`, `post-unit-finalize-end`, and `iteration-end` to show where the loop stopped
+- **Worktree exit telemetry contract** — `auto-exit` journal events now include a normalized `reason` bucket plus `rawReason` (original free-form text) for operator debugging and analytics stability
 - **LLM-guided investigation** — an agent session with full tool access to investigate root causes
+
+Normalized `auto-exit` reason buckets are:
+`pause`, `stop`, `blocked`, `merge-conflict`, `merge-failed`, `slice-merge-conflict`, `provider-error`, `session-failed`, `stream-aborted`, `unit-aborted`, `verification-exhausted`, `all-complete`, `no-active-milestone`, `other`.
 
 ```
 /gsd forensics [optional problem description]
