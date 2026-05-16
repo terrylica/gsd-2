@@ -117,19 +117,29 @@ test("typed session-transition abort events are classified as internal", () => {
   assert.equal(
     shouldIgnoreAgentEndForActiveUnit({
       abortOrigin: "session-transition",
+      messages: [{ stopReason: "aborted" }],
     }),
     true,
   );
 
   assert.equal(
     shouldIgnoreAgentEndForActiveUnit({
-      abortOrigin: "user",
+      abortOrigin: "session-transition",
+      messages: [{ stopReason: "end_turn" }],
     }),
     false,
   );
 
   assert.equal(
-    shouldIgnoreAgentEndForActiveUnit({}),
+    shouldIgnoreAgentEndForActiveUnit({
+      abortOrigin: "user",
+      messages: [{ stopReason: "aborted" }],
+    }),
+    false,
+  );
+
+  assert.equal(
+    shouldIgnoreAgentEndForActiveUnit({ messages: [] }),
     false,
   );
 });
