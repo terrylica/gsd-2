@@ -189,6 +189,52 @@ describe("Worktree Safety module", () => {
     assert.equal(result.kind, "worktree-unregistered");
   });
 
+  test("attempts prune recovery once for unregistered worktrees and tracks failed roots", () => {
+    let pruneCalls = 0;
+    let listCalls = 0;
+    const safety = createWorktreeSafetyModule({
+      existsSync: () => true,
+      lstatSync: () => ({ isFile: () => true }),
+      pruneRegisteredWorktrees: () => {
+        pruneCalls += 1;
+      },
+      listRegisteredWorktrees: () => {
+        listCalls += 1;
+        return [];
+      },
+    });
+
+    const first = safety.validateUnitRoot({
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      writeScope: "source-writing",
+      projectRoot,
+      unitRoot,
+      milestoneId: "M001",
+    });
+    assert.equal(first.ok, false);
+    assert.equal(first.kind, "worktree-unregistered");
+    assert.equal(first.details?.attemptedPrune, true);
+    assert.equal(first.details?.trackedAsFailed, true);
+    assert.equal(pruneCalls, 1);
+    assert.equal(listCalls, 2);
+
+    const second = safety.validateUnitRoot({
+      unitType: "execute-task",
+      unitId: "M001/S01/T01",
+      writeScope: "source-writing",
+      projectRoot,
+      unitRoot,
+      milestoneId: "M001",
+    });
+    assert.equal(second.ok, false);
+    assert.equal(second.kind, "worktree-unregistered");
+    assert.equal(second.details?.attemptedPrune, false);
+    assert.equal(second.details?.trackedAsFailed, true);
+    assert.equal(pruneCalls, 1);
+    assert.equal(listCalls, 3);
+  });
+
   test("converts registered worktree list failures into typed failures", () => {
     const safety = createWorktreeSafetyModule({
       existsSync: () => true,
