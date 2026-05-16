@@ -28,7 +28,7 @@ import { migrateToExternalState, recoverFailedMigration } from "./migrate-extern
 import { collectSecretsFromManifest } from "../get-secrets-from-user.js";
 import { gsdRoot, resolveMilestoneFile } from "./paths.js";
 import { invalidateAllCaches } from "./cache.js";
-import { writeLock, clearLock } from "./crash-recovery.js";
+import { writeLock, clearLock, readCrashLock, isLockProcessAlive } from "./crash-recovery.js";
 import {
   acquireSessionLock,
   releaseSessionLock,
@@ -618,6 +618,12 @@ export async function bootstrapAutoSession(
   if (dirCheck.severity === "blocked") {
     ctx.ui.notify(dirCheck.reason!, "error");
     return false;
+  }
+
+  const startupLock = readCrashLock(base);
+  if (startupLock && !isLockProcessAlive(startupLock)) {
+    clearLock(base);
+    ctx.ui.notify("Cleared stale auto-mode worker state.", "info");
   }
 
   const lockResult = acquireSessionLock(base);
