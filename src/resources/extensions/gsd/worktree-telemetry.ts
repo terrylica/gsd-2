@@ -59,6 +59,38 @@ export type AutoExitReason =
   | "no-active-milestone"
   | "other";
 
+export function normalizeAutoExitReason(rawReason?: string): AutoExitReason {
+  const reason = rawReason ?? "stop";
+  const reasonLc = reason.toLowerCase();
+  return reasonLc.startsWith("blocked:")
+    ? "blocked"
+    : reasonLc.startsWith("merge conflict")
+      ? "merge-conflict"
+      : reasonLc.startsWith("merge error") || reasonLc.startsWith("merge failed")
+        ? "merge-failed"
+        : reasonLc.startsWith("slice-parallel dispatched")
+          ? "stop"
+          : reasonLc.startsWith("slice-merge-conflict")
+            ? "slice-merge-conflict"
+            : reasonLc.startsWith("provider error")
+              ? "provider-error"
+              : reasonLc.startsWith("session creation")
+                ? "session-failed"
+                : reasonLc.startsWith("operation aborted") || reasonLc.includes("stream aborted")
+                  ? "stream-aborted"
+                  : reasonLc.startsWith("auto-mode stopped")
+                    ? "unit-aborted"
+                    : reasonLc.includes("pausing auto-mode after") && reasonLc.includes("retries")
+                      ? "verification-exhausted"
+                      : reasonLc === "all milestones complete"
+                        ? "all-complete"
+                        : reasonLc === "no active milestone"
+                          ? "no-active-milestone"
+                          : reasonLc === "stop" || reasonLc === "pause"
+                            ? reasonLc
+                            : "other";
+}
+
 // ─── Emitters ────────────────────────────────────────────────────────────
 
 export function emitWorktreeCreated(

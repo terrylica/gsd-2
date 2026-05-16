@@ -18,6 +18,7 @@ import {
   emitWorktreeOrphaned,
   emitAutoExit,
   emitCanonicalRootRedirect,
+  normalizeAutoExitReason,
   summarizeWorktreeTelemetry,
   percentile,
 } from "../worktree-telemetry.ts";
@@ -101,6 +102,19 @@ test("emitAutoExit records reason and unmerged-work signal", () => {
     assert.equal(entries[0].data?.isolationMode, "worktree");
     assert.equal(entries[0].data?.worktreeActive, true);
   } finally { cleanup(base); }
+});
+
+test("normalizeAutoExitReason maps new buckets and ignores casing", () => {
+  const cases: Array<{ rawReason: string; expected: string }> = [
+    { rawReason: "Provider Error: timeout", expected: "provider-error" },
+    { rawReason: "SESSION CREATION failed", expected: "session-failed" },
+    { rawReason: "Operation Aborted by upstream", expected: "stream-aborted" },
+    { rawReason: "AUTO-MODE STOPPED by user", expected: "unit-aborted" },
+    { rawReason: "Pausing Auto-Mode after 3 retries", expected: "verification-exhausted" },
+  ];
+  for (const { rawReason, expected } of cases) {
+    assert.equal(normalizeAutoExitReason(rawReason), expected);
+  }
 });
 
 test("summarizeWorktreeTelemetry only counts unmerged exits from active worktrees", (t) => {
