@@ -912,7 +912,7 @@ export async function runPreDispatch(
           );
           // ADR-017 #5707: reconcile before spawning so each worker doesn't
           // independently race on the same drift. Failure aborts the spawn.
-          const spawnGate = await reconcileBeforeSpawn(s.basePath);
+          const spawnGate = await reconcileBeforeSpawn(projectRoot);
           if (!spawnGate.ok) {
             ctx.ui.notify(
               `Slice-parallel: aborting spawn — ${spawnGate.reason}`,
@@ -921,7 +921,7 @@ export async function runPreDispatch(
             return { action: "break", reason: `slice-parallel-reconciliation-failed: ${spawnGate.reason}` };
           }
           const result = await startSliceParallel(
-            s.basePath,
+            projectRoot,
             mid,
             eligible,
             {
