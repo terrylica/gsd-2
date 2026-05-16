@@ -239,8 +239,7 @@ test("buildLoopRemediationSteps returns steps for execute-task", () => {
   try {
     const steps = buildLoopRemediationSteps("execute-task", "M001/S01/T01", base);
     assert.ok(steps);
-    assert.ok(steps!.includes("T01"));
-    assert.ok(steps!.includes("gsd undo-task"));
+    assert.ok(steps!.includes("gsd undo-task M001/S01/T01"));
   } finally {
     cleanup(base);
   }
