@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 
@@ -20,9 +20,9 @@ function withTempPackage(callback) {
   }
 }
 
-function touch(path) {
-  mkdirSync(path.slice(0, path.lastIndexOf('/')), { recursive: true });
-  writeFileSync(path, 'test("placeholder", () => {});\n', 'utf-8');
+function touch(filePath) {
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, 'test("placeholder", () => {});\n', 'utf-8');
 }
 
 test('selectPackageTestFiles prefers compiled src tests over copied package dist tests', () => {
