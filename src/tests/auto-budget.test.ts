@@ -88,5 +88,19 @@ describe("auto-budget", () => {
       assert.equal(getUnitCostSpikeAction(10, 0), "none");
       assert.equal(getUnitCostSpikeAction(10, Number.NaN), "none");
     });
+
+    it("returns none for invalid unit costs", () => {
+      assert.equal(getUnitCostSpikeAction(-1, 1), "none");
+      assert.equal(getUnitCostSpikeAction(Number.NEGATIVE_INFINITY, 1), "none");
+      assert.equal(getUnitCostSpikeAction(Number.POSITIVE_INFINITY, 1), "none");
+      assert.equal(getUnitCostSpikeAction(Number.NaN, 1), "none");
+    });
+
+    it("returns none for invalid multipliers", () => {
+      assert.equal(getUnitCostSpikeAction(10, 1, 0), "none");
+      assert.equal(getUnitCostSpikeAction(10, 1, -1), "none");
+      assert.equal(getUnitCostSpikeAction(10, 1, Number.NEGATIVE_INFINITY), "none");
+      assert.equal(getUnitCostSpikeAction(10, 1, Number.NaN), "none");
+    });
   });
 });

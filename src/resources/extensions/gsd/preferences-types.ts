@@ -124,6 +124,7 @@ export const KNOWN_PREFERENCE_KEYS = new Set<string>([
   "verification_commands",
   "verification_auto_fix",
   "verification_max_retries",
+  "per_unit_cost_cap_usd",
   "search_provider",
   "context_selection",
   "widget_mode",
