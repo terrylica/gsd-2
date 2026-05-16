@@ -261,6 +261,32 @@ test('executeGsdExec: rejects original-root scripts from milestone worktrees', a
   }
 });
 
+test('executeGsdExec: rejects original-root traversal after shell boolean operators', async () => {
+  const base = freshBase();
+  try {
+    const originalRoot = join(base, 'project');
+    const worktree = join(originalRoot, '.gsd', 'worktrees', 'M004');
+    mkdirSync(worktree, { recursive: true });
+
+    const scripts = [
+      'echo hi && cd ../../.. && pwd',
+      'true || cd ../../..',
+    ];
+
+    for (const script of scripts) {
+      const result = await executeGsdExec(
+        { runtime: 'bash', script },
+        { baseDir: worktree, preferences: { context_mode: { enabled: true } } },
+      );
+      assert.equal(result.isError, true);
+      assert.equal((result.details as { error?: string }).error, 'invalid_params');
+      assert.match((result.details as { detail?: string }).detail ?? '', /original project root/);
+    }
+  } finally {
+    cleanup(base);
+  }
+});
+
 test('executeGsdExec: allows active worktree paths from milestone worktrees', async () => {
   const base = freshBase();
   try {

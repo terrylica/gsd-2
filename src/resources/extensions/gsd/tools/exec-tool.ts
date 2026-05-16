@@ -130,7 +130,7 @@ function extractPathLikeValues(script: string): string[] {
     }
   };
 
-  for (const match of script.matchAll(/(?:^|[;\n\r])\s*cd\s+([^\n\r;|&]+)/g)) {
+  for (const match of script.matchAll(/(?:^|[;\n\r]|\&\&|\|\|)\s*cd\s+([^\n\r;|&]+)/g)) {
     push(match[1]);
   }
   for (const match of script.matchAll(/process\.chdir\(\s*([^\n\r;]+?)\s*\)/g)) {
