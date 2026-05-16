@@ -1401,7 +1401,10 @@ export async function runDispatch(
     loopState.recentUnits.shift();
   }
 
-  const stuckSignal = detectStuck(loopState.recentUnits);
+  const stuckSignal = detectStuck(loopState.recentUnits, {
+    pendingRetry: !!s.pendingVerificationRetry,
+    retryAttempt: s.pendingVerificationRetry?.attempt,
+  });
   if (stuckSignal) {
       debugLog("autoLoop", {
         phase: "stuck-check",
